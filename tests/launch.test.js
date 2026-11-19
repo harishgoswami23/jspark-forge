@@ -156,12 +156,12 @@ test('Critical paths must be relative and inside the project; others are skipped
 const POSITIVE = [
   "Let's also add a dark mode toggle",
   'can we add CSV export to the report page?',
-  'What if we let users log in with Google',
-  'I have an idea for a new feature: team invites',
+  'What if we add Google login for users',
+  'please implement a new feature: team invites',
   'please add support for PostgreSQL 17',
   "while we're at it, refactor the whole router",
   'WHILE WE ARE AT IT make the sidebar resizable',
-  'lets also send a weekly email digest',
+  'lets also create a weekly email digest',
   'could we add a dashboard for admins',
   'how about adding push notifications',
   'one more thing: a public API for partners',
@@ -181,6 +181,18 @@ const NEGATIVE = [
   'add a test for the rounding bug',
   'whatever we did yesterday broke the build',
   'yes',
+  'Explain what the new feature flag does',
+  'What if we get a 500 here?',
+  'Can we add a test for the bug I just fixed?',
+  "let's also run the linter",
+  'what does the new feature toggle in config.js do',
+  'why is the new feature page slow?',
+  'what if we are offline, does it crash?',
+  "let's also fix the typo in the README",
+  "while we're at it, fix the lint errors",
+  'explain how the new features in v2 work',
+  'can we add a test for the parser',
+  "let's also check the logs",
 ];
 test('phrase check: at least 10 prompts that nudge and 10 that do not', () => {
   assert.ok(POSITIVE.length >= 10 && NEGATIVE.length >= 10);
@@ -278,6 +290,65 @@ test('every change is announced once in the conversation (PostToolUse on a forge
   assert.match(posted(dir, 'node forge.js launch start "#1"').systemMessage || '', /JSPARK Forge: started #1 CSV export/);
   cli(dir, 'facts');
   assert.ok(!/JSPARK Forge/.test(posted(dir, 'node forge.js launch facts').systemMessage || ''), 'facts change nothing');
+});
+
+// ---------- review fixes ----------
+test('H3: a 60k-space line and a 1 MB launch.md are handled in well under a second, without losing the hook', () => {
+  const evil = `- [ ] Real item (added 2026-11-01)\n- [ ]${' '.repeat(60000)}x\nLaunch date:${' '.repeat(60000)}\nCritical paths:${' '.repeat(60000)}\n`;
+  const big = LIST(['- [ ] Real item (added 2026-11-01)']) + `- [ ] filler ${'y'.repeat(100)}\n`.repeat(10000);
+  for (const text of [evil, evil + evil, big, ' '.repeat(1000000)]) {
+    const dir = project(text);
+    let t0 = Date.now();
+    const l = launch.parse(text);
+    launch.sessionContext(dir);
+    launch.facts(dir, []);
+    assert.ok(Date.now() - t0 < 1000, `in-process: ${Date.now() - t0} ms`);
+    assert.ok(l.items.every(x => x.title.length <= 500));
+    t0 = Date.now();
+    const o = hook(dir, 'SessionStart');
+    assert.ok(Date.now() - t0 < 3000, `hook: ${Date.now() - t0} ms`);
+    assert.match(ctxOf(o), /launch list/);
+  }
+  const dir = project(LIST(['- [ ] Real item (added 2026-11-01)']) + `${'z'.repeat(70000)}\n`);
+  assert.match(launch.sessionContext(dir), /only the first 64 KB was read/);
+  assert.match(cli(dir, 'add', 'Another'), /too large/i);
+});
+
+test('M5: questions, tests, lint and fixes never use up the cool-down; a real request still nudges', () => {
+  const dir = project(LIST(['- [ ] Login page (added 2026-11-01)']));
+  for (const p of ['Explain what the new feature flag does', 'What if we get a 500 here?', 'Can we add a test for the bug I just fixed?',
+    "let's also run the linter"]) assert.ok(!prompt(dir, p).includes(NUDGE), `no nudge: ${p}`);
+  assert.ok(prompt(dir, "while we're at it, can we add dark mode?").includes(NUDGE), 'cool-down still unused');
+});
+
+test('low: the announced number is the one the item got, with a blank slot between items', () => {
+  const dir = project(LIST(['- [ ] First (added 2026-11-01)', '- [ ] ', '- [ ] Third (added 2026-11-01)']));
+  assert.match(cli(dir, 'add', 'Search'), /#2 Search/);
+  assert.match(fs.readFileSync(F(dir), 'utf8'), /- \[ \] Search[^\n]*\n- \[ \] Third/);
+});
+
+test('low: title words that start with -- are kept', () => {
+  const dir = project(LIST(['- [ ] ']));
+  assert.match(cli(dir, 'add', 'Support', '--dark', 'mode'), /#1 Support --dark mode/);
+  assert.match(fs.readFileSync(F(dir), 'utf8'), /- \[ \] Support --dark mode \(added/);
+});
+
+test('low: a symbolic launch.md is neither read nor written', t => {
+  const dir = project();
+  const target = path.join(dir, 'elsewhere.md');
+  fs.writeFileSync(target, LIST(['- [ ] Linked (added 2026-11-01)']));
+  try { fs.symlinkSync(target, F(dir)); } catch { t.skip('symlinks are not allowed here'); return; }
+  assert.equal(launch.read(dir), null);
+  assert.equal(launch.sessionContext(dir), null);
+  const before = fs.readFileSync(target, 'utf8');
+  assert.match(cli(dir, 'add', 'Something'), /symbolic link/i);
+  assert.equal(fs.readFileSync(target, 'utf8'), before);
+});
+
+test('low: the estimate counts only items in the launch list, not After launch', () => {
+  const mk = (n, a) => `- [x] ${a}${n} (added 2026-01-01) (started 2026-01-01) (done 2026-01-03)`;
+  const out = cli(project(LIST(Array.from({ length: 5 }, (_, i) => mk(i, 'L')), Array.from({ length: 6 }, (_, i) => mk(i, 'A')))), 'facts');
+  assert.match(out, /no estimate yet \(5 of 10 finished items\)/);
 });
 
 // ---------- stateMadeHere ----------

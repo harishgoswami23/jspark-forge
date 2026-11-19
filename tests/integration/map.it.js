@@ -32,7 +32,7 @@ test('a map answer comes with "as of <commit>"', { timeout: 600000, skip: !fs.ex
     const st = JSON.parse(fs.readFileSync(path.join(dir, '.jspark-forge', 'state', 'map.json'), 'utf8'));
     assert.equal(st.prefix, 'mcp__codebase-memory__', 'switched on by use');
     const head = execFileSync('git', ['rev-parse', '--short=7', 'HEAD'], { cwd: dir, encoding: 'utf8' }).trim();
-    assert.ok(new RegExp(`as of ${head}|${head}|current|up to date|fresh`, "i").test(r.out), `no freshness in the answer:\n${r.out}`);
+    assert.ok(new RegExp(`as of ${head}|current \\(as of`, 'i').test(r.out), `no freshness in the answer:\n${r.out}`);
   } finally {
     if (prev === undefined) delete process.env.JSPARK_FORGE_MAP_CMD; else process.env.JSPARK_FORGE_MAP_CMD = prev;
   }

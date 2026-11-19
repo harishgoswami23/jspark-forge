@@ -57,10 +57,16 @@ layers are off (the engine may still be used by Claude; JSPARK Forge adds nothin
 - **Started:** after a commit (PostToolUse), at session start when `HEAD` differs from the recorded SHA, and from the
   map-answer hook when `HEAD` differs (covers pulls, checkouts and terminal commits) [R-H2]. Never per edit unless
   spike F shows the engine's watcher does not cover the session's project.
-- **One at a time [R-H3]:** a lock file created with `fs.openSync(lock, 'wx')`; it is stale only when its process is
-  gone or the runner's own hard timeout (3 minutes) has passed, and then the runner's process tree is killed (as the
-  status-line wrapper does). The engine binary is found by the stored prefix's command where known, else on `PATH`;
-  not found → `lastError`, no refresh. Failures back off (1, 5, 30 minutes) and show in `/jspark-forge:check`.
+- **One at a time [R-H3]:** a lock file holding a random token, created with its content in one step; the runner
+  touches it every 5 seconds while it runs, and it is stale only when it has not been touched for 30 seconds. A stale
+  lock is taken over (by the runner, and it never blocks a hook-started refresh); no process is ever killed by the pid
+  in a lock. The runner writes results and removes the lock only while the lock still holds its token. Its own hard
+  timeout (3 minutes) kills only its own engine process tree, reported as "timed out". The engine binary is
+  `JSPARK_FORGE_MAP_CMD`, else the absolute path recorded by `forge.js map engine <path>`, else on `PATH`; not found →
+  `lastError`, and map answers say "the last refresh failed (reason); retrying after HH:MM" during the back-off.
+  Failures back off (1, 5, 30 minutes) and show in `/jspark-forge:check`. When git fails or cannot list the changes,
+  a map answer says its freshness could not be checked (never "current"); changed-file names are cleaned, at most 10
+  with "and N more", and labelled as data.
 - **Every map answer carries its freshness** (PostToolUse on the engine's query tools): one line of context.
   - *Current:* `HEAD` equals the indexed SHA and no file in `git status --porcelain` (tracked and untracked) changed
     after `indexedAt` → *"Code map current (as of 9a8b7c6)."* (about 15 tokens) [R-M2].

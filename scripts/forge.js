@@ -157,6 +157,7 @@ const handlers = {
     if (input.source === 'compact') { // the summary dropped the decisions Claude was shown: show them again when relevant
       const sess = state.readSession(dir, input.session_id);
       memory.clearShown(dir, input.session_id);
+      mapLayer.clearList(dir, input.session_id); // and the code map's changed-file lists
       sess.offerTurn = null; // and pending offers to record come back once (design-v0.2 1.4)
       offerAfterCompact = offerContext(dir, input, sess);
       state.writeSession(dir, input.session_id, sess);
@@ -308,7 +309,11 @@ const handlers = {
     } catch { /* fail open */ }
     if (mapLayer.isEngineTool(t)) { // a code map answer: its freshness and the notes on its files (design-v0.3 1.2, 1.4)
       const c = mapLayer.onTool(dir, input);
-      return { lines, out: c ? context('PostToolUse', c) : null };
+      const sess = state.readSession(dir, sid);
+      const offer = offerContext(dir, input, sess); // merged with pending v0.2 offers (design-v0.3 1.4)
+      if (offer) state.writeSession(dir, sid, sess);
+      const text = [c, offer].filter(Boolean).join('\n\n');
+      return { lines, out: text ? context('PostToolUse', text) : null };
     }
     if (t === 'AskUserQuestion') { // answered in the dialog
       const asked = new Set(waiting.fromTool(ti, sid).map(q => q.question.replace(/\s+/g, ' ').trim()));
@@ -598,10 +603,12 @@ const cliMemory = fn => args => {
   process.stdout.write(out);
 };
 
-// `forge.js map status|refresh` (design-v0.3 1.2, 1.5): refresh runs the same locked runner, in the foreground here.
+// `forge.js map status|refresh|engine [<path>]` (design-v0.3 1.2, 1.5): refresh runs the same locked runner, in the
+// foreground here; engine records the absolute path of the engine program.
 function cliMap(args) {
   const dir = cliProject();
   if (!dir) { process.stdout.write(NOT_SET_UP); return; }
+  if ((args || [])[0] === 'engine') { process.stdout.write(mapLayer.setEngine(dir, args[1])); return; }
   if ((args || [])[0] === 'refresh') {
     if (!mapLayer.isOn(dir)) { process.stdout.write(mapLayer.status(dir)); return; }
     const r = require('child_process').spawnSync(process.execPath, [path.join(__dirname, 'map-refresh.js'), dir], { encoding: 'utf8', windowsHide: true });
