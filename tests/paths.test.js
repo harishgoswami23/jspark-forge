@@ -13,11 +13,19 @@ const SCRIPTS = path.join(__dirname, '..', 'scripts');
 const files = dir => fs.readdirSync(dir, { withFileTypes: true })
   .flatMap(e => (e.isDirectory() ? files(path.join(dir, e.name)) : e.name.endsWith('.js') ? [path.join(dir, e.name)] : []));
 
-test('forgeDir is <project>/.jspark-forge for a project that has one', () => {
+test('forgeDir is <project>/.jspark-forge for your own project (proven by state/ or log/)', () => {
   const p = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-paths-'));
-  fs.mkdirSync(path.join(p, '.jspark-forge'));
+  fs.mkdirSync(path.join(p, '.jspark-forge', 'state'), { recursive: true });
   assert.equal(paths.forgeDir(p), path.join(p, '.jspark-forge'));
   assert.equal(paths.isActive(p), true);
+});
+
+test('a .jspark-forge folder alone (as a cloned repo can ship) does not make a project yours', () => {
+  const p = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-paths-'));
+  fs.mkdirSync(path.join(p, '.jspark-forge'));
+  fs.writeFileSync(path.join(p, '.jspark-forge', 'rules.md'), '## Settings\n');
+  assert.equal(paths.isOwn(p), false);
+  assert.equal(paths.isActive(p), false);
 });
 
 test('a project without one is not active', () => {

@@ -15,7 +15,7 @@ const { check } = require('../scripts/lib/blocklist');
 const FORGE = path.join(__dirname, '..', 'scripts', 'forge.js');
 function setup({ repoRules, userRules } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-trust-'));
-  fs.mkdirSync(path.join(dir, '.jspark-forge'));
+  fs.mkdirSync(path.join(dir, '.jspark-forge', 'state'), { recursive: true });
   if (repoRules) fs.writeFileSync(path.join(dir, '.jspark-forge', 'rules.md'), repoRules);
   const cfg = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-trust-cfg-'));
   if (userRules) { fs.mkdirSync(path.join(cfg, 'jspark-forge')); fs.writeFileSync(path.join(cfg, 'jspark-forge', 'rules.md'), userRules); }

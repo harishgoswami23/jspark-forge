@@ -12,7 +12,7 @@ const SID = 'a1b2c3d4-0000-0000-0000-000000000000';
 
 function repo() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-resume-'));
-  fs.mkdirSync(path.join(dir, '.jspark-forge'));
+  fs.mkdirSync(path.join(dir, '.jspark-forge', 'state'), { recursive: true }); // state/ = a real (own) project
   const g = (...a) => execFileSync('git', a, { cwd: dir, stdio: 'ignore' });
   g('init', '-q', '-b', 'main');
   g('config', 'user.email', 't@example.invalid'); g('config', 'user.name', 't');

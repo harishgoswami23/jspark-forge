@@ -12,7 +12,7 @@ const FORGE = path.join(__dirname, '..', 'scripts', 'forge.js');
 
 function project({ init = true } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-hook-'));
-  if (init) fs.mkdirSync(path.join(dir, '.jspark-forge'));
+  if (init) fs.mkdirSync(path.join(dir, '.jspark-forge', 'state'), { recursive: true }); // state/ = a real (own) project
   return dir;
 }
 function run(dir, event, input) {

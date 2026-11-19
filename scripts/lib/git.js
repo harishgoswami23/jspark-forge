@@ -10,7 +10,7 @@ const run = (dir, args) => execFileSync('git', ['-C', dir, ...args],
 // -> { branch, head, dirty } or null when not a repo / git missing. Forge's own folder is not counted as dirty.
 function gitInfo(dir) {
   try {
-    const out = run(dir, ['status', '--porcelain=v2', '--branch']);
+    const out = run(dir, ['--no-optional-locks', 'status', '--porcelain=v2', '--branch']);
     let branch = null, head = null, dirty = 0;
     for (const line of out.split('\n')) {
       if (line.startsWith('# branch.oid ')) { const o = line.slice(13).trim(); head = /^[0-9a-f]+$/.test(o) ? o.slice(0, 7) : null; }

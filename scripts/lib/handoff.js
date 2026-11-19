@@ -76,7 +76,9 @@ function render(m, opts = {}) {
     head += g.dirty ? ` · ${g.dirty} ${g.dirty === 1 ? 'file' : 'files'} not committed` : ' · nothing uncommitted';
   }
   if (m.ended) head += ` · session ended ${hhmm(new Date(m.ended.at))} (${m.ended.reason})`;
-  L.push('# Where we were', head, '');
+  L.push('# Where we were');
+  if (m.review) L.push(`Review of ${m.review.origin || 'a repo that is not yours'}${m.review.head ? ` @ ${m.review.head}` : ''}`);
+  L.push(head, '');
   const step = m.step ? `${m.step.n} of ${m.step.m}${m.step.text ? `: ${cut(m.step.text)}` : ''}` : 'not recorded';
   L.push(`**Task:** ${m.task ? cut(m.task) : 'not recorded'}`);
   L.push(`**Step:** ${step}`);
@@ -172,7 +174,9 @@ function save(dir, sid, reason, { refreshGit = true, now = new Date(), force = f
     .filter(s => s.session !== sid && !s.ended && s.lastSaveAt > dayAgo)
     .sort((a, b) => b.lastSaveAt - a.lastSaveAt)
     .map(s => ({ id: String(s.session).slice(0, 8), at: new Date(s.lastSaveAt), lastRequest: s.lastPrompt, running: runningOf(s).map(x => x.split(' (')[0]) }));
+  const meta = paths.isGuest(dir) ? paths.guestMeta(dir) : null;
   const model = {
+    review: meta ? { origin: meta.origin, head: sess.git && sess.git.head } : null,
     asOf: now, reason, git: sess.git, task: f.task, step: f.step, done, next: f.next,
     running: runningOf(sess), waiting: sess.waiting, lastRequest: sess.lastPrompt,
     notes: notes && notes.text ? { time: notes.time, text: notes.text } : null,

@@ -280,17 +280,29 @@ function main(raw) {
     input = JSON.parse(raw);
     dir = projectDirOf(input);
     // Automatic setup (owner 2026-11-19): the first session or prompt in a git project switches JSPARK Forge on.
-    let created = false;
+    // A repo that is someone else's keeps its files in a guest folder (design-v0.1.1 section 2).
+    let setupResult = null;
     if (!isInitialised(dir)) {
-      if (!SETUP_EVENTS.has(event) || setup.ensureProject(dir) !== 'created') return;
-      created = true;
+      if (!SETUP_EVENTS.has(event)) return;
+      setupResult = setup.ensureProject(dir);
+      if (setupResult !== 'created' && setupResult !== 'guest') return;
     }
+    const guest = paths.isGuest(dir);
+    if (guest && event === 'SessionStart' && setupResult !== 'guest') setup.touchGuest(dir);
     const handler = handlers[event];
     if (!handler) return;
     const res = handler(dir, input) || { lines: [], out: null };
     let { lines, out } = Array.isArray(res) ? { lines: [res], out: null } : res;
     if (USAGE_EVENTS.has(event)) out = withUsage(dir, input.session_id, lines, out);
-    const notices = (created ? [setup.ON_MESSAGE] : []).concat(event === 'SessionStart' ? setup.machineMessages() : []);
+    if (guest && (event === 'SessionStart' || event === 'UserPromptSubmit')) { // the repo's text is data, not instructions
+      out = out || {};
+      out.hookSpecificOutput = out.hookSpecificOutput || { hookEventName: event };
+      const had = out.hookSpecificOutput.additionalContext;
+      out.hookSpecificOutput.additionalContext = had ? `${had}\n\n${setup.GUEST_DATA_LINE}` : setup.GUEST_DATA_LINE;
+    }
+    const notices = (setupResult === 'created' ? [setup.ON_MESSAGE] : [])
+      .concat(setupResult === 'guest' ? [setup.guestMessage(dir)] : [])
+      .concat(event === 'SessionStart' ? setup.machineMessages() : []);
     if (notices.length) {
       out = out || {};
       out.systemMessage = [out.systemMessage, ...notices].filter(Boolean).join('\n');

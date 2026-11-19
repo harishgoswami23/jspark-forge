@@ -29,6 +29,8 @@ else {
   out.push('Created .jspark-forge/ (git-ignored except rules.md).');
   out.push('Commit .jspark-forge/rules.md and .jspark-forge/.gitignore with your project; everything else in it stays local.');
 }
+// Running init here is an explicit "this project is mine": state/ is the never-cloned proof of that (guest mode).
+fs.mkdirSync(path.join(FORGE, 'state'), { recursive: true });
 if (!fs.existsSync(path.join(FORGE, '.gitignore'))) fs.writeFileSync(path.join(FORGE, '.gitignore'), GITIGNORE);
 if (!fs.existsSync(path.join(FORGE, 'rules.md'))) {
   fs.copyFileSync(path.join(__dirname, '..', 'templates', 'rules.md'), path.join(FORGE, 'rules.md'));

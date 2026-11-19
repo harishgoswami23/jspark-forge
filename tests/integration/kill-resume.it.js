@@ -39,8 +39,9 @@ const TASK = [
   'First write docs/forge-test-plan.md with the title line "# Add route docs" and exactly these 10 checkbox items:',
   '"- [ ] route docs 1" through "- [ ] route docs 10".',
   'Then start a background job with the Bash tool, run_in_background true, command: sleep 600, description: route docs watcher.',
-  'Then for each item in order: create docs/route-docs/route-N.md with one sentence about route N, tick its box in the',
-  'plan file, and commit both files with the message "route docs N". Do not stop until all 10 are done.',
+  'Then do the items one at a time, in order: for item N, use the Write tool to create docs/route-docs/route-N.md with one',
+  'sentence about route N, use the Edit tool to tick its box in the plan file, then run one git command that commits both',
+  'files with the message "route docs N". Never handle several items in one command or loop. Do not stop until all 10 are done.',
 ].join(' ');
 
 test('kill mid-task, reopen: back to work in < 30 s, nothing changed', { timeout: 900000 }, () => {
@@ -56,9 +57,11 @@ test('kill mid-task, reopen: back to work in < 30 s, nothing changed', { timeout
   while (Date.now() - started < 600000) {
     const log = logText(dir);
     const writes = (log.match(/^\S+ \[[^\]]*\]\s+(EDIT|WRITE) /gm) || []).length;
+    const saves = (log.match(/^\S+ \[[^\]]*\]\s+SAVE  (file write|commit)/gm) || []).length;
     const commits = (log.match(/^\S+ \[[^\]]*\]\s+COMMIT /gm) || []).length;
-    if (writes >= 3 && commits >= 1) { killTree(child); killedAt = Date.now(); console.log(`killed after ${writes} writes, ${commits} commit(s), ${Math.round((killedAt - started) / 1000)} s`); break; }
-    if (child.exitCode !== null) break;
+    if ((writes >= 3 || saves >= 3) && commits >= 1) { killTree(child); killedAt = Date.now(); console.log(`killed after ${writes} writes, ${commits} commit(s), ${Math.round((killedAt - started) / 1000)} s`); break; }
+    // The model may finish the whole task in one go (then its background job keeps the process alive): not a valid run.
+    if (child.exitCode !== null || /^\S+ \[[^\]]*\]\s+STOP/m.test(log)) { killTree(child); break; }
     sleep(1000);
   }
   assert.ok(killedAt, `task never reached 3 writes + 1 commit before ending:\n${logText(dir)}`);
