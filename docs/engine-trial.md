@@ -1,7 +1,7 @@
 # JSPARK Forge v0.3: code map engine trial
 
-Status: desk research done 2026-11-20 (official repos and docs, GitHub API); nothing installed yet. The hands-on trial on
-Windows comes next, with the owner's go-ahead (it installs a third-party program). Spec: [`spec.md`](spec.md) section 5.4
+Status: desk research and a hands-on Windows trial of codebase-memory-mcp done 2026-11-20 (below). The trial installed the
+engine in a test folder only, with the owner's go-ahead. Spec: [`spec.md`](spec.md) section 5.4
 ("integrate, don't build"); criteria there.
 
 ## Candidates (as of 2026-11-20)
