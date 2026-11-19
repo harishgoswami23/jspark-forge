@@ -11,6 +11,7 @@ const log = require('./lib/log');
 const { redact } = require('./lib/redact');
 const { check, BUILTINS, STOP, isGitCommit, writeTargets, changeTargets, toFs } = require('./lib/blocklist');
 const memory = require('./lib/memory');
+const mapLayer = require('./lib/map');
 const dialectOf = tool => (tool === 'PowerShell' ? 'ps' : 'bash');
 const { loadRules } = require('./lib/rules');
 const confirm = require('./lib/confirm');
@@ -165,6 +166,14 @@ const handlers = {
     try {
       if (setup.superpowersInstalled(setup.claudeHome())) rc.context = `${rc.context}\n\n${MODEL_MAP_LINE}`;
     } catch { /* never break a session start */ }
+    // Code map (design-v0.3 1.1, 1.2): one line for Claude when the engine is in use (a refresh starts when HEAD moved);
+    // otherwise, once per own project with code, a tip naming the engine (owner Q-M1: name it, install nothing).
+    try {
+      const ml = mapLayer.sessionLine(dir);
+      if (ml) rc.context = `${rc.context}\n\n${ml}`;
+      const mt = mapLayer.tip(dir);
+      if (mt) msgs.push(mt);
+    } catch { /* never break a session start */ }
     // Decision memory (design-v0.2 1.6): the index of titles for Claude; for the user, entries that arrived with git
     // (once) and one line when some need a look. Off in guest repos (the functions check).
     try {
@@ -268,6 +277,10 @@ const handlers = {
     const sid = input.session_id;
     const t = input.tool_name || '';
     const ti = input.tool_input || {};
+    if (mapLayer.isEngineTool(t)) { // a code map answer: its freshness and the notes on its files (design-v0.3 1.2, 1.4)
+      const c = mapLayer.onTool(dir, input);
+      return { lines, out: c ? context('PostToolUse', c) : null };
+    }
     if (t === 'AskUserQuestion') { // answered in the dialog
       const asked = new Set(waiting.fromTool(ti, sid).map(q => q.question.replace(/\s+/g, ' ').trim()));
       const n = waiting.remove(dir, x => x.session === sid && asked.has(x.question));
@@ -305,6 +318,7 @@ const handlers = {
         if (lc) {
           task.lastCommit = { sha: lc.sha, subject: lc.subject }; taskDirty = true; lines.push(['COMMIT', `${lc.sha} ${lc.subject}`]);
           if (memory.noteCommit(dir, sess, lc)) sessDirty = true; // an offer to record, stale flags (design-v0.2 1.4, 1.5)
+          mapLayer.startRefresh(dir); // the code map catches up in the background (design-v0.3 1.2)
         }
         reason = 'commit';
       }
@@ -539,14 +553,32 @@ function cliDecide(args) {
 const cliMemory = fn => args => {
   const dir = cliProject();
   if (!dir) { process.stdout.write(NOT_SET_UP); return; }
-  process.stdout.write(require('./lib/decide')[fn](dir, args || []));
+  let out = require('./lib/decide')[fn](dir, args || []);
+  if (fn === 'check') { // the code map's state too (design-v0.3 1.5)
+    const ml = mapLayer.checkLines(dir);
+    if (ml.length) out += `\n${ml.map(l => `- ${l}`).join('\n')}\n`;
+  }
+  process.stdout.write(out);
 };
+
+// `forge.js map status|refresh` (design-v0.3 1.2, 1.5): refresh runs the same locked runner, in the foreground here.
+function cliMap(args) {
+  const dir = cliProject();
+  if (!dir) { process.stdout.write(NOT_SET_UP); return; }
+  if ((args || [])[0] === 'refresh') {
+    if (!mapLayer.isOn(dir)) { process.stdout.write(mapLayer.status(dir)); return; }
+    const r = require('child_process').spawnSync(process.execPath, [path.join(__dirname, 'map-refresh.js'), dir], { encoding: 'utf8', windowsHide: true });
+    process.stdout.write(r.stdout || 'Code map refresh did not report.\n');
+    return;
+  }
+  process.stdout.write(mapLayer.status(dir));
+}
 
 // `forge.js lint [paths...]` (design-v0.2 section 3): check skills and briefs; default is the project's own.
 const cliLint = args => process.stdout.write(require('./lib/lint').run(cliProject() || process.cwd(), args));
 
 const CLI = { lint: cliLint, save: cliSave, show: cliShow, where: cliWhere, waiting: cliWaiting, doctor: cliDoctor, status: cliStatus, decide: cliDecide,
-  decisions: cliMemory('list'), check: cliMemory('check') };
+  decisions: cliMemory('list'), check: cliMemory('check'), map: cliMap };
 if (CLI[event]) {
   try { CLI[event](process.argv.slice(3)); } catch (e) { process.stdout.write(`JSPARK Forge could not ${event}: ${e.message}\n`); }
 } else {
