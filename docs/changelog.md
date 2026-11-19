@@ -171,3 +171,26 @@ day: plugin and README carry the JSPARK AI logo; the repository is public at git
 CI runs unit tests on Windows, macOS and Linux and the ship gate with the owner's subscription token.
 **Why [owner, 2026-11-19]:** "once the user downloads and uses the repo, the work must be done automatically", and
 "it must download superpowers as well".
+
+### Rev 11: narrow the product; real users first (2026-11-20)
+**What:**
+- A **real-users gate** after v0.1.1: 20–50 users and ~2 weeks of feedback before v0.2; the roadmap is reordered
+  from it; measured without telemetry (spec 7, 9).
+- **Decision memory (v0.2) is the centrepiece**: the "why" at the moment Claude edits a file.
+- **Map (v0.3): integrate, don't build.** No own engine; an installed MCP map engine is used, and JSPARK Forge adds
+  freshness, schema from source files and links to decisions (spec 5.4). Estimate ~1 week instead of ~1–1½.
+- **Database guard (new, v0.2.1, spec 5.2c):** production databases read-only unless `CONFIRM db-write`; MCP, Bash
+  and PowerShell forms; `database dev:` line to relax. JSPARK Forge never reads or connects to a database.
+- **Build graph (v0.4): only if users ask.**
+- Risks: "Anthropic absorbs features" names resume and memory and states the durable edge (hard safety rules,
+  guest-repo protection, decisions tied to files); new row "building ahead of real demand".
+**Why [owner, 2026-11-20]:** a global product review: win by doing a few things nobody else does; code maps and
+multi-agent runs are crowded or likely to be absorbed by the platform; zero users so far.
+
+### Rev 12: UI/UX companions in v0.2 (2026-11-20)
+**What:** new spec 5.14. JSPARK Forge builds no UI tooling; it recommends the best existing pieces: Anthropic's
+frontend-design skill (listed in the JSPARK Forge marketplace as a recommended companion, not a dependency), Playwright
+MCP (Claude checks its own UI in the running app), shadcn/ui with its MCP server, and a brand skill per product. A
+one-time tip in projects with a front end; nothing installed automatically. Each companion's licence, activity and
+Windows support checked before listing. Release table: v0.2, ~½ day.
+**Why [owner, 2026-11-20]:** "I want the UI UX build through JSPARK Forge top notch for any product."

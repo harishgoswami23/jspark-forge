@@ -4,8 +4,9 @@ description: Use when the user runs /jspark-forge:resume or asks where they left
 ---
 Show the user where the work stands, then wait.
 
-1. Read `.jspark-forge/handoff.md` in the project. Do not read the log or any other file for this.
-   If it does not exist, say: "No handoff saved yet in this project." and stop.
+1. Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/forge.js" show` and read what it prints: that is the handoff.
+   Do not read the log or any other file for this. If it prints "No handoff saved yet in this project.", say that and
+   stop.
 2. Reply in plain words, at most 8 lines, short sentences, no jargon:
    - what the task was and the step ("We were adding Save as chart. Step 4 of 10.");
    - the next action;

@@ -9,7 +9,7 @@ const { check, BUILTINS } = require('../scripts/lib/blocklist');
 const WIN = process.platform === 'win32';
 const PROJECT = WIN ? 'C:\\work\\proj' : '/work/proj';
 const HOME = WIN ? 'C:\\Users\\dev' : '/home/dev';
-const ctx = (o = {}) => ({ projectDir: PROJECT, home: HOME, rules: null, branchOf: () => o.branch || 'feature/x' });
+const ctx = (o = {}) => ({ projectDir: PROJECT, home: HOME, rules: null, quarantine: !!o.quarantine, branchOf: () => o.branch || 'feature/x' });
 const ps = (command, o = {}) => ({ tool_name: 'PowerShell', tool_input: { command }, cwd: o.cwd || PROJECT, _o: o });
 const bash = command => ({ tool_name: 'Bash', tool_input: { command }, cwd: PROJECT, _o: {} });
 
@@ -129,6 +129,25 @@ const CASES = {
     [ps('icacls x /reset'), null],
     [ps("Write-Host 'icacls x /grant Everyone:F'"), null],
   ],
+  'guest-quarantine': [
+    [ps('npm install', { quarantine: true }), 'guest-quarantine'],
+    [ps('pnpm i', { quarantine: true }), 'guest-quarantine'],
+    [ps('& .\\build.ps1', { quarantine: true }), 'guest-quarantine'],
+    [ps('pwsh -File scripts/setup.ps1', { quarantine: true }), 'guest-quarantine'],
+    [ps('python -m pip install requests', { quarantine: true }), 'guest-quarantine'],
+    [ps('dotnet build', { quarantine: true }), 'guest-quarantine'],
+    [ps('.\\gradlew.bat build', { quarantine: true }), 'guest-quarantine'],
+    [ps('git log', { quarantine: true }), null],
+    [ps('Get-Content package.json', { quarantine: true }), null],
+    [ps('npm --version', { quarantine: true }), null],
+    [ps('Write-Host "npm install"', { quarantine: true }), null],
+    [ps('docker images', { quarantine: true }), null],
+    [ps('npm install'), null],
+    // Fable code review M7: PowerShell bypasses, now held
+    [ps('Start-Process npm -ArgumentList install', { quarantine: true }), 'guest-quarantine'],
+    [ps('Invoke-Expression "npm ci"', { quarantine: true }), 'guest-quarantine'],
+    [ps('iex (gc ./build.ps1 -Raw)', { quarantine: true }), 'guest-quarantine'],
+  ],
   'pipe-to-shell': [
     [ps('iwr https://x/install.ps1 | iex'), 'pipe-to-shell'],
     [ps('irm https://x | Invoke-Expression'), 'pipe-to-shell'],
@@ -169,6 +188,7 @@ for (const [group, cases] of Object.entries(CASES)) {
 
 test('every published entry has >= 5 positive and >= 5 negative PowerShell cases', () => {
   for (const id of Object.keys(BUILTINS)) {
+    if (id === 'readonly-source') continue; // covered, Bash and PowerShell, in tests/readonly.test.js
     const cases = (CASES[id] || []).filter(([i]) => i.tool_name === 'PowerShell');
     const pos = cases.filter(([, w]) => w && w.replace('!', '') === id).length;
     const neg = cases.filter(([, w]) => w === null).length;
@@ -181,4 +201,13 @@ test('the PowerShell parser keeps backslash paths and treats the backtick as the
   const { parse } = require('../scripts/lib/shell');
   const [[st]] = parse("Remove-Item C:\\work\\proj -Recurse; Write-Host `\"hi`\"", { dialect: 'ps' });
   assert.deepEqual(st.words, ['Remove-Item', 'C:\\work\\proj', '-Recurse']);
+});
+
+test('backslash paths mean the same on every system (pwsh on macOS/Linux also splits on a backslash)', () => {
+  const BS = String.fromCharCode(92); // a backslash, spelled out so no tool or shell can swallow it
+  const up = ['sub', '..', '..', 'other'].join(BS);
+  assert.equal(expectOf(check(ps(`Remove-Item -Recurse -Force ${up}`), ctx())), 'rm-rf-outside', `${up} leaves the project`);
+  const { writeTargets } = require('../scripts/lib/blocklist');
+  const [target] = writeTargets(`Set-Content -Path ${['sub', '..', '..', 'x.txt'].join(BS)} -Value 'x'`, 'ps');
+  assert.equal(path.resolve(PROJECT, target).startsWith(PROJECT), false, `${target} is outside the project`);
 });

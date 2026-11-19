@@ -12,9 +12,10 @@ const SID = 'a1b2c3d4-0000-0000-0000-000000000000';
 
 function repo() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-resume-'));
-  fs.mkdirSync(path.join(dir, '.jspark-forge'));
+  fs.mkdirSync(path.join(dir, '.jspark-forge', 'state'), { recursive: true }); // state/ = a real (own) project
   const g = (...a) => execFileSync('git', a, { cwd: dir, stdio: 'ignore' });
   g('init', '-q', '-b', 'main');
+  require('../scripts/lib/paths').markOwn(dir); // and the marker inside .git that setup writes (review H1)
   g('config', 'user.email', 't@example.invalid'); g('config', 'user.name', 't');
   fs.writeFileSync(path.join(dir, 'a.txt'), 'a\n');
   g('add', 'a.txt'); g('commit', '-qm', 'init');
@@ -386,4 +387,23 @@ test('the notes reminder also rides on a git commit run from PowerShell', () => 
   const dir = repo();
   const c = ctxOf(run(dir, 'PreToolUse', { tool_name: 'PowerShell', tool_input: { command: "git commit -m 'x'" } }));
   assert.match(c, /update your notes now/);
+});
+
+// ---- G1: skills ask the script where things are (guest mode will move them out of the repo) ----
+test('forge.js show prints the handoff; forge.js where prints the notes and handoff paths', () => {
+  const dir = repo();
+  editIn(dir, 'w.js');
+  run(dir, 'Stop', {});
+  const show = cli(dir, ['show']);
+  assert.match(show.stdout, /^# Where we were/);
+  const where = JSON.parse(cli(dir, ['where']).stdout);
+  // macOS: /var is a link to /private/var, so compare real paths (the file must exist for that)
+  const real = p => fs.realpathSync.native(p);
+  assert.equal(real(path.dirname(where.notes)), real(path.join(dir, '.jspark-forge', 'state')));
+  assert.equal(path.basename(where.notes), 'notes.md');
+  assert.equal(real(where.handoff), real(path.join(dir, '.jspark-forge', 'handoff.md')));
+});
+
+test('forge.js show says so when there is no handoff yet', () => {
+  assert.match(cli(repo(), ['show']).stdout, /No handoff saved yet in this project/);
 });

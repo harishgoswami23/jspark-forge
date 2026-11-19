@@ -4,7 +4,8 @@ description: Use when the user runs /jspark-forge:handoff, asks to save where th
 ---
 Save the handoff now. Arguments: $ARGUMENTS
 
-1. Update `.jspark-forge/state/notes.md` (max 120 words), replacing what is there:
+1. Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/forge.js" where`; it prints the path of the notes file. Write that file
+   (max 120 words), replacing what is there:
    - first the lines `Task: <the task>`, `Step: <n> of <m>: <current step>` and `Next: <next action>` when you know them;
    - then what you are doing, anything agreed with the user, and what is next, in plain words.
 2. Run this command (the arguments decide the form):

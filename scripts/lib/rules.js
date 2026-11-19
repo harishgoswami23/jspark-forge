@@ -5,13 +5,15 @@
 const fs = require('fs');
 const path = require('path');
 const BUILTINS = require('../../rules/default-blocklist.json');
+const paths = require('./paths');
+
 
 const SETTINGS = { notes: ['on', 'off'], 'statusline-segment': ['on', 'off'] };
 
 const slug = s => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'rule';
 
 function parseRules(text) {
-  const out = { confirm: [], never: [], disabled: [], settings: { notes: 'on', 'statusline-segment': 'on' }, errors: [] };
+  const out = { confirm: [], never: [], disabled: [], readonly: [], settings: { notes: 'on', 'statusline-segment': 'on' }, errors: [] };
   const ids = new Set(Object.keys(BUILTINS));
   let section = null;
   let reCount = 0;
@@ -19,8 +21,15 @@ function parseRules(text) {
   lines.forEach((line, idx) => {
     const n = idx + 1;
     const h = line.match(/^##\s+(.+?)\s*$/);
-    if (h) { const name = h[1].toLowerCase(); section = ['confirm', 'never', 'settings'].includes(name) ? name : null; return; }
+    if (h) { const name = h[1].toLowerCase(); section = ['confirm', 'never', 'settings', 'sources'].includes(name) ? name : null; return; }
     if (!section || !/^\s*[-*]\s+/.test(line)) return;
+    if (section === 'sources') { // v0.1.1 read-only sources: "- readonly: <path> : <why>" (" : " separates; a Windows path keeps its C:)
+      const m = line.match(/^\s*[-*]\s+readonly\s*:\s*(.+?)\s*$/i);
+      if (!m) { out.errors.push({ line: n, message: 'expected - readonly: <path> : <why>' }); return; }
+      const [p, ...why] = m[1].split(' : ');
+      out.readonly.push({ path: p.trim(), reason: why.join(' : ').trim(), line: n });
+      return;
+    }
     if (section === 'settings') {
       const m = line.match(/^\s*[-*]\s+([a-z-]+)\s*:\s*(.+?)\s*$/i);
       const key = m && m[1].toLowerCase();
@@ -54,10 +63,37 @@ function parseRules(text) {
   return out;
 }
 
-function loadRules(projectDir) {
-  let text = '';
-  try { text = fs.readFileSync(path.join(projectDir, '.jspark-forge', 'rules.md'), 'utf8'); } catch { /* defaults */ }
-  return parseRules(text);
+// Two files (v0.1.1 security fix, owner 2026-11-19):
+// - the project's .jspark-forge/rules.md: committed, so it may come from a cloned repo. It may ADD Confirm / Never
+//   rules and set preferences, but its "disable:" lines are ignored and reported: a repo cannot switch a block off.
+// - the user's own <CLAUDE_CONFIG_DIR or ~/.claude>/jspark-forge/rules.md: same syntax, applies to every project,
+//   and is the only place where "disable:" works.
+const REPO_LABEL = '.jspark-forge/rules.md';
+const USER_LABEL = '~/.claude/jspark-forge/rules.md';
+const readText = f => { try { return fs.readFileSync(f, 'utf8'); } catch { return ''; } };
+
+function loadRules(projectDir, { claudeHome } = {}) {
+  const home = claudeHome || process.env.CLAUDE_CONFIG_DIR || path.join(require('os').homedir(), '.claude');
+  const user = parseRules(readText(path.join(home, 'jspark-forge', 'rules.md')));
+  // In guest mode (someone else's repo) the repo's rules.md is the repo author's file: never read.
+  const repoText = paths.isGuest(projectDir) ? '' : readText(path.join(paths.repoForgeDir(projectDir), 'rules.md'));
+  const repo = parseRules(repoText);
+  const repoDisable = repoText.split(/\r?\n/)
+    .map((l, i) => ({ l, n: i + 1 })).filter(x => /^\s*[-*]\s+disable\s*:/i.test(x.l));
+  const ids = new Set(user.confirm.concat(user.never).map(r => r.id));
+  // fromRepo: the project's rules.md may come from a clone; its regular expressions run last (blocklist userHits).
+  const fresh = r => Object.assign({}, r, { fromRepo: true }, ids.has(r.id) ? { id: `${r.id}-repo` } : {});
+  return {
+    confirm: user.confirm.concat(repo.confirm.map(fresh)),
+    never: user.never.concat(repo.never.map(fresh)),
+    disabled: user.disabled,
+    readonly: user.readonly.concat(repo.readonly), // adding a read-only source only restricts: a repo's own lines count
+    settings: Object.assign({}, user.settings, repo.settings),
+    errors: user.errors.map(e => Object.assign({ file: USER_LABEL }, e))
+      .concat(repo.errors.map(e => Object.assign({ file: REPO_LABEL }, e)))
+      .concat(repoDisable.map(x => ({ file: REPO_LABEL, line: x.n,
+        message: `a project's rules.md cannot switch off built-in blocks; put "disable:" in ${USER_LABEL}` }))),
+  };
 }
 
 module.exports = { parseRules, loadRules };

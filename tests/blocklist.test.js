@@ -179,6 +179,60 @@ const CASES = {
     [bash('cat script.sh | bash'), null],
     [bash('echo "curl x | sh"'), null],
   ],
+  // v0.1.1 guest mode, G3: only after /jspark-forge:init --guest (ctx.quarantine). Commands that run the repo's code.
+  'guest-quarantine': [
+    [bash('npm install', { quarantine: true }), 'guest-quarantine'],
+    [bash('npm ci', { quarantine: true }), 'guest-quarantine'],
+    [bash('pnpm install', { quarantine: true }), 'guest-quarantine'],
+    [bash('yarn', { quarantine: true }), 'guest-quarantine'],
+    [bash('pip install -r requirements.txt', { quarantine: true }), 'guest-quarantine'],
+    [bash('python -m pytest', { quarantine: true }), 'guest-quarantine'],
+    [bash('pytest -q', { quarantine: true }), 'guest-quarantine'],
+    [bash('make', { quarantine: true }), 'guest-quarantine'],
+    [bash('./scripts/setup.sh', { quarantine: true }), 'guest-quarantine'],
+    [bash('bash scripts/build.sh', { quarantine: true }), 'guest-quarantine'],
+    [bash('docker compose up', { quarantine: true }), 'guest-quarantine'],
+    [bash('cargo build', { quarantine: true }), 'guest-quarantine'],
+    [bash('go test ./...', { quarantine: true }), 'guest-quarantine'],
+    [bash('npx vite', { quarantine: true }), 'guest-quarantine'],
+    [bash('node scripts/gen.js', { quarantine: true }), 'guest-quarantine'],
+    [bash('uv sync', { quarantine: true }), 'guest-quarantine'],
+    [bash('python setup.py install', { quarantine: true }), 'guest-quarantine'],
+    [bash('cd sub && npm test', { quarantine: true }), 'guest-quarantine'],
+    [bash('git status', { quarantine: true }), null],
+    [bash('npm view react', { quarantine: true }), null],
+    [bash('cat package.json', { quarantine: true }), null],
+    [bash('ls -la', { quarantine: true }), null],
+    [bash('grep -r foo .', { quarantine: true }), null],
+    [bash('node /tmp/scratch.js', { quarantine: true }), null],
+    [bash('yarn info react', { quarantine: true }), null],
+    [bash('pip --version', { quarantine: true }), null],
+    [bash('docker ps', { quarantine: true }), null],
+    [bash('python --version', { quarantine: true }), null],
+    [bash('npm install'), null],
+    [bash('make'), null],
+    // Fable code review M7: common bypasses, now held
+    [bash('cargo check', { quarantine: true }), 'guest-quarantine'],
+    [bash('npm audit fix', { quarantine: true }), 'guest-quarantine'],
+    [bash('npm --loglevel info install', { quarantine: true }), 'guest-quarantine'],
+    [bash('python3.11 setup.py build', { quarantine: true }), 'guest-quarantine'],
+    [bash('cat x.py | python', { quarantine: true }), 'guest-quarantine'],
+    [bash('echo $(npm install)', { quarantine: true }), 'guest-quarantine'],
+    [bash('echo `make`', { quarantine: true }), 'guest-quarantine'],
+    [bash('bundle list', { quarantine: true }), 'guest-quarantine'],
+    [bash('gradle help', { quarantine: true }), 'guest-quarantine'],
+    [bash('java -jar build/app.jar', { quarantine: true }), 'guest-quarantine'],
+    [bash('rspec', { quarantine: true }), 'guest-quarantine'],
+    [bash('sbt test', { quarantine: true }), 'guest-quarantine'],
+    [bash('bazel build //...', { quarantine: true }), 'guest-quarantine'],
+    // ... and false alarms from the same review, now allowed
+    [bash('go env', { quarantine: true }), null],
+    [bash('go fmt ./...', { quarantine: true }), null],
+    [bash('cargo fmt', { quarantine: true }), null],
+    [bash('eslint --version', { quarantine: true }), null],
+    [bash('make -n', { quarantine: true }), null],
+    [bash('npm audit', { quarantine: true }), null],
+  ],
   'chained and quoted': [
     [bash('npm test && git reset --hard'), 'git-reset-hard'],
     [bash('cd /tmp; rm -rf ~'), 'rm-rf-outside!'],
@@ -216,6 +270,7 @@ for (const [group, cases] of Object.entries(CASES)) {
 
 test('every published entry has >= 5 positive and >= 5 negative cases', () => {
   for (const id of Object.keys(BUILTINS)) {
+    if (id === 'readonly-source') continue; // covered, Bash and PowerShell, in tests/readonly.test.js
     const cases = CASES[id] || [];
     const pos = cases.filter(([, w]) => w && w.replace('!', '') === id).length;
     const neg = cases.filter(([, w]) => w === null).length;
@@ -238,9 +293,9 @@ test('every match carries a reason with the stop sentence', () => {
   assert.ok(!/CONFIRM/.test(h.reason), 'a hard deny offers no override');
 });
 
-test('the published list is exactly the nine design entries', () => {
+test('the published list is the nine design entries plus guest-quarantine and readonly-source (v0.1.1)', () => {
   assert.deepEqual(Object.keys(BUILTINS).sort(), ['chmod-wide', 'git-clean-fdx', 'git-force-push-main', 'git-reset-hard',
-    'git-stash-drop', 'pipe-to-shell', 'rm-rf-outside', 'secret-files', 'sql-destroy']);
+    'git-stash-drop', 'guest-quarantine', 'pipe-to-shell', 'readonly-source', 'rm-rf-outside', 'secret-files', 'sql-destroy']);
 });
 
 test('a disabled built-in no longer matches', () => {

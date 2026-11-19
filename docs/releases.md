@@ -1,6 +1,6 @@
 # JSPARK Forge: releases
 
-Status: 2026-11-19 (brought in line with spec Rev 6–9). One section per release, consistent with [`spec.md`](spec.md) (sections 5 and 7); the spec wins
+Status: 2026-11-20 (brought in line with spec Rev 6–11). One section per release, consistent with [`spec.md`](spec.md) (sections 5 and 7); the spec wins
 if the two ever differ. v0.1 build detail is in [`design-v0.1.md`](design-v0.1.md); spikes in
 [`spikes.md`](spikes.md); revision history in [`changelog.md`](changelog.md).
 
@@ -10,13 +10,16 @@ that date; **[spike]** depends on a spike. Spike results override review decisio
 | Release | One line | Estimate |
 |---|---|---|
 | v0.1 | Resume + hooks: back to work after any cutoff; dangerous actions blocked | ~1 week (real build) |
-| v0.1.1 | "Waiting on you" list (spec 5.2a); PowerShell command forms; hook-enforced show-and-wait if spike D passes; guest mode + quarantine, readonly sources (spec 5.2b) | ~4–5½ days |
-| v0.2 | Decision memory, the "why"; `/jspark-forge:check`; migration mappings, licence check | ~4½–5 days |
+| v0.1.1 | "Waiting on you" list (spec 5.2a); PowerShell command forms; ~~hook-enforced show-and-wait~~ (dropped 2026-11-19, design-v0.1.1 section 1); guest mode + quarantine, readonly sources (spec 5.2b) | ~4–5½ days |
+| Real users (gate) | 20–50 users and ~2 weeks of feedback before v0.2; the roadmap below is reordered from it (spec 7) | ~2 weeks, calendar |
+| v0.2 | Decision memory, the "why" (the centrepiece); `/jspark-forge:check`; migration mappings, licence check | ~4½–5 days |
 | v0.2 | Skill and brief templates with lint; plugin + plain instruction file from one source (spec 5.11) | ~1 week |
-| v0.3 | Codebase map, the "what and where"; launch-scope guard; map of readonly sources | ~1–1½ weeks, **soft** |
-| v0.4 | Build graph: a build as a fixed graph of nodes, saved after every node, resumed on the running node (spec 5.10) | ~1½–2 weeks, **soft** |
+| v0.2 | UI/UX companions: frontend-design listed as a recommended companion; Playwright MCP and shadcn/ui recommended; one-time tip in front-end projects (spec 5.14) | ~½ day |
+| v0.2.1 | Database guard: production read-only unless `CONFIRM db-write` (spec 5.2c) | ~1–1½ days |
+| v0.3 | Codebase map as a thin layer on an existing engine (integrate, don't build): freshness, schema from source files, links to decisions; launch-scope guard; map of readonly sources | ~1 week, **soft** |
+| v0.4 (only if users ask) | Build graph: a build as a fixed graph of nodes, saved after every node, resumed on the running node (spec 5.10) | ~1½–2 weeks, **soft** |
 | Later, only if asked | Security review prompts (incl. council mode), `/capacity`, dashboard (incl. git view), `/jspark-forge:review`, migration mode, customer edition, secrets by name, limit handover, `/jspark-forge:doctor` (spec 5.6–5.8a, 5.12, 5.13) | not estimated |
-| **Total to v0.4** | | ~6–7 weeks, **soft** |
+| **Total to v0.3** | | ~4–4½ weeks of build after v0.1.1, plus ~2 weeks of feedback, **soft** (v0.4 ~1½–2 weeks more, only if asked) |
 
 ---
 
@@ -87,7 +90,19 @@ decides only v0.1.1's guard). Builder checks B1–B5, B7.
 
 ## v0.1.1: Waiting on you + PowerShell forms + external code + guard (if proven)
 
-**Waiting on you (spec 5.2a):** blocking questions captured in `.jspark-forge/waiting.md`, shown in the status line (`⏳ 3 waiting on you · oldest 14 h`) and at session start, each with what it blocks and a recommendation; one reply settles all; a reminder after 4 h and a daily summary via the Notification event; optional reversible-only deadline defaults (off by default); `/jspark-forge:waiting`. Acceptance: every question asked through the question tool appears in the list within one turn; the status line count matches the file; nothing destructive/live/security can take a deadline default. Adds ~1 day to v0.1.1.
+**Waiting on you (spec 5.2a), built 2026-11-20 (design-v0.1.1 section 4):** questions through the question tool
+(filed before the dialog shows) and a reply that ends in a question while there is work, kept in
+`state/waiting.json` and `waiting.md`; shown first at session start, in the status line (`⏳ 2 waiting on you ·
+oldest 14h`) and in the handoff; `/jspark-forge:waiting` lists and clears them. Cut: timed reminders and the daily
+summary (no hook runs between sessions; needs a spike), deadline defaults (principle 12). Acceptance: a question
+through the question tool is in the list before the dialog shows; the status line count matches the file; one manual
+interactive check before release (the tool does not exist in `claude -p`).
+
+**Health check (spec 5.13c), pulled forward 2026-11-20:** `/jspark-forge:doctor` (read-only: Node, plugin files,
+every hook timed against its limit, git, project folder, rules.md, handoff, status line and usage freshness; each
+problem with its fix), `/jspark-forge:status` (handoff, waiting, usage as of when), `/jspark-forge:upgrade` (asks,
+updates from the marketplace, then doctor after the restart). Deferred: `doctor --fix`; the installer running doctor
+(Claude Code has no post-install hook; the first session's messages cover a broken install).
 
 **External code (spec 5.2b) [owner 2026-11-03; quarantine and "content is data": coordinator]:**
 - **Guest mode:** `/jspark-forge:init` asks *"Your project, or one you're reviewing?"*. Reviewing → nothing written
@@ -116,7 +131,8 @@ non-interactive runs or when Forge cannot tell (it skips itself).
 **Files in `.jspark-forge/`** `waiting.md`; `rules.md` gains `## Sources`; `state/session-<id>.json` gains
 `awaiting_user` if the guard ships. Machine level: `~/.claude/jspark-forge/guests/<repo-hash>/` (guest mode).
 
-**Commands** `/jspark-forge:waiting`; `/jspark-forge:init` asks the guest question.
+**Commands** `/jspark-forge:waiting`, `/jspark-forge:doctor`, `/jspark-forge:status`, `/jspark-forge:upgrade`;
+`/jspark-forge:init --guest` / `--mine` (guest mode is decided automatically; init only overrides it).
 
 **Hooks used** PreToolUse (PowerShell forms; guard; `readonly-source`; `guest-quarantine`), PostToolUse (PowerShell
 write redirects), SessionStart and UserPromptSubmit (set / clear the guard; guest reminder).
@@ -134,8 +150,43 @@ before continuing".
 
 **Depends on spikes** D (headless detection).
 
-**Candidate pull-forward:** `/jspark-forge:doctor` (spec 5.13c) is the likeliest "later" item to be asked for; if one
-is pulled forward, it lands here. Not counted in the estimate above.
+**Pulled forward:** `/jspark-forge:doctor`, `status` and `upgrade` (spec 5.13c), built 2026-11-20 (above).
+
+---
+
+## Real users (gate) [owner 2026-11-20]
+
+**What.** After v0.1.1 ships and before v0.2 starts, JSPARK Forge goes in front of 20–50 real users: the official
+Claude Code plugin directory, the superpowers community, a short demo. What they hit is fixed first; the order of
+everything below is then revisited from their feedback.
+
+**Measured without telemetry** (spec principle 3): installs, GitHub issues and stars, direct replies.
+
+**Success measure** users who come back after a cutoff in a second week.
+
+---
+
+## v0.2.1: Database guard (spec 5.2c) [owner 2026-11-20]
+
+**What it does.** Guards databases instead of reading them: a write to a production database is denied until the
+user types `CONFIRM db-write` (one-shot, 5 minutes). Reads are never blocked.
+
+**User-visible behaviour**
+- Writes = anything but `SELECT` / `WITH … SELECT` / `EXPLAIN` / `SHOW` / `DESCRIBE`, plus migration-apply, merge,
+  reset and restore tools of database MCP servers.
+- Checked in MCP tool calls and in Bash / PowerShell database clients (`psql`, `mysql`, `sqlite3`, `mongosh`,
+  `supabase db`, `prisma migrate deploy`, …).
+- Production by default: every database MCP server and every non-local host. One line in `rules.md` relaxes it:
+  `- database dev: <server name or host pattern>` (ignored in a guest repo's own rules).
+- `sql-destroy` keeps blocking `DROP` / `TRUNCATE` / `DELETE` without `WHERE` everywhere.
+
+**Acceptance criteria** ≥ 5 positive / ≥ 5 negative tests per form (MCP, Bash, PowerShell); a `SELECT` is never
+blocked; a dev line relaxes only its own server.
+
+**Estimate** ~1–1½ days.
+
+**Limits** seatbelt, not sandbox: a write inside a script file or stored procedure passes. JSPARK Forge never
+connects to a database.
 
 ---
 
@@ -216,6 +267,11 @@ test).
 
 ## v0.3: Codebase map (the "what and where") + launch-scope guard
 
+**Integrate, don't build [owner 2026-11-20].** JSPARK Forge builds no map engine. It detects an installed MCP map
+engine and adds three layers: freshness ("as of <commit>" on every answer), the database schema from migration and
+schema files, and links to the v0.2 decisions that touch each file. No engine → map features off with a one-time
+tip; everything else works (spec 5.4).
+
 **What it does.** The architecture memory: a local index of files, symbols, routes and call relations that Claude
 queries instead of re-reading files. It also indexes `docs/`, ADRs and the schema source (migrations, Prisma schema,
 ORM models, SQL files), so tables and relationships come from the code itself, never from a separate knowledge
@@ -249,7 +305,7 @@ estimate; estimate only with ≥ 10 history items.
 
 **Success measure** **at least one feature shrunk or postponed** because the guard showed its cost.
 
-**Estimate** ~1–1½ weeks, **soft until the engine trial is done**.
+**Estimate** ~1 week, **soft until the engine trial is done** (smaller than before: no engine is built).
 
 **Honest caveat** [owner, 2026-11-03]: the hardest piece; a stale map is worse than none; the engine (Windows support,
 licence, refresh speed) is unproven and **not chosen**. The trial runs after v0.1 ships (candidates and criteria:
@@ -262,6 +318,9 @@ spec 5.4).
 ---
 
 ## v0.4: Build graph (spec 5.10) [owner 2026-11-05]
+
+**Only if users ask [owner 2026-11-20].** Multi-agent runs are the feature most likely to be absorbed by Claude Code;
+built only on user demand after v0.3.
 
 **What it does.** A build is written down once as a graph (`forge/graphs/<name>.md`): which steps exist, what each
 hands to the next, which can run side by side, and where a person must act. JSPARK Forge runs it, saves after every

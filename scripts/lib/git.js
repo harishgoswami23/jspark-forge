@@ -10,7 +10,7 @@ const run = (dir, args) => execFileSync('git', ['-C', dir, ...args],
 // -> { branch, head, dirty } or null when not a repo / git missing. Forge's own folder is not counted as dirty.
 function gitInfo(dir) {
   try {
-    const out = run(dir, ['status', '--porcelain=v2', '--branch']);
+    const out = run(dir, ['--no-optional-locks', 'status', '--porcelain=v2', '--branch']);
     let branch = null, head = null, dirty = 0;
     for (const line of out.split('\n')) {
       if (line.startsWith('# branch.oid ')) { const o = line.slice(13).trim(); head = /^[0-9a-f]+$/.test(o) ? o.slice(0, 7) : null; }
@@ -56,4 +56,23 @@ function headBranch(start) {
   } catch { return null; }
 }
 
-module.exports = { gitInfo, lastCommit, headBranch };
+// The short HEAD commit from .git files, no git process (read-only sources in the handoff). Unknown -> null.
+function headCommit(start) {
+  try {
+    const g = path.join(path.resolve(start), '.git');
+    let gitDir = g;
+    if (fs.statSync(g).isFile()) {
+      const m = fs.readFileSync(g, 'utf8').match(/^gitdir:\s*(.+?)\s*$/m);
+      if (!m) return null;
+      gitDir = path.resolve(start, m[1]);
+    }
+    const head = fs.readFileSync(path.join(gitDir, 'HEAD'), 'utf8').trim();
+    const ref = head.match(/^ref:\s*(.+)$/);
+    if (!ref) return /^[0-9a-f]{40}$/.test(head) ? head.slice(0, 7) : null;
+    try { return fs.readFileSync(path.join(gitDir, ref[1]), 'utf8').trim().slice(0, 7); } catch { /* packed */ }
+    const packed = fs.readFileSync(path.join(gitDir, 'packed-refs'), 'utf8').split(/\r?\n/).find(l => l.endsWith(` ${ref[1]}`));
+    return packed ? packed.slice(0, 7) : null;
+  } catch { return null; }
+}
+
+module.exports = { gitInfo, lastCommit, headBranch, headCommit };

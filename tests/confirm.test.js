@@ -62,3 +62,17 @@ test('a corrupt token file fails closed for consume and is replaced on grant', (
   confirm.grantFromPrompt(d, 's1', 'CONFIRM chmod-wide', KNOWN, T0);
   assert.equal(confirm.consume(d, 's1', 'chmod-wide', T0 + 1), true);
 });
+
+// Fable code review, low: a session-long CONFIRM must be the whole message, and it expires after 12 hours.
+test('CONFIRM guest-quarantine counts only as the whole message, not inside other text', () => {
+  const d = dir();
+  assert.deepEqual(confirm.grantFromPrompt(d, 's1', "please don't CONFIRM guest-quarantine yet", ['guest-quarantine'], T0), []);
+  assert.deepEqual(confirm.grantFromPrompt(d, 's1', '  CONFIRM guest-quarantine. ', ['guest-quarantine'], T0), ['guest-quarantine']);
+});
+
+test('a session-long token expires after 12 hours', () => {
+  const d = dir();
+  confirm.grantFromPrompt(d, 's1', 'CONFIRM guest-quarantine', ['guest-quarantine'], T0);
+  assert.equal(confirm.consume(d, 's1', 'guest-quarantine', T0 + 11 * 3600000), true);
+  assert.equal(confirm.consume(d, 's1', 'guest-quarantine', T0 + 13 * 3600000), false);
+});
