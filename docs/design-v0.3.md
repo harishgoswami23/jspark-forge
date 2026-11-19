@@ -16,6 +16,13 @@ Status: **revision 2, 2026-11-20**, after the Fable 5.2 design review (findings 
   `cli index_repository` run at the same time on the same cache corrupts or blocks; whether `repo_path` spelled with
   different letter case or with spaces gives the same project key. Result decides whether JSPARK Forge needs its own
   per-edit refresh.
+  **Result, Windows, 2026-11-20: passes.** In a real `claude -p` session with the engine registered for that run only
+  (`--mcp-config`, `--strict-mcp-config`): after `index_repository`, Claude appended a function with the Edit tool,
+  waited 6 s, and `search_graph` found it; `index_status` showed `watched: true`, `strategy: git`,
+  `poll_interval_ms: 5000`. Two `cli index_repository` runs at once on the 68,000-line repo both finished (6.2 s
+  together) and left the index intact (same 3,833 symbols and 9,668 links, correct callers). `repo_path` in upper case
+  and a folder with a space both gave the same project key. **So JSPARK Forge does not re-index per edit**: the engine's
+  watcher covers the session project (5 s polling); JSPARK Forge refreshes after commits and when `HEAD` moves.
 - **Spike G, a detached refresh from a hook.** A hook starts a background process (`stdio: 'ignore'`,
   `windowsHide`, `detached`, `unref()`) and exits at once: the process must survive the hook, never delay the next
   tool call, and never hold the hook open. Windows here; macOS and Linux in CI.
