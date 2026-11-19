@@ -1,5 +1,14 @@
 <!-- DRAFT for v0.1. Pitch decided by the owner (Q1, 2026-11-03 review). -->
 
+<p align="center">
+  <a href="https://github.com/harishgoswami23/jspark-forge">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="assets/jspark-ai-logo-dark.jpeg">
+      <img alt="JSPARK AI" src="assets/jspark-ai-logo-light.jpeg" width="360">
+    </picture>
+  </a>
+</p>
+
 # JSPARK Forge
 
 **Claude Code forgets. JSPARK Forge doesn't. Open Claude Code and pick up where you left off in 30 seconds.**
