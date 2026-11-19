@@ -496,6 +496,10 @@ Hidden command (never in the README top section).
   and a wrong verdict from Claude's judgment does harm.
 - **Migration mode** (inventory, parity plan, cutover checklist, sign-off, `migration.md`). Reason: drifts into
   project management. Kept: readonly sources, the source line, migration mappings as decisions, map of readonly sources.
+- **Installing project prerequisites** (Python, Docker, language toolchains) [owner 2026-11-19: out of scope].
+  Reason: Claude Code already installs them when the user asks, with a permission prompt per command; an installer
+  would run admin-rights downloads (what `pipe-to-shell` blocks) and accept licences (Docker Desktop) on the user's
+  behalf. Not planned, not "later": cut.
 
 ### 5.9 superpowers integration [owner]
 
