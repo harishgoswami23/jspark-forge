@@ -141,13 +141,18 @@ function readNotes(dir) {
   } catch { return null; }
 }
 
-function save(dir, sid, reason, { refreshGit = true, now = new Date() } = {}) {
+// Writes the handoff and returns its model, or returns null without writing when there is no work to resume
+// (only talk so far, or a task just closed with done). force: the user asked (/jspark-forge:handoff).
+function save(dir, sid, reason, { refreshGit = true, now = new Date(), force = false } = {}) {
   const sess = state.readSession(dir, sid);
   const task = state.readTask(dir);
-  if (refreshGit) sess.git = gitInfo(dir);
   const notes = readNotes(dir);
   let plan = null;
-  const planFile = task.planFile || superpowers.newestLedgerPlan(dir);
+  const planFile = task.planFile || superpowers.newestLedgerPlan(dir, task.closedAt || 0);
+  const hasWork = force || task.files.length > 0 || !!task.lastCommit || (Array.isArray(task.todos) && task.todos.length > 0) ||
+    !!planFile || !!(notes && (notes.text || notes.task)) || runningOf(sess).length > 0;
+  if (!hasWork) return null;
+  if (refreshGit) sess.git = gitInfo(dir);
   if (planFile) {
     try { plan = parsePlan(fs.readFileSync(path.join(dir, planFile), 'utf8')); } catch {}
     const lp = plan && superpowers.ledgerProgress(dir, planFile, plan); // superpowers tracks tasks, not boxes
@@ -243,6 +248,9 @@ function archive(dir, now = new Date()) {
   }
   state.deleteMeta(dir);
   state.resetTask(dir);
+  const t = state.readTask(dir);
+  t.closedAt = now.getTime(); // older superpowers ledgers must not revive the closed plan
+  state.writeTask(dir, t);
   try { fs.unlinkSync(notesFile(dir)); } catch {}
 }
 

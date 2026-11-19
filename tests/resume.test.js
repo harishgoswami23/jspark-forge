@@ -84,6 +84,7 @@ test('c: Stop saves; running background shells and a closing question are record
 
 test('helpers between SubagentStart and SubagentStop are "still running"; an unpaired stop is ignored', () => {
   const dir = repo();
+  editIn(dir, 'work.js'); // real work, so there is a handoff to keep
   run(dir, 'SubagentStop', { agent_id: 'zzzz', agent_type: 'internal' });
   run(dir, 'SubagentStart', { agent_id: 'h1', agent_type: 'Explore' });
   run(dir, 'Stop', {});
@@ -95,6 +96,7 @@ test('helpers between SubagentStart and SubagentStop are "still running"; an unp
 
 test('d and e: PreCompact saves silently; SessionEnd stamps the end reason', () => {
   const dir = repo();
+  editIn(dir, 'work.js');
   const r = run(dir, 'PreCompact', { trigger: 'auto' });
   assert.equal(r.stdout, '');
   assert.match(handoffText(dir), /saved because: before compaction/);
@@ -154,6 +156,7 @@ test('startup with no handoff: grounding rule only', () => {
 
 test('a handoff 14 days or older is mentioned in one line, not shown', () => {
   const dir = repo();
+  editIn(dir, 'work.js');
   run(dir, 'Stop', {});
   setMeta(dir, { savedAt: Date.now() - 20 * 24 * 3600 * 1000 });
   const o = out(run(dir, 'SessionStart', { source: 'startup' }));
@@ -163,6 +166,7 @@ test('a handoff 14 days or older is mentioned in one line, not shown', () => {
 
 test('a different branch is pointed out to both', () => {
   const dir = repo();
+  editIn(dir, 'work.js');
   run(dir, 'Stop', {});
   execFileSync('git', ['checkout', '-qb', 'other'], { cwd: dir });
   const o = out(run(dir, 'SessionStart', { source: 'resume' }));
@@ -172,6 +176,7 @@ test('a different branch is pointed out to both', () => {
 
 test('compact: re-inject handoff with "carry on"; the notes reminder only after PreCompact', () => {
   const dir = repo();
+  editIn(dir, 'work.js');
   run(dir, 'Stop', {});
   run(dir, 'PreCompact', { trigger: 'auto' });
   let c = ctxOf(run(dir, 'SessionStart', { source: 'compact' }));
@@ -254,6 +259,7 @@ test("recent actions leave out JSPARK Forge's own files", () => {
 
 test('SessionEnd keeps the reason of the last real save', () => {
   const dir = repo();
+  editIn(dir, 'work.js');
   run(dir, 'Stop', {});
   run(dir, 'SessionEnd', { reason: 'logout' });
   const head = handoffText(dir).split('\n')[1];
@@ -298,4 +304,50 @@ test('ledger writes save but are not listed as files touched', () => {
   run(dir, 'Stop', {});
   const files = handoffText(dir).match(/\*\*Files touched in this task:\*\* (.*)$/m)[1];
   assert.equal(files, 'app.js');
+});
+
+// ---- found in the owner's manual check, 2026-11-19: a closed task came back as Task "hi" ----
+const hasHandoff = dir => fs.existsSync(path.join(dir, '.jspark-forge', 'handoff.md'));
+
+test('a session with no work (only talk) leaves no handoff', () => {
+  const dir = repo();
+  run(dir, 'UserPromptSubmit', { prompt: 'hi' });
+  run(dir, 'Stop', { last_assistant_message: 'Hello! What shall we do?' });
+  assert.ok(!hasHandoff(dir));
+  const o = out(run(dir, 'SessionStart', { source: 'startup' }));
+  assert.ok(!o.systemMessage, 'nothing to resume');
+});
+
+test('after done, the next reply does not reopen the task; new work starts a new one', () => {
+  const dir = repo();
+  run(dir, 'UserPromptSubmit', { prompt: 'hi' });
+  editIn(dir, 'x.js');
+  run(dir, 'Stop', {});
+  cli(dir, ['save', '--done']);
+  run(dir, 'Stop', {});
+  assert.ok(!hasHandoff(dir), 'closed task stays closed');
+  run(dir, 'UserPromptSubmit', { prompt: 'add a logout button' });
+  run(dir, 'Stop', {});
+  assert.ok(!hasHandoff(dir), 'a request alone is not work yet');
+  editIn(dir, 'logout.js');
+  run(dir, 'Stop', {});
+  const t = handoffText(dir);
+  assert.match(t, /\*\*Task:\*\* add a logout button/);
+  assert.match(t, /\*\*Files touched in this task:\*\* logout\.js$/m);
+});
+
+test('after done, an older superpowers ledger does not revive the closed plan', () => {
+  const dir = repo();
+  spPlan(dir);
+  run(dir, 'Stop', {});
+  assert.ok(hasHandoff(dir));
+  cli(dir, ['save', '--done']);
+  run(dir, 'Stop', {});
+  assert.ok(!hasHandoff(dir));
+});
+
+test('a manual save always writes, even with no work yet', () => {
+  const dir = repo();
+  cli(dir, ['save']);
+  assert.ok(hasHandoff(dir));
 });

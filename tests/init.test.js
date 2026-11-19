@@ -73,3 +73,8 @@ test('says nothing about superpowers when it is installed', () => {
   fs.mkdirSync(path.join(s.claudeHome, 'plugins', 'cache', 'claude-plugins-official', 'superpowers'), { recursive: true });
   assert.ok(!/superpowers/.test(init(s).stdout));
 });
+
+test('on first setup, says to commit rules.md and .gitignore with the project', () => {
+  const r = init(setup());
+  assert.match(r.stdout, /Commit \.jspark-forge\/rules\.md and \.jspark-forge\/\.gitignore with your project/);
+});

@@ -89,8 +89,7 @@ function lastQuestion(msg) {
 }
 
 function doSave(dir, sid, reason, lines, opts) {
-  handoff.save(dir, sid, reason, opts);
-  lines.push(['SAVE', reason]);
+  if (handoff.save(dir, sid, reason, opts)) lines.push(['SAVE', reason]); // null: no work to resume, nothing written
 }
 
 // ---------- handlers ----------
@@ -225,8 +224,7 @@ const handlers = {
     state.writeSession(dir, sid, sess);
     const lines = [['END', input.reason || '']];
     // Keep the last real save reason in the header; the "session ended" stamp says the rest.
-    handoff.save(dir, sid, sess.lastSaveReason || 'session end', { refreshGit: false });
-    lines.push(['SAVE', 'session end']);
+    if (handoff.save(dir, sid, sess.lastSaveReason || 'session end', { refreshGit: false })) lines.push(['SAVE', 'session end']);
     return { lines, out: null };
   },
 
@@ -259,7 +257,9 @@ const CTX95 = 'JSPARK Forge: usage is at 95 %. The handoff is saved. Please fini
 function withUsage(dir, sid, lines, out) {
   const band = usageLib.crossed(dir, sid);
   if (!band) return out;
+  const before = lines.length;
   doSave(dir, sid, `usage ${band} %`, lines);
+  if (lines.length === before) return out; // no work to save: "Handoff saved" would not be true, so say nothing
   const msg = band === 95 ? MSG95 : null;
   const ctx = band === 95 ? CTX95 : (notesOn(dir) ? handoff.NOTES_LINE : null);
   if (!msg && !ctx) return out;
@@ -310,7 +310,7 @@ function cliSave(args) {
   if (!dir) { process.stdout.write('JSPARK Forge is not set up in this project yet (run /jspark-forge:init).\n'); return; }
   const sid = process.env.CLAUDE_CODE_SESSION_ID || 'manual';
   const lines = [];
-  doSave(dir, sid, 'manual', lines);
+  doSave(dir, sid, 'manual', lines, { force: true }); // the user asked: always write
   if (args.includes('--done')) {
     handoff.archive(dir);
     lines.push(['SAVE', 'task closed, handoff archived']);

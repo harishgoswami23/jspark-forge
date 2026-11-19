@@ -47,9 +47,10 @@ function ledgerProgress(dir, planRel, plan) {
 }
 
 // The plan named by the most recently updated ledger, as a project-relative path (or null).
-function newestLedgerPlan(dir) {
+// since: ignore ledgers last updated before this time (epoch ms), e.g. before the last task was closed.
+function newestLedgerPlan(dir, since = 0) {
   try {
-    const l = ledgers(dir).sort((a, b) => b.mtime - a.mtime)[0];
+    const l = ledgers(dir).filter(x => x.mtime > since).sort((a, b) => b.mtime - a.mtime)[0];
     if (!l || !fs.existsSync(l.plan)) return null;
     const r = path.relative(dir, l.plan);
     return r && !r.startsWith('..') && !path.isAbsolute(r) ? r.replace(/\\/g, '/') : null;

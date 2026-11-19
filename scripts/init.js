@@ -24,7 +24,11 @@ out.push(major >= 18 ? `Node.js ${process.versions.node}: ok`
 
 // Project folder
 if (fs.existsSync(FORGE)) out.push('JSPARK Forge is already set up in this project (.jspark-forge/).');
-else { fs.mkdirSync(FORGE, { recursive: true }); out.push('Created .jspark-forge/ (git-ignored except rules.md).'); }
+else {
+  fs.mkdirSync(FORGE, { recursive: true });
+  out.push('Created .jspark-forge/ (git-ignored except rules.md).');
+  out.push('Commit .jspark-forge/rules.md and .jspark-forge/.gitignore with your project; everything else in it stays local.');
+}
 if (!fs.existsSync(path.join(FORGE, '.gitignore'))) fs.writeFileSync(path.join(FORGE, '.gitignore'), GITIGNORE);
 if (!fs.existsSync(path.join(FORGE, 'rules.md'))) {
   fs.copyFileSync(path.join(__dirname, '..', 'templates', 'rules.md'), path.join(FORGE, 'rules.md'));

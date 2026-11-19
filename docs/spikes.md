@@ -256,8 +256,8 @@ contradicts a reviewed decision.
 - **Found 2026-11-19:** `claude plugin validate --strict` fails without a plugin icon (square PNG, 512–2048 px) → the
   real plugin needs one for the ship gate. Stop input carries `background_tasks` (candidate source for "Still running").
 - **B5 (2026-11-19, `claude -p`, Windows):** after a typed `CONFIRM`, PreToolUse `ask` in `-p` does **not** run the
-  command (no one to answer) and the token is used up: safe for scripts and CI. The interactive yes/no prompt is
-  checked in the release's manual run. Claude Code shows a deny reason as "PreToolUse:Bash hook error: …"; Claude
+  command (no one to answer) and the token is used up: safe for scripts and CI. The interactive yes/no prompt was
+  confirmed in the owner's manual run (2026-11-19): it appears, also in auto permission mode. Claude Code shows a deny reason as "PreToolUse:Bash hook error: …"; Claude
   stopped and did not try an equivalent command.
 - **B2 (2026-11-19): pass.** SessionStart `systemMessage` is shown at startup and after `/compact` as
   "SessionStart:<source> says: …".

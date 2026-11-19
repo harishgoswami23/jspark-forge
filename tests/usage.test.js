@@ -16,6 +16,8 @@ const MSG95 = 'Usage at 95 %. Handoff saved. Next session, JSPARK Forge shows wh
 function project() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-usage-'));
   fs.mkdirSync(path.join(dir, '.jspark-forge', 'usage'), { recursive: true });
+  // Real work first: with nothing to resume there is nothing to save (and no "Handoff saved" message).
+  run(dir, 'PostToolUse', { tool_name: 'Write', tool_input: { file_path: path.join(dir, 'work.js') } });
   return dir;
 }
 function usage(dir, figs, ageMs = 0) {
@@ -104,4 +106,12 @@ test('UserPromptSubmit and Stop also check the bands; Stop shows the message wit
 test('a missing usage file changes nothing', () => {
   const dir = project();
   assert.equal(post(dir), null);
+});
+
+test('at 95 % with no work yet, nothing is saved and no "Handoff saved" message is shown', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-usage-'));
+  fs.mkdirSync(path.join(dir, '.jspark-forge', 'usage'), { recursive: true });
+  usage(dir, { context_pct: 97 });
+  assert.equal(post(dir), null);
+  assert.ok(!fs.existsSync(path.join(dir, '.jspark-forge', 'handoff.md')));
 });
