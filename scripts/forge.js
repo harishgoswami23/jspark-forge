@@ -167,6 +167,7 @@ const handlers = {
     const written = writtenFiles(dir, input);
     for (const abs of written) {
       const r = rel(dir, abs);
+      if (r.startsWith('.superpowers/')) continue; // superpowers' own ledger and briefs: saves, but not "files touched"
       task.files = [r].concat(task.files.filter(f => f !== r)).slice(0, 50);
       if (/\.md$/i.test(r)) { try { if (parsePlan(fs.readFileSync(abs, 'utf8'))) task.planFile = r; } catch {} }
       taskDirty = true;

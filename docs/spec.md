@@ -495,7 +495,8 @@ Hidden command (never in the README top section).
 - **Recommend, don't bundle or install.** Forge builds no "how" (plan/test/review) piece of its own.
 - README section "Works best with superpowers" says why and how to install it.
 - First run: if missing, suggest **once** (never again); if present, from v0.2 read its design docs, plans and
-  review notes as decision-memory sources.
+  review notes as decision-memory sources. **v0.1 already reads one file [owner 2026-11-19]:** the plan's progress
+  ledger (`.superpowers/sdd/<plan>/progress.md`), so the handoff shows "Task 3 of 8" for superpowers users.
 - Reads defensively: if the layout changes or a read fails, skip that source silently (covered by a test).
 - Forge works fully without it.
 

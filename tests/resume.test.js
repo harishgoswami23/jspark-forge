@@ -260,3 +260,42 @@ test('SessionEnd keeps the reason of the last real save', () => {
   assert.match(head, /saved because: reply finished/);
   assert.match(head, /session ended \d\d:\d\d \(logout\)/);
 });
+
+// ---- superpowers ledger (owner 2026-11-19) ----
+function spPlan(dir) {
+  const rel = 'docs/superpowers/plans/2026-11-19-greet.md';
+  fs.mkdirSync(path.join(dir, path.dirname(rel)), { recursive: true });
+  fs.writeFileSync(path.join(dir, rel), '# Greet Implementation Plan\n\n### Task 1: Greet function\n- [ ] **Step 1: test**\n\n### Task 2: CLI flag\n- [ ] **Step 1: test**\n\n### Task 3: README\n- [ ] **Step 1: docs**\n');
+  const led = path.join(dir, '.superpowers', 'sdd', '2026-11-19-greet', 'progress.md');
+  fs.mkdirSync(path.dirname(led), { recursive: true });
+  fs.writeFileSync(led, `# SDD ledger — plan: ${rel}\nTask 1: complete (commits a..b, review clean)\n`);
+  return { rel, led };
+}
+
+test('a superpowers plan reads progress from its ledger', () => {
+  const dir = repo();
+  const { rel } = spPlan(dir);
+  run(dir, 'PostToolUse', { tool_name: 'Write', tool_input: { file_path: path.join(dir, rel) } });
+  run(dir, 'Stop', {});
+  const t = handoffText(dir);
+  assert.match(t, /\*\*Task:\*\* Greet Implementation Plan/);
+  assert.match(t, /\*\*Step:\*\* 2 of 3: Task 2: CLI flag/);
+  assert.match(t, /\*\*Done:\*\* step 1/);
+});
+
+test('with no plan touched this session, the newest ledger names the plan', () => {
+  const dir = repo();
+  spPlan(dir);
+  run(dir, 'Stop', {});
+  assert.match(handoffText(dir), /\*\*Step:\*\* 2 of 3: Task 2: CLI flag/);
+});
+
+test('ledger writes save but are not listed as files touched', () => {
+  const dir = repo();
+  const { led } = spPlan(dir);
+  run(dir, 'PostToolUse', { tool_name: 'Edit', tool_input: { file_path: led } });
+  run(dir, 'PostToolUse', { tool_name: 'Edit', tool_input: { file_path: path.join(dir, 'app.js') } });
+  run(dir, 'Stop', {});
+  const files = handoffText(dir).match(/\*\*Files touched in this task:\*\* (.*)$/m)[1];
+  assert.equal(files, 'app.js');
+});

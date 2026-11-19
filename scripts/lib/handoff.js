@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const { writeAtomic } = require('./fsx');
 const { parsePlan } = require('./plan');
+const superpowers = require('./superpowers');
 const { gitInfo, headBranch } = require('./git');
 const log = require('./log');
 const state = require('./state');
@@ -146,7 +147,12 @@ function save(dir, sid, reason, { refreshGit = true, now = new Date() } = {}) {
   if (refreshGit) sess.git = gitInfo(dir);
   const notes = readNotes(dir);
   let plan = null;
-  if (task.planFile) { try { plan = parsePlan(fs.readFileSync(path.join(dir, task.planFile), 'utf8')); } catch {} }
+  const planFile = task.planFile || superpowers.newestLedgerPlan(dir);
+  if (planFile) {
+    try { plan = parsePlan(fs.readFileSync(path.join(dir, planFile), 'utf8')); } catch {}
+    const lp = plan && superpowers.ledgerProgress(dir, planFile, plan); // superpowers tracks tasks, not boxes
+    if (lp) plan = Object.assign({}, plan, lp);
+  }
   const f = taskFields({ todos: task.todos, plan, notes, lastRequest: sess.lastPrompt });
   let done = f.done;
   if (task.lastCommit) {
