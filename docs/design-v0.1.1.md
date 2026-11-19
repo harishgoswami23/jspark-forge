@@ -8,6 +8,23 @@ PowerShell / cmd forms of the block list and save triggers; the Node-missing war
 
 ## 1. Hard "wait for your reply" guard (show and wait, enforced)
 
+> **Decision 2026-11-19 [owner]: not built.** An independent design review (Fable 5.2, read-only, against the code)
+> found that the guard releases before the turn it is meant to guard: in an interactive session Claude takes no turn
+> until the user submits a prompt, and that prompt is the release (1.3.3). It would only hold turns that start without a
+> prompt, and none is known to occur. Secondary findings: a read-modify-write race on the session state could leave it
+> stuck; a slash-command first input might not release it; the `wait-guard` setting was not wired into `rules.js`; and
+> spike D's own gate (IDE, desktop, SDK, macOS and Linux rows) was not yet met.
+> **What stays:** show and wait is *instructed* (design-v0.1 section 8). Claude followed it in every live test (the
+> kill-and-resume ship gate, the owner's manual check, the headless test).
+> **Fallback if a user reports Claude acting before answering:** "first reply is look-only": after a cutoff, the whole
+> first turn may only read and talk, whatever the first prompt says; the arm is released at Stop of that turn, so
+> changes start with the user's second message. Cost: one extra message when the user opens with a new task. Keep the
+> review's build notes: guard state in its own file (`state/await-<sid>.json`), check it before the CONFIRM token is
+> consumed, arm only when `CLAUDE_CODE_ENTRYPOINT=cli` and `CLAUDE_CODE_SESSION_ATTENDED=1` until the other surfaces are
+> measured, and wire the off switch into the settings whitelist.
+>
+> The rest of this section is the reviewed draft, kept for the record.
+
 ### 1.1 Why
 
 v0.1 shows the handoff at session start and *instructs* Claude to wait for the user's "Continue?" (design-v0.1

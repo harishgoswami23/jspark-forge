@@ -10,7 +10,7 @@ that date; **[spike]** depends on a spike. Spike results override review decisio
 | Release | One line | Estimate |
 |---|---|---|
 | v0.1 | Resume + hooks: back to work after any cutoff; dangerous actions blocked | ~1 week (real build) |
-| v0.1.1 | "Waiting on you" list (spec 5.2a); PowerShell command forms; hook-enforced show-and-wait if spike D passes; guest mode + quarantine, readonly sources (spec 5.2b) | ~4–5½ days |
+| v0.1.1 | "Waiting on you" list (spec 5.2a); PowerShell command forms; ~~hook-enforced show-and-wait~~ (dropped 2026-11-19, design-v0.1.1 section 1); guest mode + quarantine, readonly sources (spec 5.2b) | ~4–5½ days |
 | v0.2 | Decision memory, the "why"; `/jspark-forge:check`; migration mappings, licence check | ~4½–5 days |
 | v0.2 | Skill and brief templates with lint; plugin + plain instruction file from one source (spec 5.11) | ~1 week |
 | v0.3 | Codebase map, the "what and where"; launch-scope guard; map of readonly sources | ~1–1½ weeks, **soft** |
