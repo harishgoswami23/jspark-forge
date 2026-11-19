@@ -1,0 +1,5 @@
+{
+  "name": "forge-probe",
+  "version": "0.0.1",
+  "description": "Throw-away probe plugin for JSPARK Forge spikes A-D. Logs every hook input; never ships."
+}

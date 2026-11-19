@@ -102,7 +102,21 @@ canary is never seen, record the notes-reminder route (design 5.3) in "Deviation
 **Fail →** if a shell form can't be reproduced faithfully on some platform, the installer refuses to wrap that kind
 of command, explains why, and the user keeps their status line (plan-limit saves off for them).
 
-**Results:** _fill in._
+**Results so far (2026-11-19, Windows 11 + Git Bash, Node 24; offline harness `spikes/statusline/test-spike-b.js`, 100 runs per row; never touches the real settings):**
+- Output byte-identical + suffix: no status line, Bash script, inline command with quotes and `//`, PowerShell
+  `-File` script, multi-line ANSI + OSC 8, `padding`/`refreshInterval` kept: **pass**.
+- Original fails → suffix only (157 ms); original hangs 5 s → suffix at 2.1 s (after fixing the wrapper to kill the
+  process tree and exit on flush): **pass**.
+- Undo byte-identical in every row; settings edited after install → only `statusLine` restored, other edit kept:
+  **pass**. Wrapper copy works with the plugin folder gone: **pass**.
+- **Added time: fail on Windows.** Median ~95–108 ms, p95 ~115–240 ms vs the < 50 ms target. Cause: one extra Node
+  start plus one extra shell spawn per refresh on Windows. Options for the owner: accept ~100 ms on Windows (the
+  status line is debounced and off the tool path), or ship the wrapper as a shell script on Windows. Decide before
+  step 6 of the build.
+- Test note: a PowerShell `-File` status line needs `-ExecutionPolicy Bypass` on default Windows (it fails without
+  the wrapper too).
+- Still to run: live session (the shell Claude Code really uses; project-level status line; npx line), Windows without
+  Git Bash, macOS (zsh), Linux.
 
 ---
 
@@ -137,7 +151,12 @@ Do PreToolUse blocks fire inside them?
 **Partial →** claim only the helper types that passed, by name. **Fail →** do not ship SubagentStart rule
 injection; README says only "safety blocks still fire inside helpers".
 
-**Results:** _fill in._
+**Results (2026-11-19, Windows 11, Claude Code 2.1.328, `claude -p`, model haiku, probe plugin `spikes/probe-plugin` loaded with `--plugin-dir`; runner `spikes/run-spike-c.sh`, analyzer `spikes/analyze-spike-c.js`):**
+- 6 helper types × 3 runs = 18/18: SubagentStart fired with the right `agent_type`; the canary was in every helper
+  transcript; every helper ended its report with `CANARY-7731-SEEN`; `echo FORGE_BLOCK_TEST` was denied inside every
+  helper (1/1 each). Types: `general-purpose`, `Explore`, `Plan`, custom project agent `tester`, plugin agent
+  `forge-probe:helper`, `fork`.
+- **Windows: pass.** macOS and Linux rows and an interactive-session row still to run before the claim ships.
 
 ---
 
@@ -187,7 +206,15 @@ the user's first reply), skipped in non-interactive runs. **Fail →** show-and-
 claims only that JSPARK Forge "asks before continuing"; record the evidence in "Deviations from review" if it
 contradicts a reviewed decision.
 
-**Results:** _fill in: dates, Claude Code version, signal found (or none), decision._
+**Results so far (2026-11-19, Windows 11, Claude Code 2.1.328):**
+- `claude -p` (hook env): `CLAUDE_CODE_ENTRYPOINT=sdk-cli`, `CLAUDE_CODE_SESSION_ATTENDED=0`; parent process command
+  line contains `-p`. The hook stdin/stdout are not TTYs (as expected). SessionStart input in `-p` had only
+  `session_id, transcript_path, cwd, hook_event_name, source` (no `model`, `agent_type`, `permission_mode`).
+- Interactive CLI session (this session's own Bash env, not yet a hook env): `CLAUDE_CODE_ENTRYPOINT=cli`,
+  `CLAUDE_CODE_SESSION_ATTENDED=1`. The `-p` child did not inherit the parent's values.
+- **Candidate rule:** interactive only if `CLAUDE_CODE_SESSION_ATTENDED=1`; anything else (0, missing) = skip the guard.
+  Both variables are **undocumented** → owner sign-off and "re-check each release" needed.
+- Still to run: a hook inside an interactive session (owner runs one), IDE, desktop, CI, Agent SDK, macOS, Linux.
 
 ---
 
@@ -205,3 +232,5 @@ contradicts a reviewed decision.
 - [ ] **B7** The PostToolUse matcher (`Edit|Write|NotebookEdit|Bash|PowerShell|TodoWrite|TaskCreate|TaskUpdate|Agent|mcp__.*`)
       sees every write path the handoff needs (incl. the todo/task tool names from B3). A missed path is a deviation
       (design section 16).
+- **Found 2026-11-19:** `claude plugin validate --strict` fails without a plugin icon (square PNG, 512–2048 px) → the
+  real plugin needs one for the ship gate. Stop input carries `background_tasks` (candidate source for "Still running").
