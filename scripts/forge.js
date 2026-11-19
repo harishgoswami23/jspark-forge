@@ -22,6 +22,7 @@ const { parsePlan } = require('./lib/plan');
 const usageLib = require('./lib/usage');
 const setup = require('./lib/setup');
 const paths = require('./lib/paths');
+const licence = require('./lib/licence');
 
 const event = process.argv[2] || '';
 const DEBOUNCE_MS = 5000;
@@ -106,6 +107,10 @@ const handlers = {
     for (const r of rules.readonly) {
       if (!fs.existsSync(path.resolve(dir, r.path))) msgs.push(`JSPARK Forge: read-only source ${r.path} was not found (the rule is kept).`);
     }
+    // Licence check (spec 5.2b): a guest repo and each existing read-only source, one line each, once per licence.
+    const licItems = rules.readonly.filter(r => fs.existsSync(path.resolve(dir, r.path))).map(r => ({ label: r.path, folder: path.resolve(dir, r.path) }));
+    if (paths.isGuest(dir)) licItems.unshift({ label: 'this repo', folder: paths.repoRoot(dir) });
+    if (licItems.length) msgs.push(...licence.notices(dir, licItems));
     if (rules.disabled.length) msgs.push(`JSPARK Forge: you switched off ${rules.disabled.join(', ')} in rules.md.`);
     const rc = handoff.resumeContext(dir, input.session_id, input.source || 'startup');
     if (rc.systemMessage) msgs.unshift(rc.systemMessage);
