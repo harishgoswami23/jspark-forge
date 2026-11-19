@@ -17,6 +17,15 @@ Status: **revision 2, 2026-11-20**, after the Fable 5.2 design review (findings 
 - **Spike K:** is `CLAUDE_CODE_SESSION_ID` set for commands Claude runs through Bash, so `forge.js graph …` knows the
   session.
 
+**Results (Windows, real `claude -p` with the probe plugin, 2026-11-20): all three pass.**
+- **I:** `node -e "process.exit(3)"` arrived at PostToolUseFailure with the exact command and `error: "Exit code 3"`;
+  `echo gate-ok` arrived at PostToolUse with its stdout. Gates run through Claude's own tools.
+- **J:** PreToolUse on Agent carries the call's `description` ("STEPMARK-42 tiny check"), so the build skill puts
+  `[graph <name>/<step>]` there; SubagentStart / SubagentStop carry `agent_id` and `agent_type`; PostToolUse on Agent
+  (foreground) carries `agentType`, `resolvedModel`, `totalDurationMs`, `totalTokens` and `usage`. **So token actuals
+  per step are available** for foreground helpers; background helpers are reported "not reported" until checked.
+- **K:** commands run through Bash see `CLAUDE_CODE_SESSION_ID` (the session's id).
+
 ## 1. The idea, and what is actually enforced [R-H1]
 
 A build is written once as a graph file. **Claude runs it** through `/jspark-forge:build` (a plugin cannot start

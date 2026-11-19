@@ -265,3 +265,11 @@ contradicts a reviewed decision.
   `background_tasks` lists running shells (`id, type, status, description, command`) → use it for "Still running".
   **SubagentStop fired 3× with no SubagentStart** (internal helpers): job tracking must ignore a SubagentStop that has
   no matching start.
+
+## Spikes I, J, K (v0.4 build graph), 2026-11-20
+
+Windows, real `claude -p` with `spikes/probe-plugin`. **I:** a non-zero Bash exit reaches PostToolUseFailure with the
+exact command and `Exit code N`; a zero exit reaches PostToolUse. **J:** PreToolUse on Agent carries `description`;
+SubagentStart/Stop carry `agent_id` and `agent_type`; PostToolUse on a foreground Agent call carries `agentType`,
+`resolvedModel`, `totalDurationMs`, `totalTokens`, `usage`. **K:** `CLAUDE_CODE_SESSION_ID` is set for Bash commands.
+Details in design-v0.4.md section 0. Earlier this day: spike F (engine watcher) and G (detached child) in design-v0.3.md.
