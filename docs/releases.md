@@ -168,6 +168,9 @@ everything below is then revisited from their feedback.
 
 ## v0.2.1: Database guard (spec 5.2c) [owner 2026-11-20]
 
+**Status: built** (branch `dev/v0.2-dbguard`). The `database dev:` line is honoured only from the user's own
+`~/.claude/jspark-forge/rules.md`; a project's line is ignored and reported at SessionStart, like `disable:`.
+
 **What it does.** Guards databases instead of reading them: a write to a production database is denied until the
 user types `CONFIRM db-write` (one-shot, 5 minutes). Reads are never blocked.
 
@@ -177,7 +180,8 @@ user types `CONFIRM db-write` (one-shot, 5 minutes). Reads are never blocked.
 - Checked in MCP tool calls and in Bash / PowerShell database clients (`psql`, `mysql`, `sqlite3`, `mongosh`,
   `supabase db`, `prisma migrate deploy`, …).
 - Production by default: every database MCP server and every non-local host. One line in `rules.md` relaxes it:
-  `- database dev: <server name or host pattern>` (ignored in a guest repo's own rules).
+  `- database dev: <server name or host pattern>` under `## Settings` (honoured only in the user's own rules.md; a
+  repo's own line is ignored, in guest mode or not).
 - `sql-destroy` keeps blocking `DROP` / `TRUNCATE` / `DELETE` without `WHERE` everywhere.
 
 **Acceptance criteria** ≥ 5 positive / ≥ 5 negative tests per form (MCP, Bash, PowerShell); a `SELECT` is never

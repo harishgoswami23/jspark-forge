@@ -233,6 +233,44 @@ const CASES = {
     [bash('make -n', { quarantine: true }), null],
     [bash('npm audit', { quarantine: true }), null],
   ],
+  // v0.2.1 database guard (spec 5.2c): a write to a non-local database needs CONFIRM db-write; reads never do.
+  'db-write': [
+    [bash('psql -h db.prod.example.com -c "INSERT INTO users VALUES (1)"'), 'db-write'],
+    [bash('psql postgres://app:pw@db.example.com:5432/app -c "UPDATE users SET admin = true WHERE id = 1"'), 'db-write'],
+    [bash('mysql -h 10.0.0.5 -u root -e "ALTER TABLE orders ADD COLUMN note text"'), 'db-write'],
+    [bash('mysql --host=shop.rds.amazonaws.com -e "insert into t values (1)"'), 'db-write'],
+    [bash('PGHOST=prod.example.com psql -c "delete from sessions where id = 3"'), 'db-write'],
+    [bash('echo "INSERT INTO t VALUES (1);" | psql -h prod.example.com app'), 'db-write'],
+    [bash('psql -h $DB_HOST -c "create table x (id int)"'), 'db-write'],
+    [bash('psql "$DATABASE_URL" -c "update t set a = 1 where id = 2"'), 'db-write'],
+    [bash('sqlcmd -S prod-sql.database.windows.net -Q "UPDATE t SET a = 1 WHERE id = 2"'), 'db-write'],
+    [bash("mongosh 'mongodb+srv://cluster0.mongodb.net/app' --eval 'db.users.insertOne({a: 1})'"), 'db-write'],
+    [bash('supabase db push'), 'db-write'],
+    [bash('supabase db reset --linked'), 'db-write'],
+    [bash('npx prisma migrate deploy'), 'db-write'],
+    [bash('bash -c "psql -h prod.example.com -c \\"insert into t values (1)\\""'), 'db-write'],
+    [bash('psql -h prod.example.com -c "SELECT * FROM users"'), null],
+    [bash('psql -h prod.example.com -c "select 1; select 2"'), null],
+    [bash('psql -h prod.example.com -c "WITH x AS (SELECT 1) SELECT * FROM x"'), null],
+    [bash('psql -h prod.example.com -c "EXPLAIN SELECT * FROM users"'), null],
+    [bash('mysql -h 10.0.0.5 -e "SHOW TABLES"'), null],
+    [bash('mysql -h 10.0.0.5 -e "DESCRIBE orders"'), null],
+    [bash('psql -h prod.example.com -c "\\dt"'), null],
+    [bash('psql -h localhost -c "INSERT INTO t VALUES (1)"'), null],
+    [bash('psql -h 127.0.0.1 -c "UPDATE t SET a = 1 WHERE id = 2"'), null],
+    [bash('psql -h ::1 -c "insert into t values (1)"'), null],
+    [bash('psql -h /var/run/postgresql -c "insert into t values (1)"'), null],
+    [bash('psql mydb -c "insert into t values (1)"'), null],
+    [bash('mysql -e "update t set a = 1 where id = 2"'), null],
+    [bash('sqlite3 app.db "INSERT INTO t VALUES (1)"'), null],
+    [bash('mongosh mongodb://localhost:27017/app --eval "db.users.insertOne({a: 1})"'), null],
+    [bash('mongosh "mongodb+srv://cluster0.mongodb.net/app" --eval "db.users.find()"'), null],
+    [bash('supabase db reset'), null],
+    [bash('supabase db push --local'), null],
+    [bash('supabase db diff'), null],
+    [bash('echo "INSERT INTO t VALUES (1)"'), null],
+    [bash('git commit -m "update users set admin"'), null],
+  ],
   'chained and quoted': [
     [bash('npm test && git reset --hard'), 'git-reset-hard'],
     [bash('cd /tmp; rm -rf ~'), 'rm-rf-outside!'],
@@ -293,8 +331,8 @@ test('every match carries a reason with the stop sentence', () => {
   assert.ok(!/CONFIRM/.test(h.reason), 'a hard deny offers no override');
 });
 
-test('the published list is the nine design entries plus guest-quarantine and readonly-source (v0.1.1)', () => {
-  assert.deepEqual(Object.keys(BUILTINS).sort(), ['chmod-wide', 'git-clean-fdx', 'git-force-push-main', 'git-reset-hard',
+test('the published list is the nine design entries plus guest-quarantine, readonly-source (v0.1.1) and db-write (v0.2.1)', () => {
+  assert.deepEqual(Object.keys(BUILTINS).sort(), ['chmod-wide', 'db-write', 'git-clean-fdx', 'git-force-push-main', 'git-reset-hard',
     'git-stash-drop', 'guest-quarantine', 'pipe-to-shell', 'readonly-source', 'rm-rf-outside', 'secret-files', 'sql-destroy']);
 });
 
