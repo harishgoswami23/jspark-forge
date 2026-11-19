@@ -17,8 +17,13 @@ const REL = '.jspark-forge/launch.md';
 const BOM = String.fromCharCode(0xfeff);
 const DATE = /^\d{4}-\d\d-\d\d$/;
 const DAY = 86400000;
-const ITEM = /^(\s*[-*]\s+)\[([ xX])\]\s*(.*?)\s*$/;
-const TAG = /\s*\((added|started|done)\s+(\d{4}-\d\d-\d\d)\)\s*$/i;
+const MAX_FILE = 64 * 1024; // launch.md: only the first 64 KB is read
+const MAX_LINE = 500; // a longer line is not a launch.md line: it is skipped, before any pattern sees it
+// These run on a trimmed line of at most MAX_LINE characters, so none can backtrack badly.
+const ITEM = /^([-*]\s+)\[([ xX])\]\s*(.*)$/;
+const TAG = /\s*\((added|started|done)\s+(\d{4}-\d\d-\d\d)\)$/i;
+const DATE_LINE = /^Launch date:\s*(.*)$/i;
+const CRIT_LINE = /^Critical paths:\s*(.*)$/i;
 const AFTER_HEAD = /^#{1,6}\s+after launch\b/i;
 const ANY_HEAD = /^#{1,6}\s/;
 const SESSION_WORDS = 60;
@@ -38,16 +43,21 @@ function safeCritical(p) {
 
 // -> { date, critical, skipped, items: [{ line, section, n, title, done, added, started, finished, blank }] }
 function parse(text) {
-  const { lines } = D.linesOf(String(text || ''));
-  const out = { date: '', critical: [], skipped: 0, items: [], criticalLine: -1, afterHead: -1 };
+  let src = String(text || '');
+  const truncated = src.length > MAX_FILE;
+  if (truncated) src = src.slice(0, MAX_FILE);
+  const { lines } = D.linesOf(src);
+  const out = { date: '', critical: [], skipped: 0, items: [], criticalLine: -1, afterHead: -1, truncated };
   let section = 'list';
   let n = 0;
   lines.forEach((raw, i) => {
-    const line = i === 0 && raw.startsWith(BOM) ? raw.slice(1) : raw;
+    if (raw.length > MAX_LINE) return;
+    const full = i === 0 && raw.startsWith(BOM) ? raw.slice(1) : raw;
+    const line = full.trim();
     if (ANY_HEAD.test(line)) { section = AFTER_HEAD.test(line) ? 'after' : 'list'; if (section === 'after' && out.afterHead < 0) out.afterHead = i; return; }
-    let m = line.match(/^\s*Launch date:\s*(.*?)\s*$/i);
+    let m = line.match(DATE_LINE);
     if (m) { if (!out.date) out.date = m[1]; return; }
-    m = line.match(/^\s*Critical paths:\s*(.*?)\s*$/i);
+    m = line.match(CRIT_LINE);
     if (m) {
       out.criticalLine = i;
       for (const p of m[1].split(',').map(x => x.trim()).filter(Boolean)) {
@@ -66,7 +76,8 @@ function parse(text) {
       rest = rest.slice(0, t.index);
     }
     const title = rest.trim();
-    const item = { line: i, section, bullet: m[1], title, blank: !title, done: /x/i.test(m[2]) || !!tags.done,
+    const lead = full.slice(0, full.length - full.trimStart().length);
+    const item = { line: i, section, bullet: lead + m[1], title, blank: !title, done: /x/i.test(m[2]) || !!tags.done,
       added: tags.added || '', started: tags.started || '', finished: tags.done || '' };
     if (!item.blank && section === 'list') item.n = ++n;
     out.items.push(item);
@@ -79,11 +90,26 @@ const afterItems = l => l.items.filter(x => x.section === 'after' && !x.blank);
 const same = (a, b) => clean(a, 200).toLowerCase() === clean(b, 200).toLowerCase();
 
 // Own projects only: a guest repo's launch.md is never read. -> { text, list } or null.
+const isLink = f => { try { return fs.lstatSync(f).isSymbolicLink(); } catch { return false; } };
+const NOTE_CUT = ` (${REL} is larger than 64 KB: only the first 64 KB was read.)`;
+function readCapped(f) {
+  const fd = fs.openSync(f, 'r');
+  try {
+    const buf = Buffer.alloc(MAX_FILE + 1);
+    const got = fs.readSync(fd, buf, 0, MAX_FILE + 1, 0);
+    return buf.toString('utf8', 0, Math.min(got, MAX_FILE));
+  } finally { fs.closeSync(fd); }
+}
 function read(dir) {
   if (!paths.isOwn(dir)) return null;
+  const f = fileOf(dir);
+  if (isLink(f)) return null;
   let text;
-  try { text = fs.readFileSync(fileOf(dir), 'utf8'); } catch { return null; }
-  return { text, list: parse(text) };
+  let big = false;
+  try { text = readCapped(f); big = fs.statSync(f).size > MAX_FILE; } catch { return null; }
+  const list = parse(text);
+  list.truncated = big;
+  return { text, list };
 }
 
 // ---------- machine-local state: <forgeDir>/state/launch.json (known titles, the last change to announce) ----------
@@ -115,7 +141,7 @@ function sessionContext(dir) {
     }
   }
   const body = groups.filter(g => g.shown.length).map(g => `${g.label} ${g.shown.join('; ')}.`).join(' ');
-  return [head, body, left ? `(and ${left} more)` : ''].filter(Boolean).join(' ');
+  return [head, body, left ? `(and ${left} more)` : '', r.list.truncated ? NOTE_CUT.trim() : ''].filter(Boolean).join(' ');
 }
 
 // Items this machine has not seen (they came with git, or were added by hand): listed to the user once.
@@ -136,15 +162,21 @@ function arrivals(dir) {
 }
 
 // ---------- the UserPromptSubmit nudge (design-v0.3 2.2; owner Q-M2: on whenever launch.md exists) ----------
-const PHRASES = ["let'?s also", 'let us also', 'can we (?:also )?add', 'could we (?:also )?add', 'what if we', 'new features?',
-  'add support for', "while we'?re at it", 'while we are at it', 'how about adding', 'one more (?:thing|feature)',
-  'it would be nice to', 'we should also add', "i'?d like to add", 'and also add'];
+// Bare "new feature" and "what if we" are not triggers: a build verb is needed. Questions about existing things and
+// test / lint / fix / bug wording never nudge (and so never use up the cool-down).
+const BUILD = '(?:add|build|implement|support|create|make|introduce|integrate)';
+const PHRASES = [`(?:let'?s|let us)(?: also)? ${BUILD}`, 'can we (?:also )?add', 'could we (?:also )?add', `what if we (?:also )?${BUILD}`,
+  `${BUILD} (?:a |an |the |another |one more )?new features?`, 'add support for', "while we'?re at it", 'while we are at it',
+  'how about adding', 'one more (?:thing|feature)', 'it would be nice to', 'we should also add', "i'?d like to add", 'and also add'];
 const SCOPE = new RegExp(`(?<![\\w'])(?:${PHRASES.join('|')})(?![\\w'])`, 'i');
+const QUESTION_ABOUT_EXISTING = /^\s*(?:explain|describe|what does|what do|what is|why|how does|how do)\b/i;
+const NOT_SCOPE = /(?<![\w'])(?:tests?|lint(?:er|ing|s)?|fix(?:es|ed|ing)?|bugs?)(?![\w'])/i;
 const RIGHT_QUOTE = new RegExp(String.fromCharCode(0x2019), 'g');
 function looksLikeNewScope(prompt) {
-  const p = String(prompt || '');
+  const p = String(prompt || '').replace(RIGHT_QUOTE, "'");
   if (p.length >= MAX_PROMPT || /^\s*\//.test(p)) return false;
-  return SCOPE.test(p.replace(RIGHT_QUOTE, "'"));
+  if (QUESTION_ABOUT_EXISTING.test(p) || NOT_SCOPE.test(p)) return false;
+  return SCOPE.test(p);
 }
 // Main conversation, attended sessions only, not at 95 % usage, at most once per 30 minutes per session. Mutates sess.
 function nudge(dir, input, sess, now = Date.now()) {
@@ -194,7 +226,8 @@ function facts(dir, args) {
       : `- Critical paths: none of the ${l.critical.length} critical paths is touched by these files.`;
   }
   if (l.skipped) crit += ` (${l.skipped} critical path entr${l.skipped === 1 ? 'y' : 'ies'} skipped: they must be relative paths inside the project.)`;
-  L.push(crit, `- ${estimate(l.items.filter(x => !x.blank))}`);
+  L.push(crit, `- ${estimate(items)}`);
+  if (l.truncated) L.push(`-${NOTE_CUT}`);
   return `${L.join('\n')}\n`;
 }
 
@@ -270,16 +303,20 @@ function run(dir, args) {
     const k = rest.indexOf('--date');
     const date = k >= 0 ? String(rest[k + 1] || '') : '';
     if (!validDate(date)) return 'Not created: give the launch date as --date YYYY-MM-DD.\n';
-    if (fs.existsSync(f)) return `${REL} already exists; nothing was changed (JSPARK Forge never overwrites it).\n`;
+    if (fs.existsSync(f) || isLink(f)) return `${REL} already exists; nothing was changed (JSPARK Forge never overwrites it).\n`;
     fs.mkdirSync(path.dirname(f), { recursive: true });
     fs.writeFileSync(f, TEMPLATE(date), { flag: 'wx' });
     shareFile(dir);
     return done(`JSPARK Forge: created ${REL} (launch date ${date}, 5 blank slots). Commit it with the project.`);
   }
   if (!['add', 'start', 'done', 'after'].includes(sub)) return 'Use: launch init --date YYYY-MM-DD | add|start|done|after "<title or #n>" | facts [--files a,b]\n';
+  if (isLink(f)) return `${REL} is a symbolic link: JSPARK Forge neither reads nor writes it; nothing was changed.\n`;
   let text;
-  try { text = fs.readFileSync(f, 'utf8'); } catch { return 'No launch list yet: create one with /jspark-forge:launch.\n'; }
-  const ref = rest.filter(a => !a.startsWith('--')).join(' ').trim();
+  try {
+    if (fs.statSync(f).size > MAX_FILE) return `${REL} is too large (over 64 KB) to change safely; nothing was changed. Edit it by hand.\n`;
+    text = fs.readFileSync(f, 'utf8');
+  } catch { return 'No launch list yet: create one with /jspark-forge:launch.\n'; }
+  const ref = rest.join(' ').trim(); // none of add / start / done / after takes a flag: a word starting with -- is part of the title
   const l = parse(text);
   const t = D.linesOf(text);
   const fileEol = /\r\n/.test(text) ? '\r\n' : '\n';
@@ -304,7 +341,8 @@ function run(dir, args) {
     else appendLine(t, line, fileEol);
     write();
     remember(title);
-    return done(`JSPARK Forge: added to the launch list: #${items.length + 1} ${clean(title, 80)}.`);
+    const got = listItems(parse(D.joinLines(t))).find(x => same(x.title, title));
+    return done(`JSPARK Forge: added to the launch list: #${got ? got.n : items.length + 1} ${clean(title, 80)}.`);
   }
   if (sub === 'after') {
     if (found) {
