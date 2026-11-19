@@ -31,8 +31,20 @@ function parseRules(text) {
       return;
     }
     if (section === 'settings') {
-      const dev = line.match(/^\s*[-*]\s+database\s+dev\s*:\s*(.+?)\s*$/i); // v0.2.1: "- database dev: <server name or host pattern>"
-      if (dev) { out.dbDev.push(...dev[1].split(',').map(x => x.trim()).filter(Boolean)); return; }
+      // v0.2.1 "- database dev: host:<glob> | mcp:<server or prefix*> | <exact host or server>" (code review M7: a
+      // host pattern and an MCP server name are kept apart, and a bare name matches only exactly)
+      const dev = line.match(/^\s*[-*]\s+database\s+dev\s*:\s*(.+?)\s*$/i);
+      if (dev) {
+        for (const x of dev[1].split(',').map(y => y.trim()).filter(Boolean)) {
+          const kind = (x.match(/^(host|mcp)\s*:/i) || [])[1];
+          const v = kind ? x.slice(x.indexOf(':') + 1).trim() : x;
+          if (!v) out.errors.push({ line: n, message: `"${x}" names nothing` });
+          else if (!kind && v.includes('*')) out.errors.push({ line: n, message: `"${x}": a pattern needs host:<pattern> (database hosts) or mcp:<prefix>* (MCP servers)` });
+          else if (kind && kind.toLowerCase() === 'mcp' && v.slice(0, -1).includes('*')) out.errors.push({ line: n, message: `"${x}": mcp: takes an exact server name or a prefix ending in * (host: is for host patterns)` });
+          else out.dbDev.push(kind ? `${kind.toLowerCase()}:${v}` : v);
+        }
+        return;
+      }
       const m =line.match(/^\s*[-*]\s+([a-z-]+)\s*:\s*(.+?)\s*$/i);
       const key = m && m[1].toLowerCase();
       if (m && key === 'disable') {

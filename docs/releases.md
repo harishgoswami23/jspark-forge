@@ -187,7 +187,7 @@ user types `CONFIRM db-write` (one-shot, 5 minutes). Reads are never blocked.
 - Checked in MCP tool calls and in Bash / PowerShell database clients (`psql`, `mysql`, `sqlite3`, `mongosh`,
   `supabase db`, `prisma migrate deploy`, …).
 - Production by default: every database MCP server and every non-local host. One line in `rules.md` relaxes it:
-  `- database dev: <server name or host pattern>` under `## Settings` (honoured only in the user's own rules.md; a
+  `- database dev: host:<glob> | mcp:<server or prefix*> | <exact host or server>` under `## Settings` (honoured only in the user's own rules.md; a
   repo's own line is ignored, in guest mode or not).
 - `sql-destroy` keeps blocking `DROP` / `TRUNCATE` / `DELETE` without `WHERE` everywhere.
 

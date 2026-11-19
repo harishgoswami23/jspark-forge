@@ -305,6 +305,10 @@ Postgres and others) and command-line clients. Reading data is not JSPARK Forge'
   `localhost` / `127.0.0.1` / a Unix socket, **unless** `rules.md` names it as dev: `- database dev: <server name or
   host pattern>`. Safe by default; one line to relax. A repo's own `rules.md` cannot mark a database as dev in guest
   mode (5.2b).
+- [code review H1/M7, 2026-11-20] Reads are listed and every other statement is held (literals and comments removed;
+  only the SQL sent to that client; a script file, `<` or a pipe into a remote client is held); an unresolved
+  variable, `service=` or `--login-path` is production; `database dev:` takes `host:<glob>` (every host in the
+  command must match), `mcp:<server>` or `mcp:<prefix>*`, and a bare name matches one host or server exactly.
 - `sql-destroy` (5.2) stays as it is: `DROP` / `TRUNCATE` / `DELETE` without `WHERE` are blocked on dev databases too.
 
 **Tests** ≥ 5 positive / ≥ 5 negative per form (MCP, Bash, PowerShell), like every block-list entry; a `SELECT` is
