@@ -59,7 +59,21 @@ and README says saves rely on the step triggers. If `rate_limits` never appears 
 dropped from v0.1 and README says "context limit only, use `/jspark-forge:handoff` for plan limits". If the PreCompact
 canary is never seen, record the notes-reminder route (design 5.3) in "Deviations from review".
 
-**Results:** _fill in: dates, Claude Code version, numbers, decision._
+**Results (2026-11-19, Windows 11, Claude Code 2.1.328, owner's Pro/Max-class login, one interactive session via
+`spikes/live-session.js`; no `refreshInterval`):**
+- Status line ran at startup with `context_window.used_percentage` = null and no `rate_limits`. On the first prompt:
+  `five_hour` 8 %, `seven_day` 1 % present; context % present (5) from the next run. **Pass.**
+- After `/compact`: context % was **0, not null** (docs say it may be null); back to 5 after the next reply. Hooks must
+  treat 0 right after compaction as "low", which is correct anyway.
+- **Freshness: 14/17 hook calls (82 %) had figures < 2 min old → fail against ≥ 95 %.** All 3 stale calls were the
+  first hook after an idle gap (60 s wait; 150 s background sleep); the status line refreshed within 1–4 s after each.
+  Figures do not move while idle, so a stale reading there is harmless for context %, less so for plan % (other
+  sessions can use the plan). Next: repeat with `refreshInterval: 30` (spike's own fallback).
+- PreCompact `hookSpecificOutput.additionalContext` is **rejected by validation** and shows a visible error at
+  `/compact`; the rejected JSON (incl. the canary) then leaks into the conversation via the error text. **Confirms
+  the docs; Forge's PreCompact must print nothing.** The design 5.3 route (`notes_due` → SessionStart `compact`) is
+  needed and works: SessionStart `compact` fired and its context reached Claude.
+- API-key account side: not run yet.
 
 ---
 
@@ -115,8 +129,9 @@ of command, explains why, and the user keeps their status line (plan-limit saves
   step 6 of the build.
 - Test note: a PowerShell `-File` status line needs `-ExecutionPolicy Bypass` on default Windows (it fails without
   the wrapper too).
-- Still to run: live session (the shell Claude Code really uses; project-level status line; npx line), Windows without
-  Git Bash, macOS (zsh), Linux.
+- Live session (2026-11-19, via `--settings`): Claude Code ran the wrapper; the owner saw `probe · Forge ok`; usage
+  file written. **Pass.**
+- Still to run: project-level status line row, npx line, Windows without Git Bash, macOS (zsh), Linux.
 
 ---
 
@@ -214,7 +229,9 @@ contradicts a reviewed decision.
   `CLAUDE_CODE_SESSION_ATTENDED=1`. The `-p` child did not inherit the parent's values.
 - **Candidate rule:** interactive only if `CLAUDE_CODE_SESSION_ATTENDED=1`; anything else (0, missing) = skip the guard.
   Both variables are **undocumented** → owner sign-off and "re-check each release" needed.
-- Still to run: a hook inside an interactive session (owner runs one), IDE, desktop, CI, Agent SDK, macOS, Linux.
+- Interactive CLI session, **inside a hook** (2026-11-19, plain `cmd.exe`): `CLAUDE_CODE_ENTRYPOINT=cli`,
+  `CLAUDE_CODE_SESSION_ATTENDED=1` at SessionStart `startup` and `compact`. Windows CLI rows: **pass**.
+- Still to run: IDE, desktop, CI, Agent SDK, macOS, Linux.
 
 ---
 
@@ -234,3 +251,9 @@ contradicts a reviewed decision.
       (design section 16).
 - **Found 2026-11-19:** `claude plugin validate --strict` fails without a plugin icon (square PNG, 512–2048 px) → the
   real plugin needs one for the ship gate. Stop input carries `background_tasks` (candidate source for "Still running").
+- **B2 (2026-11-19): pass.** SessionStart `systemMessage` is shown at startup and after `/compact` as
+  "SessionStart:<source> says: …".
+- **Live session (2026-11-19):** PostToolUse of a background Bash call carries `backgroundTaskId`; Stop's
+  `background_tasks` lists running shells (`id, type, status, description, command`) → use it for "Still running".
+  **SubagentStop fired 3× with no SubagentStart** (internal helpers): job tracking must ignore a SubagentStop that has
+  no matching start.
