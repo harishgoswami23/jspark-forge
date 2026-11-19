@@ -84,7 +84,27 @@ unchanged; the guard only makes the "do not change files or run commands" part h
 
 ## 2. Guest mode: someone else's repo (spec 5.2b, adapted to automatic setup)
 
-Status: draft for review, 2026-11-19.
+> **Decision 2026-11-19 [owner], after the Fable 5.2 review: build the simpler design.**
+> - **Where JSPARK Forge keeps its files is decided automatically, and a wrong guess is harmless.** "Yours" needs
+>   proof that is never cloned: `.jspark-forge/state/` or `.jspark-forge/log/` in the repo (git-ignored), or no remote,
+>   or no commits, or a commit by your `user.email`. A repo with a remote and none of these (git succeeded) keeps its
+>   files in `~/.claude/jspark-forge/guests/<id>/`, nothing inside the repo. A committed `.jspark-forge/rules.md` alone
+>   proves nothing. If git fails, the files stay in the repo as before (fail open).
+> - **The quarantine is on request only:** `/jspark-forge:init --guest` switches it on for that repo; the one-time
+>   notice mentions it. It never switches on by guessing, so it can never block CI or the user's own work. Once
+>   confirmed with `CONFIRM guest-quarantine`, it stays allowed for the rest of that session.
+> - `/jspark-forge:init --mine` moves the files into the repo and switches the quarantine off.
+> - Build notes kept from the review: `<id>` = sha1 of the normalised real path of the git top level only (origin, with
+>   any user:password removed, kept in `guests/<id>/meta.json`; a different origin at the same path starts fresh); one
+>   path resolver for every module and for every path shown to Claude (notes, log, archive) and to `forge.js save`; no
+>   git call in PreToolUse or in the status-line wrapper; the wrapper copy refreshed when the plugin's changes;
+>   `git status --no-optional-locks`; quarantine scoped to commands run inside the repo, with the review's gap list;
+>   wording "common install, build and run commands", never "all". Test 2.4 restated: a guest session changes no file
+>   except those the user asked to change.
+>
+> The rest of this section is the reviewed draft, kept for the record; where it differs, this box wins.
+
+Status: reviewed draft, 2026-11-19.
 
 ### 2.1 Why, and what changed since the spec
 
