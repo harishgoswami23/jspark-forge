@@ -70,7 +70,7 @@ never blocks it (spec principle 11).
 | Fact | Source | Used for |
 |---|---|---|
 | Context % (`context_window.used_percentage`) is given **only to the status line**; may be `null` early and right after `/compact` | statusline.md | usage bridge |
-| Plan quota (`rate_limits.five_hour.used_percentage`, `rate_limits.seven_day.used_percentage`, `resets_at`) is **status line only**, present **only for Pro/Max/Ultra** (or a gateway spend limit), only after the first reply; each window may be absent | statusline.md | usage bridge, README caveat |
+| Plan quota (`rate_limits.five_hour.used_percentage`, `rate_limits.seven_day.used_percentage`, `resets_at`) is **status line only**, present **only for Pro/Max/Ultra** (or a gateway spend limit) per the docs; **also observed on a Team plan** (spike A, 2026-11-19; re-check each release), only after the first reply; each window may be absent | statusline.md | usage bridge, README caveat |
 | Status line runs at session start, on each new assistant message, after `/compact`, on permission-mode change, and on an optional `refreshInterval` timer (min 1 s); debounced 300 ms; an in-flight run is cancelled by a newer one | statusline.md | freshness rule |
 | Only **one** `statusLine` command; a plugin's `settings.json` can set only `agent` and `subagentStatusLine`, **not** `statusLine` | plugins/components.md "Default settings" | installer must edit user settings |
 | On Windows, status line and shell-form hooks run through Git Bash if installed, else PowerShell | statusline.md, hooks.md | runtime choice |
@@ -353,11 +353,12 @@ Treat it as a workaround, because it is one. [owner]
     Repeats at most once per window.
   - The 80 % band also carries the notes reminder (5.3).
 - Bands re-arm when the figure drops (after compaction or a window reset).
-- **Fallback:** no wrapper, figures absent (non-Pro/Max/Ultra plan, before the first reply) or stale → triggers a–e
+- **Fallback:** no wrapper, figures absent (a plan that does not report usage, before the first reply) or stale → triggers a–e
   still keep the handoff no more than one step behind, plus the manual `/jspark-forge:handoff`.
 
 ### 7.3 Caveats shown on the README first screen and in install output [owner]
-- **Plan-limit saves need a Pro, Max or Ultra plan** (Claude Code only shares plan usage with those plans).
+- **Plan-limit saves need a plan that reports usage: Pro, Max, Ultra or Team** (Team observed in spike A, re-checked
+  each release; Claude Code shares plan usage only with plans that report it).
   Context-limit saves work on every plan.
 - Forge touches your status line (wrapper); how to undo it is printed at install.
 

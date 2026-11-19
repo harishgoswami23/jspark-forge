@@ -8,8 +8,8 @@
 
 A Claude Code plugin for technical solo founders. Built for Claude Code, by JSPARK AI. Free and open source (MIT).
 
-> **Plan-limit saves need a Claude Pro, Max or Ultra plan.** Claude Code shares plan usage (5-hour and weekly
-> limits) only with those plans. On any plan, JSPARK Forge still saves before the context limit and after every
+> **Plan-limit saves need a plan that reports usage: Claude Pro, Max, Ultra or Team** (Team: observed, re-checked
+> each release). Claude Code shares plan usage (5-hour and weekly limits) only with plans that report it. On any plan, JSPARK Forge still saves before the context limit and after every
 > step, and `/jspark-forge:handoff` saves on demand.
 
 <!-- demo GIF: kill a session mid-task, reopen, "here's where we were, continue?" -->
@@ -34,7 +34,7 @@ Everything stays on your machine. No network calls, no telemetry.
 | | Claude Code alone | Method / workflow kits | Large all-in-one kits | **JSPARK Forge** |
 |---|---|---|---|---|
 | Back to work after a crash or limit from a one-page handoff, shown when you open Claude Code | Reopens the whole old conversation | No | Not as a core feature | **Yes** |
-| Save forced at 95 % of context or plan usage | No | No | No | **Yes** (plan usage: Pro/Max/Ultra) |
+| Save forced at 95 % of context or plan usage | No | No | No | **Yes** (plan usage: Pro/Max/Ultra/Team) |
 | Dangerous actions blocked by hooks, with a published list and typed override | Permission prompts only | Instructions Claude may forget | Varies, many hooks | **Yes, every hook documented** |
 | Small: one job, a handful of hooks | n/a | Yes | No | **Yes** |
 

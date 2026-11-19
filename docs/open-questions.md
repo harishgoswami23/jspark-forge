@@ -11,9 +11,10 @@ seconds."* (README line one: *"Claude Code forgets. JSPARK Forge doesn't. Open C
 off in 30 seconds."*). "Type `/resume`" is gone from the pitch and README; Forge shows "here's where we were" by
 itself when Claude Code opens. `/jspark-forge:resume` stays as the on-demand command.
 
-### Q2. Run the plan-limit spikes on which account?
+### Q2. [Decided] Run the plan-limit spikes on which account?
 Plan-usage figures exist only on Pro/Max/Ultra. Spike A needs one such account and one API-key account.
-**Recommendation:** use your own Max account for the Pro/Max side; a throw-away API key with a small spend cap for
+**Decided (owner, 2026-11-19):** the owner's Team-plan login (it reports plan usage); an API-key account with a
+small spend cap for the other side, still to run. Original recommendation: use your own Max account for the Pro/Max side; a throw-away API key with a small spend cap for
 the other.
 
 ### Q3. Require Node.js?

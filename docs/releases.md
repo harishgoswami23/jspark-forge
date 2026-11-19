@@ -33,7 +33,7 @@ enough to resume the work, not a map of the system [owner, 2026-11-03].
   the old task back up; a new first message is done after a one-line mention of the parked task. Show-and-wait is
   **instructed only** (Q8).
 - At 95 % context or plan usage: *"Usage at 95 %. Handoff saved. Next session, JSPARK Forge shows where you were."*
-  Plan figures only on Pro/Max/Ultra.
+  Plan figures only on plans that report usage (Pro/Max/Ultra; Team observed).
 - A blocked action: plain reason + *"Do not try an equivalent command; tell the user and stop."* + "type CONFIRM
   <name>"; then Claude Code's normal yes/no prompt.
 - A short "saved" note after the user's own status line (if they let init wrap it).

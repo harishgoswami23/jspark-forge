@@ -59,7 +59,7 @@ and README says saves rely on the step triggers. If `rate_limits` never appears 
 dropped from v0.1 and README says "context limit only, use `/jspark-forge:handoff` for plan limits". If the PreCompact
 canary is never seen, record the notes-reminder route (design 5.3) in "Deviations from review".
 
-**Results (2026-11-19, Windows 11, Claude Code 2.1.328, owner's Pro/Max-class login, one interactive session via
+**Results (2026-11-19, Windows 11, Claude Code 2.1.328, owner's Team-plan login, one interactive session via
 `spikes/live-session.js`; no `refreshInterval`):**
 - Status line ran at startup with `context_window.used_percentage` = null and no `rate_limits`. On the first prompt:
   `five_hour` 8 %, `seven_day` 1 % present; context % present (5) from the next run. **Pass.**

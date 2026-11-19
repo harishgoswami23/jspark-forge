@@ -86,7 +86,7 @@ hooks.md on 2026-11-03. Re-check each release.
 | Fact | Limit / consequence |
 |---|---|
 | Context % (`context_window.used_percentage`) is given **only to the status line** | Hooks need a bridge: status line writes `.jspark-forge/usage/<session>.json`; hooks read it. May be `null` early and right after `/compact` |
-| Plan quota (`rate_limits.five_hour` / `seven_day` `.used_percentage`, `.resets_at`) is **status line only** | Present **only for Pro/Max/Ultra** (or a gateway spend limit), only after the first reply; each window may be absent. README first screen states this |
+| Plan quota (`rate_limits.five_hour` / `seven_day` `.used_percentage`, `.resets_at`) is **status line only** | Present for Pro/Max/Ultra per the docs (or a gateway spend limit) and **observed on Team** (spike A, 2026-11-19), only after the first reply; each window may be absent. README first screen states this |
 | Status line refreshes on events (new assistant message, `/compact`, mode change) + optional `refreshInterval`; 300 ms debounce | The file is timestamped; hooks ignore figures older than ~2 min |
 | One `statusLine` command; plugins cannot set it (plugin settings take only `agent`, `subagentStatusLine`) | Forge installs a **wrapper** in user settings that chains the user's existing command, with disclosure and undo |
 | Hook events used: SessionStart (`startup`/`resume`/`clear`/`compact`/`fork`), UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, Stop, PreCompact (`manual`/`auto`), SessionEnd, SubagentStart, SubagentStop | SessionEnd shares a 1.5 s budget (raised by per-hook `timeout`, max 60 s) |
@@ -120,7 +120,7 @@ branch, Claude's own notes. Enough to resume the work, not a map of the system. 
   [owner, 2026-11-03 review].
 - **Usage-limit save [owner, hard rule]:** at 95 % of context **or** plan usage (5-hour or weekly), Forge forces a
   full save and tells the user: *"Usage at 95 %. Handoff saved. Next session, JSPARK Forge shows where you were."*
-  Plan figures only on Pro/Max/Ultra; elsewhere the step triggers + manual `/jspark-forge:handoff` cover it.
+  Plan figures only on plans that report usage (Pro/Max/Ultra; Team observed); elsewhere the step triggers + manual `/jspark-forge:handoff` cover it.
 - An **action log** (one line per action, secrets redacted) is the safety net for the step a crash cuts off.
 - **New session: show and wait [owner].** Forge shows "here's where we were: continue?" and Claude is told to wait.
   **Instructed only in v0.1** (no hook enforcement) [owner, 2026-11-03 review; Q8 decided]: a deny-until-reply guard
