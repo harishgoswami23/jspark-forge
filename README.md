@@ -102,7 +102,8 @@ This is a seatbelt, not a sandbox: a deliberately disguised command can get past
 
 ## Install
 
-Needs Claude Code and **Node.js 18 or newer**.
+Needs Claude Code, git and **Node.js 18 or newer**. If Node.js is missing or too old, JSPARK Forge says so when Claude
+Code starts (*"JSPARK Forge is off: it needs Node.js 18 or newer…"*) instead of failing silently.
 
 ```
 /plugin install jspark-forge --marketplace harishgoswami23/jspark-forge

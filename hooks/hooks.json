@@ -2,6 +2,21 @@
   "hooks": {
     "SessionStart": [
       {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "git",
+            "args": [
+              "-c",
+              "alias.jspark-forge-node-check=!m=$(node -v 2>/dev/null | cut -c2- | cut -d. -f1); [ -n \"$m\" ] && [ \"$m\" -ge 18 ] 2>/dev/null || printf '%s' '{\"systemMessage\":\"JSPARK Forge is off: it needs Node.js 18 or newer. Install it from https://nodejs.org, then restart Claude Code. Until then nothing is saved or blocked.\"}'",
+              "jspark-forge-node-check"
+            ],
+            "timeout": 5
+          }
+        ]
+      },
+      {
         "hooks": [
           {
             "type": "command",

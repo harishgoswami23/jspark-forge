@@ -7,7 +7,14 @@ const path = require('node:path');
 
 const ROOT = path.join(__dirname, '..');
 const hooks = JSON.parse(fs.readFileSync(path.join(ROOT, 'hooks', 'hooks.json'), 'utf8')).hooks;
-const only = ev => { assert.equal(hooks[ev].length, 1, `${ev}: one entry`); return hooks[ev][0]; };
+// The JSPARK Forge (node) entry of an event. SessionStart also has the Node check first (command git, v0.1.1),
+// which must run without Node; every other event has exactly one entry.
+const only = ev => {
+  const forge = hooks[ev].filter(e => e.hooks[0].command === 'node');
+  assert.equal(forge.length, 1, `${ev}: one JSPARK Forge entry`);
+  assert.equal(hooks[ev].length, ev === 'SessionStart' ? 2 : 1, `${ev}: entries`);
+  return forge[0];
+};
 const matches = (matcher, tool) => new RegExp(`^(?:${matcher})$`).test(tool);
 
 test('every design hook event is registered, in exec form with node and forge.js', () => {
