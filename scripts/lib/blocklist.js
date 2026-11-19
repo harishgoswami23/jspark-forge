@@ -346,6 +346,119 @@ function sqlDestructive(text) {
   return false;
 }
 
+// ---------- database guard (v0.2.1, spec 5.2c) ----------
+// A write to a production database needs CONFIRM db-write. Production = every database MCP server and every client
+// connection to a host that is not local, unless the USER's rules.md names it ("- database dev: <name or host
+// pattern>", rules.dbDev; a project's own line is ignored). Reads (SELECT, WITH ... SELECT, EXPLAIN, SHOW, DESCRIBE)
+// are never held. A seatbelt: SQL inside a script file or a stored procedure is not seen.
+const DB_CLIENTS = new Set([...SQL_CLIENTS, 'mongosh', 'mongo', 'pgcli', 'mycli', 'usql']);
+const SQL_WRITE = [
+  /\binsert\s+(into|ignore|or\s+\w+\s+into)\b/i,
+  /\bupdate\s+(only\s+)?[\w."`[\]$]+\s+set\b/i,
+  /\bdelete\s+from\b/i,
+  /\b(create|alter|drop)\s+(or\s+replace\s+|unique\s+|temp(orary)?\s+|materialized\s+|global\s+|virtual\s+|if\s+exists\s+)*(table|database|schema|index|view|user|role|function|procedure|type|extension|sequence|trigger|policy|publication|subscription|domain)\b/i,
+  /\btruncate\s+(table\s+)?["'`\w]/i,
+  /\b(grant|revoke)\s+\w+/i,
+  /\b(merge|replace)\s+into\b/i,
+  /\bcopy\s+[\w."()]+\s+from\b/i,
+  /\bselect\b[^;]*\binto\s+(outfile|dumpfile|temp|temporary|unlogged|table)\b/i,
+  /\bcall\s+[\w.]+\s*\(/i,
+  /\bdo\s+\$\$/i,
+];
+const MONGO_WRITE = /\.(insert\w*|update\w*|delete\w*|drop\w*|remove|replaceOne|bulkWrite|save|createIndex|createCollection|renameCollection|findOneAndUpdate|findOneAndDelete|findOneAndReplace)\s*\(|\$(out|merge)\b/;
+const dbWriteText = text => SQL_WRITE.some(re => re.test(text)) || MONGO_WRITE.test(text);
+
+function hostLocal(h) {
+  let s = String(h).trim().replace(/^['"]|['"]$/g, '').toLowerCase().replace(/^tcp:/, '');
+  if (/[$%`]/.test(s)) return false; // an unresolved variable: unknown, so production
+  if (s.startsWith('/')) return true; // a Unix socket directory
+  s = s.split('\\')[0].split(',')[0]; // (localdb)\MSSQLLocalDB, .\SQLEXPRESS, host,1433
+  const v6 = s.match(/^\[(.+)\](:\d+)?$/);
+  if (v6) s = v6[1]; else if ((s.match(/:/g) || []).length === 1) s = s.split(':')[0];
+  return s === '' || s === '.' || s === 'localhost' || s === '(local)' || s === '(localdb)' || s === '::1' ||
+    s === '0.0.0.0' || /^127\./.test(s) || /\.localhost$/.test(s);
+}
+function urlHost(u) {
+  const m = String(u).match(/^[a-z][a-z0-9+.-]*:\/\/(?:[^@/?]*@)?(\[[^\]]+\]|[^/:?,]*)/i);
+  return m ? m[1] : null;
+}
+// The connection a database client command makes: { remote, names } (names: what a "database dev:" pattern is matched to).
+function dbClientTarget(c, words) {
+  const { cmd, args } = c;
+  if (!DB_CLIENTS.has(cmd)) return null;
+  const hosts = [];
+  for (const w of words) {
+    const e = w.match(/^(PGHOST|PGHOSTADDR|MYSQL_HOST)=(.*)$/);
+    if (e) hosts.push(e[2]);
+    const u = w.match(/^(DATABASE_URL|MONGODB_URI|POSTGRES_URL)=(.*)$/);
+    if (u) hosts.push(urlHost(u[2]) || '');
+  }
+  const sqlcmd = cmd === 'sqlcmd' || cmd === 'invoke-sqlcmd';
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (sqlcmd ? (a === '-S' || /^-server(instance)?$/i.test(a)) : (a === '-h' || a === '--host')) { if (args[i + 1] !== undefined) hosts.push(args[++i]); continue; }
+    let m;
+    if ((m = a.match(/^--host=(.*)$/)) || (!sqlcmd && (m = a.match(/^-h(.+)$/)))) { hosts.push(m[1]); continue; }
+    if (/^(--(url|uri|db-url|connection-string)|-connectionstring)$/i.test(a) && args[i + 1] !== undefined) { i++; hosts.push(urlHost(args[i]) ?? (args[i].match(/(?:server|data source)=([^;]+)/i) || [, args[i]])[1]); continue; }
+    if (/^\s*(?:["']?)(?:\$\{?|\$env:|%)\w*(url|uri|dsn|conn|host)/i.test(a)) { hosts.push(a); continue; }
+    if (/^(md|motherduck):/i.test(a)) { hosts.push('motherduck.com'); continue; }
+    const uh = urlHost(a);
+    if (uh !== null) { hosts.push(uh); continue; }
+    if ((m = a.match(/(?:^|\s)host=([^\s'"]+)/i)) && !/\bselect\b/i.test(a)) hosts.push(m[1]);
+    if ((m = a.match(/(?:^|;)\s*(?:server|data source)=([^;]+)/i))) hosts.push(m[1]);
+  }
+  const remote = hosts.filter(h => !hostLocal(h));
+  return { remote: remote.length > 0, names: [remote[0] || '', cmd] };
+}
+
+// supabase / prisma, also run through npx, pnpm dlx, bunx ...
+const DB_WRAPPERS = new Set(['npx', 'pnpx', 'bunx', 'pnpm', 'yarn', 'npm', 'bun', 'dlx', 'exec']);
+function dbCliWrite(cmd0, args0) {
+  let cmd = cmd0, args = args0;
+  if (DB_WRAPPERS.has(cmd)) {
+    const i = args.findIndex(a => /^(prisma|supabase)$/.test(shell.baseName(a)));
+    if (i < 0) return null;
+    cmd = shell.baseName(args[i]); args = args.slice(i + 1);
+  }
+  if (cmd !== 'prisma' && cmd !== 'supabase') return null;
+  const pos = args.filter(a => !a.startsWith('-'));
+  if (cmd === 'prisma') return pos[0] === 'migrate' && (pos[1] === 'deploy' || pos[1] === 'resolve') ? 'prisma' : null;
+  let dbUrl = null;
+  args.forEach((a, i) => { if (a === '--db-url') dbUrl = args[i + 1]; else if (a.startsWith('--db-url=')) dbUrl = a.slice(9); });
+  const remoteUrl = dbUrl !== null && !hostLocal(urlHost(dbUrl) ?? dbUrl);
+  const localOnly = args.includes('--local') || (dbUrl !== null && !remoteUrl);
+  const toRemote = args.includes('--linked') || remoteUrl;
+  const sub = `${pos[0] || ''} ${pos[1] || ''}`;
+  if (sub === 'db push' || sub === 'migration repair') return localOnly ? null : 'supabase'; // remote unless told otherwise
+  if (sub === 'db reset' || sub === 'migration up') return toRemote ? 'supabase' : null; // local unless told otherwise
+  return null;
+}
+
+function devNamed(ctx, names) {
+  const pats = (ctx.rules && ctx.rules.dbDev) || [];
+  return pats.some(p => {
+    const pl = String(p).toLowerCase();
+    const re = pl.includes('*') ? new RegExp(`^${pl.split('*').map(x => x.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`) : null;
+    return names.some(n => {
+      const nl = String(n).toLowerCase();
+      return nl && (re ? re.test(nl) : nl === pl || nl.endsWith(`_${pl}`));
+    });
+  });
+}
+
+const DB_SERVER = /supabase|postgres|pgsql|mysql|maria|sqlite|mongo|database|neon|planetscale|turso|cockroach|clickhouse|duckdb|snowflake|bigquery|dynamo|redis|firebase|firestore|prisma|cassandra|oracle|mssql|sqlserver|libsql|upstash|xata|convex|(^|[^a-z])(db|sql|pg)([^a-z]|$)/i;
+function mcpDbWrite(tool, ti, ctx) {
+  const m = tool.match(/^mcp__(.+?)__(.+)$/);
+  if (!m) return false;
+  const server = m[1], name = m[2].toLowerCase().replace(/-/g, '_');
+  const isDb = DB_SERVER.test(server);
+  if (!isDb && name !== 'apply_migration') return false;
+  if (devNamed(ctx, [server])) return false;
+  if (/^(apply_migration|merge_branch|reset_branch|restore_project|rebase_branch|run_migration|migrate)$/.test(name)) return true;
+  if (/(insert|update|delete|drop|remove|upsert|truncate|rename|create_index|create_collection|bulk_write|replace)/.test(name)) return true;
+  return /(sql|query|execute|exec|run|command|statement|eval|aggregate)/.test(name) && dbWriteText(mcpText(ti));
+}
+
 // ---------- secret files ----------
 function isSecretName(p) {
   const b = String(p).split(/[\\/]/).pop().toLowerCase();
@@ -389,7 +502,7 @@ function shellHits(raw, cwd, ctx, depth = 0, dialect = 'bash') {
   if (++budget.calls > MAX_CALLS || depth > MAX_DEPTH) return [tooComplex(raw)];
   const pipelines = shell.parse(raw, { dialect });
   if (pipelines.overflow) hits.push(tooComplex(raw));
-  let sqlClient = false;
+  let sqlClient = false, dbRemote = false;
   for (const pl of pipelines) {
     let fetchAt = -1;
     pl.forEach((stage, idx) => {
@@ -404,6 +517,10 @@ function shellHits(raw, cwd, ctx, depth = 0, dialect = 'bash') {
       if (!c) return;
       const { cmd, args } = c;
       if (SQL_CLIENTS.has(cmd)) sqlClient = true;
+      const dbc = dbClientTarget(c, stage.words);
+      if (dbc && dbc.remote && !devNamed(ctx, dbc.names)) dbRemote = true;
+      const dbCli = dbCliWrite(cmd, args);
+      if (dbCli && !devNamed(ctx, [dbCli])) hits.push(hit('db-write', false, raw));
       if ((ps ? PS_FETCH : FETCH).has(cmd)) fetchAt = fetchAt < 0 ? idx : fetchAt;
       if (SHELLS.has(cmd) || (ps && PS_EXEC.has(cmd)) || PS_SHELLS.has(cmd)) {
         if (fetchAt >= 0 && idx > fetchAt) hits.push(hit('pipe-to-shell', false, raw));
@@ -462,6 +579,7 @@ function shellHits(raw, cwd, ctx, depth = 0, dialect = 'bash') {
     });
   }
   if (sqlClient && sqlDestructive(raw)) hits.push(hit('sql-destroy', false, raw));
+  if (dbRemote && dbWriteText(raw)) hits.push(hit('db-write', false, raw));
   return hits;
 }
 
@@ -523,6 +641,7 @@ function check(input, ctx, opts = {}) {
     } else if (tool.startsWith('mcp__')) {
       const text = mcpText(ti);
       if (sqlDestructive(text)) hits.push(hit('sql-destroy', false, text));
+      if (mcpDbWrite(tool, ti, ctx)) hits.push(hit('db-write', false, text));
       hits = hits.concat(userHits(text, ctx.rules));
     }
     // disable: turns a built-in off, but never its hard-deny part (home folder, whole disk, drive).

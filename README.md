@@ -92,6 +92,7 @@ blocks something, Claude is told: *"Do not try an equivalent command; tell the u
 | `git-clean-fdx` | `git clean -fdx` |
 | `git-stash-drop` | `git stash drop`, `git stash clear` |
 | `sql-destroy` | `DROP`, `TRUNCATE`, `DELETE` without `WHERE` (psql, mysql, sqlite3, sqlcmd, `Invoke-Sqlcmd`, database MCP tools) |
+| `db-write` | A write to a production database: an insert, update, schema change or other non-read statement through a database MCP server or a client (`psql`, `mysql`, `sqlite3` on a remote host, `mongosh`, `sqlcmd`, `Invoke-Sqlcmd`), `supabase db push`, `prisma migrate deploy`, and migration-apply, merge, reset and restore tools of database MCP servers. Reads (`SELECT`, `WITH … SELECT`, `EXPLAIN`, `SHOW`, `DESCRIBE`) are never blocked. Production is every database MCP server and every host except localhost, `127.0.0.1`, `::1`, a Unix socket or a local file; to mark one as dev, add `- database dev: <server name or host pattern>` under `## Settings` in **your own** `~/.claude/jspark-forge/rules.md` (a project's `rules.md` cannot, like `disable:`). A seatbelt, not a sandbox: SQL inside a script file or a stored procedure is not seen, and JSPARK Forge never connects to a database |
 | `secret-files` | Editing `.env*`, key, secret and credential files, also via `>`, `tee`, `Set-Content`, `Out-File` (templates such as `.env.example` and `.env.sample` are allowed) |
 | `chmod-wide` | `chmod 777`, `chmod -R`, `icacls … /grant Everyone:F` |
 | `pipe-to-shell` | `curl … \| sh`, `iwr … \| iex`, `iex (irm …)` and similar |

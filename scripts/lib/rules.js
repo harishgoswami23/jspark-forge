@@ -13,7 +13,7 @@ const SETTINGS = { notes: ['on', 'off'], 'statusline-segment': ['on', 'off'] };
 const slug = s => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'rule';
 
 function parseRules(text) {
-  const out = { confirm: [], never: [], disabled: [], readonly: [], settings: { notes: 'on', 'statusline-segment': 'on' }, errors: [] };
+  const out = { confirm: [], never: [], disabled: [], readonly: [], dbDev: [], settings: { notes: 'on', 'statusline-segment': 'on' }, errors: [] };
   const ids = new Set(Object.keys(BUILTINS));
   let section = null;
   let reCount = 0;
@@ -31,7 +31,9 @@ function parseRules(text) {
       return;
     }
     if (section === 'settings') {
-      const m = line.match(/^\s*[-*]\s+([a-z-]+)\s*:\s*(.+?)\s*$/i);
+      const dev = line.match(/^\s*[-*]\s+database\s+dev\s*:\s*(.+?)\s*$/i); // v0.2.1: "- database dev: <server name or host pattern>"
+      if (dev) { out.dbDev.push(...dev[1].split(',').map(x => x.trim()).filter(Boolean)); return; }
+      const m =line.match(/^\s*[-*]\s+([a-z-]+)\s*:\s*(.+?)\s*$/i);
       const key = m && m[1].toLowerCase();
       if (m && key === 'disable') {
         for (const id of m[2].split(',').map(x => x.trim()).filter(Boolean)) {
@@ -80,6 +82,8 @@ function loadRules(projectDir, { claudeHome } = {}) {
   const repo = parseRules(repoText);
   const repoDisable = repoText.split(/\r?\n/)
     .map((l, i) => ({ l, n: i + 1 })).filter(x => /^\s*[-*]\s+disable\s*:/i.test(x.l));
+  const repoDbDev = repoText.split(/\r?\n/)
+    .map((l, i) => ({ l, n: i + 1 })).filter(x => /^\s*[-*]\s+database\s+dev\s*:/i.test(x.l));
   const ids = new Set(user.confirm.concat(user.never).map(r => r.id));
   // fromRepo: the project's rules.md may come from a clone; its regular expressions run last (blocklist userHits).
   const fresh = r => Object.assign({}, r, { fromRepo: true }, ids.has(r.id) ? { id: `${r.id}-repo` } : {});
@@ -88,11 +92,14 @@ function loadRules(projectDir, { claudeHome } = {}) {
     never: user.never.concat(repo.never.map(fresh)),
     disabled: user.disabled,
     readonly: user.readonly.concat(repo.readonly), // adding a read-only source only restricts: a repo's own lines count
+    dbDev: user.dbDev, // marking a database as dev relaxes the guard: only the user's own file counts (like disable:)
     settings: Object.assign({}, user.settings, repo.settings),
     errors: user.errors.map(e => Object.assign({ file: USER_LABEL }, e))
       .concat(repo.errors.map(e => Object.assign({ file: REPO_LABEL }, e)))
       .concat(repoDisable.map(x => ({ file: REPO_LABEL, line: x.n,
-        message: `a project's rules.md cannot switch off built-in blocks; put "disable:" in ${USER_LABEL}` }))),
+        message: `a project's rules.md cannot switch off built-in blocks; put "disable:" in ${USER_LABEL}` })))
+      .concat(repoDbDev.map(x => ({ file: REPO_LABEL, line: x.n,
+        message: `a project's rules.md cannot mark a database as dev; put "database dev:" in ${USER_LABEL}` }))),
   };
 }
 
