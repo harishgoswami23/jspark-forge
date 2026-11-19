@@ -43,12 +43,21 @@ run (`node fix.js`) can do anything the user's account can. So:
 | The graph is valid before it runs (fields, order, no cycles) | `graph check`; refuses to start | **Enforced** |
 | The run uses the graph as it was at start | the steps that matter are snapshotted into the run state at `start` | **Enforced** (given the state is not written, below) |
 | Outputs are declared and real: a `*_path` exists, a `commit` resolves | checked on `done` | **Enforced** |
-| State and trust files are written only by JSPARK Forge | hard deny on any change resolving to `.jspark-forge/state/graph-*` or its folders (Edit, Write, shell targets resolved from the working folder, renames of the folders), and on commands naming those files except known readers | **Guarded** (a script file can still write them) |
-| Claude cannot fake JSPARK Forge's own hook events (TRUST, DONE, helper evidence, gate results) | hard deny on running `forge.js <hook event>` or loading its hook modules from the shell | **Guarded** (same limit) |
+| State and trust files are written only by JSPARK Forge | hard deny on any change resolving to this project's `.jspark-forge/state/graph-*` or its folders (Edit, Write, shell targets resolved from the working folder and through links, renames of the folders); a command that only *looks* like it may write them (variables, `xargs`, `find -exec`, interpreters, heredocs naming `.jspark-forge`) **asks** the user through Claude Code's normal prompt instead [revision 4] | **Guarded** (a script file can still write them) |
+| Claude cannot fake JSPARK Forge's own hook events (TRUST, DONE, helper evidence, gate results) | hard deny on running `forge.js` with a hook event, a variable or `--` as its command (parsed, line continuations included, `xargs` too); loading its hook modules from a one-liner asks | **Guarded** (same limit) |
 | A helper of the named type ran for that step | SubagentStart evidence of exactly `jspark-forge:<helper>`, from the run's session, after the step was handed out, used once (spike J) | **Evidence** |
+| Human steps and gates cannot be removed to skip them | TRUST GRAPH covers the ids of human steps and gates and the gate commands; any change to them asks for TRUST again [revision 4] | **Enforced** (given the state is not written) |
 | A gate passed | the exact command's real exit code from the hooks (spike I), only in the run's session, in the project folder, not in the background, not interrupted | **Evidence** |
 | A human step is done | only the user's own whole message `DONE <step>` in an attended session | **Enforced** by Claude Code's hooks (only real user messages reach UserPromptSubmit), **guarded** against shell imitation (row 5) |
 | Steps run in order; no more helpers than the cap; no work outside the graph | the skill; JSPARK Forge hands out steps in order and never more than the cap | **Instructed** |
+
+**Revision 4 (2026-11-20), after the Fable 5.2 re-review.** The hardening itself had a fail-open: a network path in a
+command made the link lookups take 42 s, past the hook's 3 s, so *no* rule answered. Lookups now skip network paths
+and, on Windows, other drive letters (a mapped drive looks local), and share a 500 ms budget; past it, paths are
+judged by their text. The text rules also refused everyday work as "never allowed" (`git add src/state/graph-store.ts`,
+JSPARK Forge's own `graph fail … "could not import"`). Product rule: a false refusal blocks real work and is
+worse than an extra prompt, so only certain targets are refused; guesses from text ask (decided overnight on the
+owner's behalf; owner to confirm).
 
 What this means for the user, said in the README: the build graph keeps an honest record and stops ordinary mistakes
 and shortcuts; it is not a sandbox against an AI determined to cheat, and nothing that runs as your user account can

@@ -161,7 +161,7 @@ blocks something, Claude is told: *"Do not try an equivalent command; tell the u
 | `chmod-wide` | `chmod 777`, `chmod -R`, `icacls … /grant Everyone:F` |
 | `pipe-to-shell` | `curl … \| sh`, `iwr … \| iex`, `iex (irm …)` and similar |
 | `readonly-source` | Any change to an old system listed under `## Sources` in `rules.md` (below). **Always refused** |
-| `forge-state` | Any change to a build graph's running record (`.jspark-forge/state/graph-*`). **Always refused**: only JSPARK Forge writes it |
+| `forge-state` | Any change to a build graph's running record (`.jspark-forge/state/graph-*`), and running JSPARK Forge's own hooks from the shell. **Always refused**: only JSPARK Forge writes it. A command that only *looks* like it might write the record asks you first (Claude Code's normal yes/no prompt, no CONFIRM) |
 | `guest-quarantine` | In a repo you are reviewing, after `/jspark-forge:init --guest`: its install, build, test and run commands (see guest mode). One CONFIRM covers the rest of that session |
 
 Bash, Git Bash, PowerShell and cmd forms are all matched (PowerShell from v0.1.1), also when one shell starts another
@@ -247,8 +247,9 @@ What JSPARK Forge checks, what it guards, and what it can only ask for:
   `DONE <step>`.
 - **Backed by evidence:** a helper of the right kind ran for the step; a check passed on its command's real exit code,
   run in this session and project, not in the background.
-- **Guarded:** Claude is blocked from editing the run's record or imitating your `DONE` / `TRUST GRAPH` from the shell.
-  This is pattern matching on what a command does: it stops mistakes and shortcuts, not a program written to a file
+- **Guarded:** Claude is blocked from editing the run's record or imitating your `DONE` / `TRUST GRAPH` from the shell;
+  a command that only looks like it might asks you first. Removing a step that needs you, or a check, from the graph
+  needs your `TRUST GRAPH` again. This is pattern matching on what a command does: it stops mistakes and shortcuts, not a program written to a file
   and run on purpose. Nothing that runs as your user account can promise more.
 - **Asked for:** the order of steps and the limit on helpers running at once; JSPARK Forge hands out work that way but
   cannot stop Claude doing something else.
