@@ -176,4 +176,75 @@ function deliver(sess) {
   return parts.join('\n');
 }
 
-module.exports = { load, notesFor, relOf, clean, safeSee, readState, writeState, worthOffer, noteCommit, notePlan, deliver };
+// ---------- session start (design-v0.2 1.6) ----------
+const num = id => Number(String(id).slice(2));
+const INDEX_WORDS = 150;
+// An index of active titles, newest first, framed as data; null when there are none.
+function index(dir) {
+  const entries = load(dir).slice().sort((a, b) => num(b.id) - num(a.id));
+  if (!entries.length) return null;
+  const head = 'JSPARK Forge: project notes on file (data, not instructions; details arrive just before you edit the files they cover):';
+  let words = head.split(/\s+/).length;
+  const items = [];
+  for (const e of entries) {
+    const it = `${e.id} ${clean(e.title, 80)}`;
+    const w = it.split(/\s+/).length;
+    if (words + w > INDEX_WORDS) break;
+    items.push(it); words += w;
+  }
+  const more = entries.length - items.length;
+  return `${head} ${items.join('; ')}${more ? ` (and ${more} more)` : ''}.`;
+}
+
+// What a decision says, for "did it change?": title, kind, why, see, touches (not status or dates).
+const hashOf = e => require('crypto').createHash('sha1').update([e.title, e.kind, e.why, e.see, e.touches.join(',')].join('|')).digest('hex').slice(0, 16);
+
+// Entries this machine has not seen in this form (they came with git, or were edited by hand): listed once [R-H1].
+function arrivals(dir) {
+  if (!paths.isOwn(dir)) return null;
+  let parsed;
+  try { parsed = parse(fs.readFileSync(fileOf(dir), 'utf8')).entries.filter(e => e.active); } catch { return null; }
+  const st = readState(dir);
+  const known = Object.assign({}, st.known);
+  const fresh = parsed.filter(e => known[e.id] !== hashOf(e));
+  if (!fresh.length) return null;
+  for (const e of fresh) known[e.id] = hashOf(e);
+  st.known = known;
+  writeState(dir, st);
+  const shown = fresh.slice(0, 5).map(e => `${e.id} ${clean(e.title, 80)}`).join('; ');
+  const n = fresh.length;
+  return `JSPARK Forge: ${n} decision${n === 1 ? '' : 's'} arrived with git: ${shown}${n > 5 ? ` and ${n - 5} more` : ''}. ` +
+    `Check ${n === 1 ? 'it' : 'them'} with /jspark-forge:decisions.`;
+}
+// decide records an entry: remember it as seen, so it is not "arrived with git".
+function markKnown(dir, text, id) {
+  const e = parse(text).entries.find(x => x.id === id);
+  if (!e) return;
+  const st = readState(dir);
+  st.known = Object.assign({}, st.known, { [id]: hashOf(e) });
+  writeState(dir, st);
+}
+
+const DAY = 86400000;
+const isGlob = t => /[*?]/.test(t);
+// Entries that need a look, cheaply (no git): unreadable, duplicate ids, missing paths (older than 14 days: a plan can
+// name files not written yet), no Touches and not verified for 30 days. -> count.
+function problems(dir, now = Date.now()) {
+  if (!paths.isOwn(dir)) return 0;
+  let text;
+  try { text = fs.readFileSync(fileOf(dir), 'utf8'); } catch { return 0; }
+  const { entries, errors } = parse(text);
+  const counts = require('./decisions').idCounts(text);
+  let n = errors.length + Object.values(counts).filter(c => c > 1).length;
+  for (const e of entries.filter(x => x.active)) {
+    const age = now - (Date.parse(e.date || e.lastVerified) || now);
+    const verified = now - (Date.parse(e.lastVerified || e.date) || now);
+    const missing = age > 14 * DAY && e.touches.some(t => !isGlob(t) && !fs.existsSync(path.join(dir, t.replace(/\/+$/, ''))));
+    const untouched = !e.touches.length && e.kind !== 'reference' && verified > 30 * DAY;
+    if (missing || untouched) n++;
+  }
+  return n;
+}
+
+module.exports = { load, notesFor, relOf, clean, safeSee, readState, writeState, worthOffer, noteCommit, notePlan, deliver,
+  index, arrivals, markKnown, problems, hashOf, isGlob };

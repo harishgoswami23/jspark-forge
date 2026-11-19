@@ -8,7 +8,8 @@ const path = require('path');
 const paths = require('./paths');
 const state = require('./state');
 const D = require('./decisions');
-const { safeSee, readState, writeState } = require('./memory');
+const { safeSee, readState, writeState, hashOf, isGlob, clean } = require('./memory');
+const { spawnSync } = require('child_process');
 
 const LONG_WORDS = 80;
 const fileOf = dir => path.join(paths.repoForgeDir(dir), 'decisions.md');
@@ -83,6 +84,8 @@ function run(dir, args, sid) {
     let t = D.setTitle(text, update, title);
     t = D.setField(t, update, 'Last verified', today());
     fs.writeFileSync(f, t);
+    const upd = D.parse(t).entries.find(e => e.id === update);
+    if (upd) st.known = Object.assign({}, st.known, { [update]: hashOf(upd) });
     return done(`Updated ${update}: ${title}.`);
   }
 
@@ -110,7 +113,8 @@ function run(dir, args, sid) {
   fs.writeFileSync(f, out.text);
   shareFile(dir);
   st.hwm = Number(id.slice(2));
-  st.known = Object.assign({}, st.known, { [id]: true });
+  const added = D.parse(out.text).entries.find(e => e.id === id);
+  if (added) st.known = Object.assign({}, st.known, { [id]: hashOf(added) }); // recorded here: not "arrived with git"
   let msg = `Recorded ${id}: ${title}${touches.length ? ` (touches ${touches.join(', ')})` : ' (no Touches: it is never shown just in time)'}.`;
   if (D.words(entry) > LONG_WORDS && !st.longWarned) {
     st.longWarned = true;
@@ -128,4 +132,73 @@ function takeEvent(dir) {
   return `JSPARK Forge ${st.lastEvent.text.replace(/^Recorded/, 'recorded')}`;
 }
 
-module.exports = { run, takeEvent, readState, writeState };
+// ---------- `forge.js decisions [--all] [--kb-request "<line>"]` (design-v0.2 1.7) ----------
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+function list(dir, args) {
+  if (!paths.isOwn(dir)) return 'Decision memory is off in a repo you are reviewing.\n';
+  const st = readState(dir);
+  const k = args.indexOf('--kb-request');
+  if (k >= 0) {
+    st.declined = (st.declined || []).concat([{ text: one(args[k + 1], 200), at: Date.now() }]);
+    writeState(dir, st);
+    return `Noted (${st.declined.length} so far): decisions stay one line each, with the files they touch. JSPARK Forge counts ` +
+      'these requests on this machine only, to see whether a separate knowledge feature is wanted.\n';
+  }
+  let text = '';
+  try { text = fs.readFileSync(fileOf(dir), 'utf8'); } catch { return 'No decisions recorded yet. Add one with /jspark-forge:decide.\n'; }
+  const all = D.parse(text).entries;
+  const active = all.filter(e => e.active);
+  const show = args.includes('--all') ? all : active;
+  const line = e => `${e.id} ${clean(e.title, 100)} (${[e.active ? null : e.status,
+    e.kind === 'reference' && e.see ? `reference: ${e.see}` : null,
+    e.touches.length ? `touches ${e.touches.join(', ')}` : e.active ? 'no Touches' : null].filter(Boolean).join('; ')})`;
+  const refs = active.filter(e => e.kind === 'reference').length;
+  const long = active.filter(e => D.words(e) > LONG_WORDS).length;
+  const kb = (st.declined || []).length;
+  const L = [`${plural(active.length, 'active decision', 'active decisions')}:`, ...show.map(line), '',
+    `${plural(refs, 'reference', 'references')}, ${plural(long, 'long entry', 'long entries')}, ` +
+    `${plural(kb, 'knowledge-base request', 'knowledge-base requests')} declined.`];
+  if (all.length > 200) L.push('Over 200 entries: consider moving retired ones to an archive file to keep the file quick to read.');
+  L.push('A rule that must never be broken can also become a hard block: add it under "## Never" in .jspark-forge/rules.md.');
+  return `${L.join('\n')}\n`;
+}
+
+// ---------- `forge.js check`: is my memory still true? (design-v0.2 1.7), read-only ----------
+function gitOut(dir, args) {
+  const r = spawnSync('git', ['-c', 'core.quotePath=false', ...args], { cwd: dir, encoding: 'utf8', timeout: 5000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+  return r.status === 0 ? String(r.stdout) : null;
+}
+function check(dir) {
+  if (!paths.isOwn(dir)) return 'Decision memory is off in a repo you are reviewing.\n';
+  let text = '';
+  try { text = fs.readFileSync(fileOf(dir), 'utf8'); } catch { return 'No decisions recorded yet.\n'; }
+  const { entries, errors } = D.parse(text);
+  const out = errors.map(e => `decisions.md line ${e.line}: ${e.message} (this entry is skipped until it is fixed)`);
+  for (const [id, n] of Object.entries(D.idCounts(text))) if (n > 1) out.push(`${id}: ${n === 2 ? 'two' : n} entries share this id (two branches merged?); rename one`);
+  const files = (gitOut(dir, ['ls-files', '-co', '--exclude-standard']) || '').split(/\r?\n/).filter(Boolean);
+  const now = Date.now();
+  for (const e of entries.filter(x => x.active)) {
+    const name = `${e.id} "${clean(e.title, 60)}"`;
+    for (const t of e.touches) {
+      if (isGlob(t)) { if (files.length && !files.some(f => D.matches(t, f))) out.push(`${name}: ${t} matches no file`); }
+      else if (!fs.existsSync(path.join(dir, t.replace(/\/+$/, '')))) out.push(`${name}: ${t} does not exist (renamed or deleted?)`);
+    }
+    if (e.kind === 'reference' && e.see && !fs.existsSync(path.join(dir, e.see))) out.push(`${name}: its reference ${e.see} does not exist`);
+    const since = e.lastVerified || e.date;
+    if (e.touches.length && /^\d{4}-\d\d-\d\d$/.test(since)) {
+      const specs = e.touches.map(t => (isGlob(t) ? `:(glob)${t}` : t));
+      // A verification date has no time: count commits after that day, not the ones made on it. Dates are written
+      // in UTC, so the end of the day is given in UTC too (git would read a bare time as local).
+      const log = gitOut(dir, ['log', `--since=${since}T23:59:59Z`, '--format=%h', '--', ...specs]);
+      const n = log ? log.split(/\r?\n/).filter(Boolean).length : 0;
+      if (n) out.push(`${name}: its files changed in ${plural(n, 'commit', 'commits')} since ${since} (last verified)`);
+    }
+    if (!e.touches.length && e.kind !== 'reference' && now - (Date.parse(since) || now) > 30 * 86400000) {
+      out.push(`${name}: no Touches, so it is never shown before an edit; last verified ${since}`);
+    }
+  }
+  if (!out.length) return `All ${plural(entries.filter(x => x.active).length, 'decision looks', 'decisions look')} fine.\n`;
+  return `${out.map(l => `- ${l}`).join('\n')}\n\nFor each: still valid? / update / retire. Nothing changes until you answer.\n`;
+}
+
+module.exports = { run, takeEvent, list, check };

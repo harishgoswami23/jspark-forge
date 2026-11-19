@@ -153,6 +153,16 @@ const handlers = {
     }
     const rc = handoff.resumeContext(dir, input.session_id, input.source || 'startup');
     if (offerAfterCompact) rc.context = `${rc.context}\n\n${offerAfterCompact}`;
+    // Decision memory (design-v0.2 1.6): the index of titles for Claude; for the user, entries that arrived with git
+    // (once) and one line when some need a look. Off in guest repos (the functions check).
+    try {
+      const idx = memory.index(dir);
+      if (idx) rc.context = `${rc.context}\n\n${idx}`;
+      const arrived = memory.arrivals(dir);
+      if (arrived) msgs.push(arrived);
+      const n = memory.problems(dir);
+      if (n) msgs.push(`JSPARK Forge: ${n} decision${n === 1 ? '' : 's'} need${n === 1 ? 's' : ''} a look: /jspark-forge:check`);
+    } catch { /* never break a session start */ }
     if (rc.systemMessage) msgs.unshift(rc.systemMessage);
     const w = input.source === 'compact' ? null : waitingNotice(dir); // shown first (spec 5.2a)
     if (w) msgs.unshift(w.msg);
@@ -512,7 +522,15 @@ function cliDecide(args) {
   process.stdout.write(require('./lib/decide').run(dir, args, process.env.CLAUDE_CODE_SESSION_ID || 'manual'));
 }
 
-const CLI = { save: cliSave, show: cliShow, where: cliWhere, waiting: cliWaiting, doctor: cliDoctor, status: cliStatus, decide: cliDecide };
+// `forge.js decisions [--all] [--kb-request "<line>"]` and `forge.js check` (design-v0.2 1.7).
+const cliMemory = fn => args => {
+  const dir = cliProject();
+  if (!dir) { process.stdout.write(NOT_SET_UP); return; }
+  process.stdout.write(require('./lib/decide')[fn](dir, args || []));
+};
+
+const CLI = { save: cliSave, show: cliShow, where: cliWhere, waiting: cliWaiting, doctor: cliDoctor, status: cliStatus, decide: cliDecide,
+  decisions: cliMemory('list'), check: cliMemory('check') };
 if (CLI[event]) {
   try { CLI[event](process.argv.slice(3)); } catch (e) { process.stdout.write(`JSPARK Forge could not ${event}: ${e.message}\n`); }
 } else {
