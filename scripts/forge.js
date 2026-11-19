@@ -529,7 +529,10 @@ const cliMemory = fn => args => {
   process.stdout.write(require('./lib/decide')[fn](dir, args || []));
 };
 
-const CLI = { save: cliSave, show: cliShow, where: cliWhere, waiting: cliWaiting, doctor: cliDoctor, status: cliStatus, decide: cliDecide,
+// `forge.js lint [paths...]` (design-v0.2 section 3): check skills and briefs; default is the project's own.
+const cliLint = args => process.stdout.write(require('./lib/lint').run(cliProject() || process.cwd(), args));
+
+const CLI = { lint: cliLint, save: cliSave, show: cliShow, where: cliWhere, waiting: cliWaiting, doctor: cliDoctor, status: cliStatus, decide: cliDecide,
   decisions: cliMemory('list'), check: cliMemory('check') };
 if (CLI[event]) {
   try { CLI[event](process.argv.slice(3)); } catch (e) { process.stdout.write(`JSPARK Forge could not ${event}: ${e.message}\n`); }
