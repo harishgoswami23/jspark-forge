@@ -8,14 +8,10 @@ const path = require('path');
 const paths = require('./paths');
 const state = require('./state');
 const D = require('./decisions');
-const { safeSee } = require('./memory');
-const { writeAtomic } = require('./fsx');
+const { safeSee, readState, writeState } = require('./memory');
 
 const LONG_WORDS = 80;
 const fileOf = dir => path.join(paths.repoForgeDir(dir), 'decisions.md');
-const stateFile = dir => path.join(paths.forgeDir(dir), 'state', 'decisions.json');
-function readState(dir) { try { return JSON.parse(fs.readFileSync(stateFile(dir), 'utf8')) || {}; } catch { return {}; } }
-const writeState = (dir, s) => writeAtomic(stateFile(dir), `${JSON.stringify(s, null, 1)}\n`);
 const today = () => new Date().toISOString().slice(0, 10);
 const one = (s, n) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
 

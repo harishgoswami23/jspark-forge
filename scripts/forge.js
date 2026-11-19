@@ -118,6 +118,15 @@ function decisionNotes(dir, input) {
   return n;
 }
 
+// Offers to record and stale flags (design-v0.2 1.4, 1.5) go to the main conversation only (a helper's reply goes to
+// its parent, not the user), only in attended sessions (someone can answer), never at 95 % usage. Mutates sess.
+function offerContext(dir, input, sess) {
+  if (input.agent_id || process.env.CLAUDE_CODE_SESSION_ATTENDED !== '1') return null;
+  const pct = usageLib.highest(dir, input.session_id);
+  if (pct !== null && pct >= 95) return null;
+  return memory.deliver(sess);
+}
+
 // ---------- handlers ----------
 // A handler returns null, [kind, detail] (one log line), or { lines: [[kind, detail], ...], out: <hook JSON> }.
 const handlers = {
@@ -134,11 +143,16 @@ const handlers = {
     if (paths.isGuest(dir)) licItems.unshift({ label: 'this repo', folder: paths.repoRoot(dir) });
     if (licItems.length) msgs.push(...licence.notices(dir, licItems));
     if (rules.disabled.length) msgs.push(`JSPARK Forge: you switched off ${rules.disabled.join(', ')} in rules.md.`);
+    let offerAfterCompact = null;
     if (input.source === 'compact') { // the summary dropped the decisions Claude was shown: show them again when relevant
       const sess = state.readSession(dir, input.session_id);
-      if (sess.decisionsShown) { sess.decisionsShown = {}; state.writeSession(dir, input.session_id, sess); }
+      sess.decisionsShown = {};
+      sess.offerTurn = null; // and pending offers to record come back once (design-v0.2 1.4)
+      offerAfterCompact = offerContext(dir, input, sess);
+      state.writeSession(dir, input.session_id, sess);
     }
     const rc = handoff.resumeContext(dir, input.session_id, input.source || 'startup');
+    if (offerAfterCompact) rc.context = `${rc.context}\n\n${offerAfterCompact}`;
     if (rc.systemMessage) msgs.unshift(rc.systemMessage);
     const w = input.source === 'compact' ? null : waitingNotice(dir); // shown first (spec 5.2a)
     if (w) msgs.unshift(w.msg);
@@ -164,7 +178,14 @@ const handlers = {
       ? `JSPARK Forge: the user typed CONFIRM ${id}. Matching actions are allowed for the rest of this session.`
       : `JSPARK Forge: the user typed CONFIRM ${id}. The next matching action is allowed once within 5 minutes; ` +
         'Claude Code will still ask the user for a final yes/no.');
-    const out = granted.length ? context('UserPromptSubmit', granted.map(say).join('\n')) : null;
+    const parts = granted.map(say);
+    // A new user turn: pending offers to record are delivered again (design-v0.2 1.4).
+    const sess = state.readSession(dir, input.session_id);
+    sess.turn = (sess.turn || 0) + 1;
+    const offer = offerContext(dir, input, sess);
+    state.writeSession(dir, input.session_id, sess);
+    if (offer) parts.push(offer);
+    const out = parts.length ? context('UserPromptSubmit', parts.join('\n')) : null;
     return { lines, out };
   },
 
@@ -250,6 +271,7 @@ const handlers = {
       if (r.startsWith('.superpowers/')) continue; // superpowers' own ledger and briefs: saves, but not "files touched"
       task.files = [r].concat(task.files.filter(f => f !== r)).slice(0, 50);
       if (/\.md$/i.test(r)) { try { if (parsePlan(fs.readFileSync(abs, 'utf8'))) task.planFile = r; } catch {} }
+      if (/^docs\/superpowers\/(plans|specs)\/[^/]+\.md$/i.test(r) && memory.notePlan(dir, sess, r)) sessDirty = true; // design-v0.2 1.4
       taskDirty = true;
     }
     let reason = null;
@@ -257,15 +279,20 @@ const handlers = {
       const gi = git.gitInfo(dir);
       if (gi && gi.head && gi.head !== (sess.git && sess.git.head)) {
         const lc = git.lastCommit(dir);
-        if (lc) { task.lastCommit = lc; taskDirty = true; lines.push(['COMMIT', `${lc.sha} ${lc.subject}`]); }
+        if (lc) {
+          task.lastCommit = { sha: lc.sha, subject: lc.subject }; taskDirty = true; lines.push(['COMMIT', `${lc.sha} ${lc.subject}`]);
+          if (memory.noteCommit(dir, sess, lc)) sessDirty = true; // an offer to record, stale flags (design-v0.2 1.4, 1.5)
+        }
         reason = 'commit';
       }
     }
     if (!reason && written.length && now - sess.lastSaveAt >= DEBOUNCE_MS) reason = 'file write';
+    const offer = offerContext(dir, input, sess);
+    if (offer) sessDirty = true;
     if (sessDirty) state.writeSession(dir, sid, sess);
     if (taskDirty) state.writeTask(dir, task);
     if (reason) doSave(dir, sid, reason, lines);
-    return { lines, out: null };
+    return { lines, out: offer ? context('PostToolUse', offer) : null };
   },
 
   PostToolUseFailure(dir, input) {

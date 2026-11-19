@@ -24,10 +24,13 @@ function gitInfo(dir) {
   } catch { return null; }
 }
 
+// -> { sha, subject, files } (files: repo-relative, as git prints them; a first commit works too) or null.
+// One call gives both, so decision memory's stale check adds no git process (design-v0.2 1.5).
 function lastCommit(dir) {
   try {
-    const [sha, subject] = run(dir, ['log', '-1', '--format=%h%x09%s']).trim().split('\t');
-    return sha ? { sha, subject: subject || '' } : null;
+    const [first, ...rest] = run(dir, ['-c', 'core.quotePath=false', 'log', '-1', '--name-only', '--format=%h%x09%s']).split(/\r?\n/);
+    const [sha, subject] = first.trim().split('\t');
+    return sha ? { sha, subject: subject || '', files: rest.map(s => s.trim()).filter(Boolean) } : null;
   } catch { return null; }
 }
 
