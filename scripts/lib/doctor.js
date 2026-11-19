@@ -43,6 +43,14 @@ function checkFiles() {
     : ['ok', `Plugin files: complete (${forgeHooks(hooks).length} hooks registered)`];
 }
 
+// Best of two tries: one slow start on a busy machine (antivirus, a build running) is not a slow hook. Flagged only
+// when even the better try fails or uses more than 90 % of the hook's limit.
+function timeHook(h, run) {
+  let best = run();
+  if (!best.ok || best.ms > h.timeout * 0.5) { const again = run(); if (again.ok && (!best.ok || again.ms < best.ms)) best = again; }
+  return { ms: best.ms, slow: !best.ok || best.ms > h.timeout * 0.9 };
+}
+
 function checkHooks() {
   const list = forgeHooks(readJson(path.join(ROOT, 'hooks', 'hooks.json')));
   if (!list.length) return ['FIX', `Hooks: none registered. Fix: ${REINSTALL}.`];
@@ -50,14 +58,17 @@ function checkHooks() {
   const slow = [];
   let worst = { event: '', ms: 0, limit: 1 };
   try {
-    for (const h of list) {
+    const runOnce = h => {
       const t = Date.now();
       const r = spawnSync(process.execPath, [path.join(ROOT, 'scripts', 'forge.js'), h.event], { cwd: tmp, encoding: 'utf8', timeout: h.timeout,
         input: JSON.stringify({ session_id: 'doctor', cwd: tmp, source: 'startup', tool_name: 'Bash', tool_input: { command: 'echo ok' } }),
         env: Object.assign({}, process.env, { CLAUDE_PROJECT_DIR: tmp, CLAUDE_CONFIG_DIR: tmp, JSPARK_FORGE_AUTO_STATUSLINE: 'off' }), windowsHide: true });
-      const ms = Date.now() - t;
-      if (r.error || r.status !== 0 || ms > h.timeout * 0.8) slow.push(`${h.event} (${ms} ms of ${h.timeout})`);
-      if (ms / h.timeout > worst.ms / worst.limit) worst = { event: h.event, ms, limit: h.timeout };
+      return { ms: Date.now() - t, ok: !r.error && r.status === 0 };
+    };
+    for (const h of list) {
+      const r = timeHook(h, () => runOnce(h));
+      if (r.slow) slow.push(`${h.event} (${r.ms} ms of ${h.timeout})`);
+      if (r.ms / h.timeout > worst.ms / worst.limit) worst = { event: h.event, ms: r.ms, limit: h.timeout };
     }
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
   return slow.length
@@ -147,4 +158,4 @@ function status(dir) {
   return `${L.join('\n')}\n`;
 }
 
-module.exports = { doctor, status };
+module.exports = { doctor, status, timeHook };

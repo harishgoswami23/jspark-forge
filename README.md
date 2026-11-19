@@ -197,6 +197,22 @@ Each works from a brief (goal, what it may and may not change, when it is done, 
 With superpowers, JSPARK Forge asks Claude to use these helpers for its implementers, reviewers and checks. That is
 guidance, not a lock: superpowers chooses a model for each helper it starts.
 
+## Build graphs (long builds that survive a cutoff)
+
+Write a build once as steps in `.jspark-forge/graphs/<name>.md` (start from a template: software, documents, or
+spike): which helper does each step, what it hands to the next, which steps run side by side, which checks must
+pass, and where you must act. `/jspark-forge:build <name>` runs it; JSPARK Forge keeps the record, so a crash, a usage
+limit or a new session picks up at the running step.
+
+What JSPARK Forge checks, and what it can only ask for:
+- **Checked:** the graph is valid before it starts; a step's outputs are exactly the declared ones and are real (a
+  path exists, a commit resolves); a helper of the right kind actually ran; a check passes only on its command's real
+  exit code; a step that needs you completes only when you type `DONE <step>`; its record cannot be edited by Claude.
+- **Asked for:** the order of steps and the limit on helpers running at once; JSPARK Forge hands out work that way but
+  cannot stop Claude doing something else.
+- A graph whose checks run commands needs you to type `TRUST GRAPH <name>` first, and again when those commands
+  change. `npm test` runs whatever your project's scripts say.
+
 ## Commands
 
 | Command | What it does |
@@ -210,6 +226,7 @@ guidance, not a lock: superpowers chooses a model for each helper it starts.
 | `/jspark-forge:upgrade` | Update JSPARK Forge (asks first); run the doctor after the restart |
 | `/jspark-forge:launch` | Create the launch list (launch date, 5 blank slots), or show and update it |
 | `/jspark-forge:scope` | Weigh a new idea against the launch list: facts first, then now / after launch / smaller / drop |
+| `/jspark-forge:build` | Run or continue a build graph step by step (`DONE <step>` and `TRUST GRAPH <name>` are yours to type) |
 | `/jspark-forge:init` | Optional. Wrap your own status line (asks first); `--undo-statusline` restores it exactly; `--guest` / `--mine` for someone else's repo or your own |
 
 ## Uninstall
