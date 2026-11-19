@@ -1,0 +1,27 @@
+{
+  "name": "jspark-forge",
+  "owner": { "name": "JSPARK AI" },
+  "metadata": {
+    "description": "JSPARK Forge, plus superpowers (listed from its own repository, not copied) so you can install both from one place."
+  },
+  "plugins": [
+    {
+      "name": "jspark-forge",
+      "source": "./",
+      "description": "Resume after a crash, logout or limit. Rules enforced by hooks.",
+      "version": "0.1.0",
+      "category": "development"
+    },
+    {
+      "name": "superpowers",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/obra/superpowers.git",
+        "sha": "22f0b463e7a5e579904dd6211a520321035526f7"
+      },
+      "description": "By Jesse Vincent (MIT). Brainstorm, plan, test first, review, verify. Listed here from its own repository; JSPARK Forge does not copy or change it.",
+      "homepage": "https://github.com/obra/superpowers",
+      "category": "development"
+    }
+  ]
+}

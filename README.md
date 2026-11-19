@@ -48,9 +48,16 @@ sources** (keep an old system next to the new one, never edited).
 ## Works best with superpowers
 
 JSPARK Forge does not teach Claude *how* to build. For that we recommend
-[superpowers](https://github.com/obra/superpowers) (MIT): brainstorm, plan, test first, review, verify. Install it
-separately; JSPARK Forge never requires it, never installs it, and works fully without it. On first run, if it is
-missing, JSPARK Forge mentions it once.
+[superpowers](https://github.com/obra/superpowers) by Jesse Vincent (MIT): brainstorm, plan, test first, review,
+verify. The JSPARK Forge marketplace lists it **from its own repository** (nothing is copied or changed), so you can
+install both from one place:
+
+```
+/plugin install superpowers@jspark-forge
+```
+
+JSPARK Forge never requires it, never installs it by itself, and works fully without it. With it, the handoff shows
+superpowers plan progress ("Task 3 of 8"). On first run, if it is missing, JSPARK Forge mentions it once.
 
 ## When it saves (published list)
 
@@ -94,10 +101,12 @@ This is a seatbelt, not a sandbox: a deliberately disguised command can get past
 Needs Claude Code and **Node.js 18 or newer**.
 
 ```
-/plugin marketplace add <org>/jspark-forge
-/plugin install jspark-forge
+/plugin install jspark-forge --marketplace <org>/jspark-forge
 /jspark-forge:init
 ```
+
+On Claude Code older than 2.1.275: `/plugin marketplace add <org>/jspark-forge`, then `/plugin install jspark-forge`.
+Add superpowers from the same marketplace if you want both: `/plugin install superpowers@jspark-forge`.
 
 `/jspark-forge:init` creates a hidden `.jspark-forge/` folder in your project (git-ignored except
 `.jspark-forge/rules.md`) and asks before it **changes your status line**:

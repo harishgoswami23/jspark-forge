@@ -493,6 +493,10 @@ Hidden command (never in the README top section).
 ### 5.9 superpowers integration [owner]
 
 - **Recommend, don't bundle or install.** Forge builds no "how" (plan/test/review) piece of its own.
+- **Listed in our marketplace [owner 2026-11-19]:** the JSPARK Forge marketplace lists superpowers from its own
+  repository at a pinned commit (the same form Anthropic's official marketplace uses), so users install both from
+  one place (`/plugin install superpowers@jspark-forge`). Nothing is copied into this repo; the pin is bumped each
+  release.
 - README section "Works best with superpowers" says why and how to install it.
 - First run: if missing, suggest **once** (never again); if present, from v0.2 read its design docs, plans and
   review notes as decision-memory sources. **v0.1 already reads one file [owner 2026-11-19]:** the plan's progress

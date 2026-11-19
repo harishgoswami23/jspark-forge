@@ -55,7 +55,7 @@ const machineState = path.join(CLAUDE_HOME, 'jspark-forge', 'state.json');
 const ms = readJson(machineState) || {};
 if (!superpowersInstalled() && !ms.superpowersSuggested) {
   out.push('Tip (shown once): JSPARK Forge works best with superpowers (https://github.com/obra/superpowers) for ' +
-    'planning, tests first and reviews. Optional; JSPARK Forge never needs it.');
+    'planning, tests first and reviews. Install it with: /plugin install superpowers@jspark-forge . Optional; JSPARK Forge never needs it.');
   ms.superpowersSuggested = true;
   fs.mkdirSync(path.dirname(machineState), { recursive: true });
   fs.writeFileSync(machineState, JSON.stringify(ms, null, 2) + '\n');
