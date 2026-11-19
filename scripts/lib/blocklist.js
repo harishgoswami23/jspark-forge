@@ -864,6 +864,10 @@ function userHits(text, rules) {
   return hits;
 }
 
+// JSPARK Forge's own build-graph record (state and trust) is written only by JSPARK Forge (design-v0.4 1, review H1):
+// a hard deny for Edit / Write / shell writes, so neither Claude nor a helper can mark steps done or trust a graph.
+const isForgeState = p => /(^|[\\/])\.jspark-forge[\\/]state[\\/]graph-[^\\/]*$/i.test(String(p || '').trim().replace(/^["']|["']$/g, ''));
+
 // opts.all: return every hit (hard ones first) instead of the one to report.
 function check(input, ctx, opts = {}) {
   try {
@@ -878,9 +882,11 @@ function check(input, ctx, opts = {}) {
       if (isSecretName(p)) hits.push(hit('secret-files', false, p));
       const root = underReadonly(p, cwd, ctx.roRoots);
       if (root) hits.push(readonlyHit(root, p));
+      if (isForgeState(p)) hits.push(hit('forge-state', true, p));
     } else if (tool === 'Bash' || tool === 'PowerShell') {
       const raw = String(ti.command || '');
       hits = shellHits(raw, cwd, ctx, 0, tool === 'PowerShell' ? 'ps' : 'bash');
+      if (changeTargets(raw, tool === 'PowerShell' ? 'ps' : 'bash', cwd).some(isForgeState)) hits.push(hit('forge-state', true, raw));
       hits = hits.concat(userHits(raw, ctx.rules));
     } else if (tool.startsWith('mcp__')) {
       const text = mcpText(ti);

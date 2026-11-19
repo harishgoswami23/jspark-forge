@@ -14,6 +14,18 @@ const ps = (command, o = {}) => ({ tool_name: 'PowerShell', tool_input: { comman
 const bash = command => ({ tool_name: 'Bash', tool_input: { command }, cwd: PROJECT, _o: {} });
 
 const CASES = {
+  'forge-state': [
+    [ps("Set-Content .jspark-forge/state/graph-ship.json '{}'"), 'forge-state!'],
+    [ps("'{}' | Out-File .jspark-forge/state/graph-ship.json"), 'forge-state!'],
+    [ps('Remove-Item .jspark-forge/state/graph-active.json'), 'forge-state!'],
+    [ps("Set-Content .jspark-forge\\state\\graph-trust.json '{}'"), 'forge-state!'],
+    [ps('echo x > .jspark-forge/state/graph-ship.json'), 'forge-state!'],
+    [ps('Get-Content .jspark-forge/state/graph-ship.json'), null],
+    [ps("Set-Content .jspark-forge/state/report-a.json '{}'"), null],
+    [ps("Set-Content .jspark-forge/state/decide.json '{}'"), null],
+    [ps('Get-ChildItem .jspark-forge/state'), null],
+    [ps("Set-Content notes/graph-ship.json 'x'"), null],
+  ],
   'rm-rf-outside': [
     [ps('Remove-Item -Recurse -Force ~'), 'rm-rf-outside!'],
     [ps('Remove-Item ~ -Recurse'), 'rm-rf-outside!'],

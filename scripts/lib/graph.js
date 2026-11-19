@@ -58,6 +58,8 @@ function validate(g) {
       if (s.model && !MODELS.has(String(s.model).toLowerCase())) err(s.fieldLines.model || s.line, `unknown model "${s.model}" (fable, opus, sonnet or haiku)`);
     }
     if (s.kind === 'gate' && !s.run.length) err(s.line, `gate needs at least one "run:" line`);
+    // One simple command per line: no chaining, pipes, redirects or substitutions (design-v0.4 2, review H2/H4).
+    if (s.kind === 'gate') for (const r of s.run) if (/[;&|<>`]|\$\(/.test(r) || r.length > 300) err(s.fieldLines.run || s.line, `gate "${s.id}": each "run:" line must be one simple command (no ; && | > < \` or $( ), at most 300 characters)`);
     if (s.kind === 'human' && !s.say) err(s.line, `human step needs "say:" (one plain instruction)`);
     for (const k of ['needs', 'gives']) for (const name of s[k]) if (!FIELD.test(name)) err(s.fieldLines[k] || s.line, `field name "${name}" must be lower-case letters, digits and underscores`);
   }

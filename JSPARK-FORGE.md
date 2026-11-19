@@ -28,6 +28,7 @@ Before you run any of these, stop and ask the user to confirm in words. Never ru
 - pipe-to-shell: this runs a script straight from the internet without showing it first
 - guest-quarantine: this runs code from a repo you are reviewing (install, build, test or run), and that code can do anything your user account can
 - readonly-source: this changes a read-only source listed in rules.md (an old system being migrated from)
+- forge-state: this writes JSPARK Forge's own build-graph record, which only JSPARK Forge writes. Worse: this writes JSPARK Forge's own build-graph record (steps done, trusted commands), which only JSPARK Forge writes: report a step with forge.js graph done, and the user trusts a graph by typing TRUST GRAPH <name>
 
 ## Skill template
 

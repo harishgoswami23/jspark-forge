@@ -19,6 +19,20 @@ const edit = (file, tool = 'Edit') => ({ tool_name: tool, tool_input: { file_pat
 const mcp = (tool, input) => ({ tool_name: tool, tool_input: input, cwd: PROJECT, _o: {} });
 
 const CASES = {
+  // v0.4 design 1 (review H1): JSPARK Forge's own build-graph record, written only by JSPARK Forge. Always refused.
+  'forge-state': [
+    [edit('.jspark-forge/state/graph-ship.json', 'Write'), 'forge-state!'],
+    [edit('.jspark-forge/state/graph-ship.json'), 'forge-state!'],
+    [edit('.jspark-forge/state/graph-trust.json', 'Write'), 'forge-state!'],
+    [bash('echo {} > .jspark-forge/state/graph-ship.json'), 'forge-state!'],
+    [bash("sed -i 's/running/done/' .jspark-forge/state/graph-ship.json"), 'forge-state!'],
+    [bash('rm .jspark-forge/state/graph-active.json'), 'forge-state!'],
+    [edit('.jspark-forge/state/decide.json', 'Write'), null],
+    [edit('.jspark-forge/state/report-build.json', 'Write'), null],
+    [edit('.jspark-forge/graphs/ship.md'), null],
+    [bash('cat .jspark-forge/state/graph-ship.json'), null],
+    [bash('echo x > notes/graph-ship.json'), null],
+  ],
   'rm-rf-outside': [
     [bash('rm -rf /'), 'rm-rf-outside!'],
     [bash('rm -rf ~'), 'rm-rf-outside!'],
@@ -392,8 +406,8 @@ test('every match carries a reason with the stop sentence', () => {
   assert.ok(!/CONFIRM/.test(h.reason), 'a hard deny offers no override');
 });
 
-test('the published list is the nine design entries plus guest-quarantine, readonly-source (v0.1.1) and db-write (v0.2.1)', () => {
-  assert.deepEqual(Object.keys(BUILTINS).sort(), ['chmod-wide', 'db-write', 'git-clean-fdx', 'git-force-push-main', 'git-reset-hard',
+test('the published list: the nine design entries, guest-quarantine and readonly-source (v0.1.1), db-write (v0.2.1), forge-state (v0.4)', () => {
+  assert.deepEqual(Object.keys(BUILTINS).sort(), ['chmod-wide', 'db-write', 'forge-state', 'git-clean-fdx', 'git-force-push-main', 'git-reset-hard',
     'git-stash-drop', 'guest-quarantine', 'pipe-to-shell', 'readonly-source', 'rm-rf-outside', 'secret-files', 'sql-destroy']);
 });
 
