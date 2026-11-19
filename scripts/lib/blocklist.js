@@ -646,6 +646,8 @@ function check(input, ctx, opts = {}) {
     }
     // disable: turns a built-in off, but never its hard-deny part (home folder, whole disk, drive).
     hits = hits.filter(h => !disabled.has(h.id) || (h.hard && BUILTINS[h.id]));
+    // sql-destroy (DROP / TRUNCATE / DELETE without WHERE) already holds the statement: one CONFIRM, not two.
+    if (hits.some(h => h.id === 'sql-destroy')) hits = hits.filter(h => h.id !== 'db-write');
     if (opts.all) return hits.filter(h => h.hard).concat(hits.filter(h => !h.hard));
     if (!hits.length) return null;
     return hits.find(h => h.hard) || hits[0];

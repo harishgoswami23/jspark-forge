@@ -63,7 +63,7 @@ test('MCP: sql-destroy stays as it is (DROP, TRUNCATE, DELETE without WHERE)', (
   assert.equal(id(mcp('mcp__postgres__query', { sql: 'DROP TABLE x' })), 'sql-destroy');
   assert.equal(id(mcp('mcp__db__execute', { query: 'delete from audit' })), 'sql-destroy');
   const all = check(mcp('mcp__postgres__query', { sql: 'DROP TABLE x' }), ctx(), { all: true }).map(h => h.id);
-  assert.deepEqual(all.sort(), ['db-write', 'sql-destroy']);
+  assert.deepEqual(all, ['sql-destroy'], 'sql-destroy covers db-write: one CONFIRM');
 });
 
 test('dev line: a write passes for the server it names, and only that server', () => {
@@ -142,4 +142,11 @@ test('hook: a Bash psql write is held and confirmed the same way; a SELECT passe
   assert.equal(decision(hook(s, 'PreToolUse', bash('psql -h prod.example.com -c "update users set a = 1 where id = 2"'))), 'deny');
   hook(s, 'UserPromptSubmit', { prompt: 'CONFIRM db-write' });
   assert.equal(decision(hook(s, 'PreToolUse', bash('psql -h prod.example.com -c "update users set a = 1 where id = 2"'))), 'ask');
+});
+
+test('a destructive statement on a production database needs one CONFIRM, not two (sql-destroy covers it)', () => {
+  const all = input => check(input, ctx(), { all: true }).map(h => h.id);
+  assert.deepEqual(all(mcp(`${SUPA}execute_sql`, { project_id: 'p', query: 'DROP TABLE users' })), ['sql-destroy']);
+  assert.deepEqual(all({ tool_name: 'Bash', tool_input: { command: 'psql -h db.example.com -c "TRUNCATE orders"' }, cwd: PROJECT }), ['sql-destroy']);
+  assert.deepEqual(all(mcp(`${SUPA}execute_sql`, { project_id: 'p', query: 'UPDATE t SET a = 1 WHERE id = 2' })), ['db-write']);
 });
