@@ -260,17 +260,26 @@ secrets (keys, tokens, passwords) before writing.
 
 ## Every hook, documented
 
-See [docs/design-v0.1.md](docs/design-v0.1.md): each hook, the event it listens to, what it writes and what it
-blocks.
+Every hook runs `node scripts/forge.js <event>` and fails open: an error never blocks Claude Code. Files are written
+only in the project's `.jspark-forge/` (or, for a repo you are reviewing, `~/.claude/jspark-forge/guests/<id>/`).
+Details per feature: [design-v0.1.md](docs/design-v0.1.md), [design-v0.1.1.md](docs/design-v0.1.1.md),
+[design-v0.2.md](docs/design-v0.2.md), [design-v0.3.md](docs/design-v0.3.md), [design-v0.4.md](docs/design-v0.4.md).
 
-Launch list ([docs/design-v0.3.md](docs/design-v0.3.md) section 2), only in your own projects with a
-`.jspark-forge/launch.md`:
+| Hook (time limit) | What it does | What it writes | Can it block? |
+|---|---|---|---|
+| SessionStart (10 s; a Node check first, 5 s) | Switches JSPARK Forge on in a git project; shows where you were and waits; questions waiting on you; the grounding rule; decision index; code map freshness; launch list; a running build graph; one-time tips | the handoff state, the action log, `state/` files | No |
+| UserPromptSubmit (10 s) | Your `CONFIRM <name>`, `TRUST GRAPH <name>`, `DONE <step>`; clears a question you answered; offers to record a decision; the launch-scope nudge | confirm tokens, session state | No |
+| PreToolUse (3 s; shell, edits, the question tool, MCP tools) | The block list (asks or denies); files a question you are asked; the decisions about a file just before Claude edits it; the notes reminder before a commit | waiting list, "already shown" ids | **Yes**: deny or ask |
+| PostToolUse (10 s) | Saves after file changes and commits; offers to record a decision; stale-decision flags; code map freshness on map answers; build graph evidence (gate results, helper tokens); "recorded" notices | handoff, task and session state, map and graph state | No |
+| PostToolUseFailure (10 s) | Logs the failure; a failed gate command stops a build graph | log, graph state | No |
+| Stop (10 s) | Saves the handoff after each reply; files a closing question when there is work | handoff, waiting list | No |
+| PreCompact (10 s) | Saves before compaction (prints nothing) | handoff | No |
+| SessionEnd (1 s) | Marks the session ended | session state | No |
+| SubagentStart / SubagentStop (10 s) | Tracks running helpers; build graph evidence that a helper ran | session and graph state | No |
 
-| Hook | What it does for the launch list |
-|---|---|
-| SessionStart | Adds the launch date and the open / done titles (at most 60 words, as data) for Claude; lists items that arrived with git to you once |
-| UserPromptSubmit | A prompt under 400 characters that sounds like new scope gets one line suggesting `/jspark-forge:scope` (at most every 30 minutes, attended sessions only, not at 95 % usage) |
-| PostToolUse | After a `forge.js launch` command, shows the change it made in the conversation, once |
+The status line (if you let JSPARK Forge add or wrap it) writes usage figures to `usage/` and shows "saved …" and
+"waiting on you". The code map's background refresh (`scripts/map-refresh.js`) is started by hooks and runs
+codebase-memory-mcp's indexer; it never blocks a hook.
 
 ## Credits and licence
 
