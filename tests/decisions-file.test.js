@@ -2,6 +2,7 @@
 // v0.2 decision memory (design-v0.2 section 1.1, 1.2): the decisions.md reader/writer and Touches: matching.
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const BOM = String.fromCharCode(0xfeff);
 const { parse, addEntry, setField, matches, nextId, words } = require('../scripts/lib/decisions');
 
 const SAMPLE = `# Decisions
@@ -103,13 +104,13 @@ test('a new entry writes Last verified on its own line (no merge conflicts with 
 });
 
 test('"|" separates fields like "·"; a byte-order mark and a missing final newline are kept', () => {
-  const t = '﻿## D-001 Use UTC everywhere\n- Kind: rule\n- Date: 2026-01-01 | Last verified: 2026-02-01\n- Status: active';
+  const t = BOM + '## D-001 Use UTC everywhere\n- Kind: rule\n- Date: 2026-01-01 | Last verified: 2026-02-01\n- Status: active';
   const e = parse(t).entries[0];
   assert.equal(e.id, 'D-001');
   assert.equal(e.lastVerified, '2026-02-01');
   const v = setField(t, 'D-001', 'Last verified', '2026-11-20');
   assert.equal(v, t.replace('2026-02-01', '2026-11-20'));
-  assert.ok(v.startsWith('﻿') && !v.endsWith('\n'));
+  assert.ok(v.startsWith(BOM) && !v.endsWith('\n'));
 });
 
 test('words counts the entry text (title and why) for the long-entry warning', () => {

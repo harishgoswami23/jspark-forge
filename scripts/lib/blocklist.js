@@ -550,4 +550,15 @@ function writeTargets(raw, dialect = 'bash') {
   try { return shell.parse(raw, { dialect }).flatMap(pl => pl.flatMap(st => stageWrites(st, dialect))); } catch { return []; }
 }
 
-module.exports = { check, BUILTINS, STOP, isSecretName, isGitCommit, writeTargets, toFs };
+// Every file path a shell command line changes (writes, sed -i, mv, cp, rm, touch, PowerShell writers): decision memory
+// uses it to know which files a command is about to touch. A git command's work-tree folder is left out.
+function changeTargets(raw, dialect = 'bash', cwd = '.') {
+  try {
+    return shell.parse(raw, { dialect }).flatMap(pl => pl.flatMap(st => {
+      const c = shell.command(st.words);
+      return c && c.cmd === 'git' ? stageWrites(st, dialect) : stageChanges(st, dialect, cwd);
+    }));
+  } catch { return []; }
+}
+
+module.exports = { check, BUILTINS, STOP, isSecretName, isGitCommit, writeTargets, changeTargets, toFs };

@@ -10,6 +10,7 @@ const FIELD = /^-\s+([A-Za-z][A-Za-z ]{0,30}?):\s*(.*)$/;
 const SUBFIELD = /^([A-Za-z][A-Za-z ]{0,30}?):\s+(.*)$/;
 const SEP = /\s[·|]\s/; // "Date: … · Last verified: …" (spec form) or with "|"
 
+const BOM = new RegExp('^' + String.fromCharCode(0xfeff)); // a byte-order mark (by code: see tests/load.test.js)
 const eolOf = text => (/\r\n/.test(text) ? '\r\n' : '\n');
 
 // "- Date: 2026-11-02 · Last verified: 2026-11-02" -> [['date', '2026-11-02'], ['last verified', '2026-11-02']]
@@ -31,7 +32,7 @@ function fieldsOfLine(line) {
 }
 
 function parse(text) {
-  const lines = String(text || '').replace(/^﻿/, '').split(/\r?\n/);
+  const lines = String(text || '').replace(BOM, '').split(/\r?\n/);
   const entries = [];
   const errors = [];
   let cur = null;
@@ -98,7 +99,7 @@ function addEntry(text, { title, kind = 'decision', why = '', see = '', by = '',
 function setField(text, id, key, value) {
   const eol = eolOf(text);
   const lines = String(text).split(/\r?\n/);
-  const start = lines.findIndex(l => { const m = l.replace(/^﻿/, '').match(HEAD); return m && m[1] === id; });
+  const start = lines.findIndex(l => { const m = l.replace(BOM, '').match(HEAD); return m && m[1] === id; });
   if (start < 0) throw new Error(`no entry ${id} in decisions.md`);
   let end = lines.length;
   for (let i = start + 1; i < lines.length; i++) if (ANY_HEAD.test(lines[i])) { end = i; break; }

@@ -9,7 +9,8 @@ const os = require('os');
 const path = require('path');
 const log = require('./lib/log');
 const { redact } = require('./lib/redact');
-const { check, BUILTINS, STOP, isGitCommit, writeTargets, toFs } = require('./lib/blocklist');
+const { check, BUILTINS, STOP, isGitCommit, writeTargets, changeTargets, toFs } = require('./lib/blocklist');
+const memory = require('./lib/memory');
 const dialectOf = tool => (tool === 'PowerShell' ? 'ps' : 'bash');
 const { loadRules } = require('./lib/rules');
 const confirm = require('./lib/confirm');
@@ -95,6 +96,27 @@ function doSave(dir, sid, reason, lines, opts) {
   if (handoff.save(dir, sid, reason, opts)) lines.push(['SAVE', reason]); // null: no work to resume, nothing written
 }
 
+// Decision memory just in time (design-v0.2 1.3): the decisions about the files this call changes, each shown once
+// per conversation (per helper: agent_id). Called only for allowed calls, so a denied one uses nothing up.
+function decisionNotes(dir, input) {
+  const t = input.tool_name || '';
+  const ti = input.tool_input || {};
+  const cwd = input.cwd || dir;
+  let files = [];
+  if (t === 'Edit' || t === 'Write' || t === 'NotebookEdit') files = [ti.file_path || ti.notebook_path];
+  else if (t === 'Bash' || t === 'PowerShell') files = changeTargets(ti.command || '', dialectOf(t), cwd).map(toFs);
+  files = files.filter(p => p && !/[$`]/.test(p));
+  if (!files.length || !memory.load(dir).length) return null;
+  const sess = state.readSession(dir, input.session_id);
+  const key = input.agent_id || 'main';
+  const shownAll = sess.decisionsShown || {};
+  const n = memory.notesFor(dir, toFs(cwd), files, shownAll[key] || []);
+  if (!n) return null;
+  sess.decisionsShown = Object.assign({}, shownAll, { [key]: (shownAll[key] || []).concat(n.ids) });
+  state.writeSession(dir, input.session_id, sess);
+  return n;
+}
+
 // ---------- handlers ----------
 // A handler returns null, [kind, detail] (one log line), or { lines: [[kind, detail], ...], out: <hook JSON> }.
 const handlers = {
@@ -107,6 +129,10 @@ const handlers = {
       if (!fs.existsSync(path.resolve(dir, r.path))) msgs.push(`JSPARK Forge: read-only source ${r.path} was not found (the rule is kept).`);
     }
     if (rules.disabled.length) msgs.push(`JSPARK Forge: you switched off ${rules.disabled.join(', ')} in rules.md.`);
+    if (input.source === 'compact') { // the summary dropped the decisions Claude was shown: show them again when relevant
+      const sess = state.readSession(dir, input.session_id);
+      if (sess.decisionsShown) { sess.decisionsShown = {}; state.writeSession(dir, input.session_id, sess); }
+    }
     const rc = handoff.resumeContext(dir, input.session_id, input.source || 'startup');
     if (rc.systemMessage) msgs.unshift(rc.systemMessage);
     const w = input.source === 'compact' ? null : waitingNotice(dir); // shown first (spec 5.2a)
@@ -162,19 +188,27 @@ const handlers = {
       const plains = ids.map(id => hits.find(h => h.id === id).plain);
       if (!r.hard && ids.every(id => confirm.has(dir, input.session_id, id))) {
         for (const id of ids) confirm.consume(dir, input.session_id, id);
-        return { lines: lines.concat(ids.map(id => ['CONFIRM', `${id} used :: ${what}`])),
-          out: preTool('ask', `JSPARK Forge: you typed ${ids.map(id => `CONFIRM ${id}`).join(' and ')}, so this is allowed once: ${plains.join('; and ')}.`) };
+        const out = preTool('ask', `JSPARK Forge: you typed ${ids.map(id => `CONFIRM ${id}`).join(' and ')}, so this is allowed once: ${plains.join('; and ')}.`);
+        const n = decisionNotes(dir, input); // allowed: the decisions about its files come with it (design-v0.2 1.3)
+        if (n) out.hookSpecificOutput.additionalContext = n.text;
+        return { lines: lines.concat(ids.map(id => ['CONFIRM', `${id} used :: ${what}`]), n ? [['DECISION', n.ids.join(',')]] : []), out };
       }
       const reason = r.hard || ids.length === 1 ? r.reason
         : `JSPARK Forge blocked: ${plains.join('; and ')}. ${STOP} To allow it once, the user types: ${ids.map(id => `CONFIRM ${id}`).join(' and ')}`;
-      return { lines: lines.concat([['BLOCK', `${ids.join(',')} :: ${what}`]]), out: preTool('deny', reason) };
+      return { lines: lines.concat([['BLOCK', `${ids.join(',')} :: ${what}`]]), out: preTool('deny', reason) }; // denied: no notes
     }
-    if (lines.length) return { lines, out: null }; // allowed for the session: Claude Code's normal permission flow decides
+    // Allowed. One context for everything: the decisions about the files it changes and the notes reminder before a
+    // commit (design-v0.2 1.3, design 5.3).
+    const parts = [];
+    const n = decisionNotes(dir, input);
+    if (n) { parts.push(n.text); lines.push(['DECISION', n.ids.join(',')]); }
     const t = input.tool_name;
     if ((t === 'Bash' || t === 'PowerShell') && rules.settings.notes !== 'off' &&
         isGitCommit((input.tool_input || {}).command || '', input.cwd || dir, dialectOf(t))) {
-      return { lines: [], out: context('PreToolUse', handoff.notesLine(dir)) }; // design 5.3
+      parts.push(handoff.notesLine(dir));
     }
+    if (parts.length) return { lines, out: context('PreToolUse', parts.join('\n\n')) };
+    if (lines.length) return { lines, out: null }; // allowed for the session: Claude Code's normal permission flow decides
     return null;
   },
 
