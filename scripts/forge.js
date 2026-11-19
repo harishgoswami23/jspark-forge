@@ -99,6 +99,9 @@ const handlers = {
     handoff.pruneArchive(dir);
     const rules = loadRules(dir);
     const msgs = rules.errors.map(e => `JSPARK Forge: ${e.file || '.jspark-forge/rules.md'} line ${e.line} skipped (${e.message}).`);
+    for (const r of rules.readonly) {
+      if (!fs.existsSync(path.resolve(dir, r.path))) msgs.push(`JSPARK Forge: read-only source ${r.path} was not found (the rule is kept).`);
+    }
     if (rules.disabled.length) msgs.push(`JSPARK Forge: you switched off ${rules.disabled.join(', ')} in rules.md.`);
     const rc = handoff.resumeContext(dir, input.session_id, input.source || 'startup');
     if (rc.systemMessage) msgs.unshift(rc.systemMessage);

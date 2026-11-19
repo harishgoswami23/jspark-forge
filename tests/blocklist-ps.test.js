@@ -184,6 +184,7 @@ for (const [group, cases] of Object.entries(CASES)) {
 
 test('every published entry has >= 5 positive and >= 5 negative PowerShell cases', () => {
   for (const id of Object.keys(BUILTINS)) {
+    if (id === 'readonly-source') continue; // covered, Bash and PowerShell, in tests/readonly.test.js
     const cases = (CASES[id] || []).filter(([i]) => i.tool_name === 'PowerShell');
     const pos = cases.filter(([, w]) => w && w.replace('!', '') === id).length;
     const neg = cases.filter(([, w]) => w === null).length;

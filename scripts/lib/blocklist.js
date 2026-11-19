@@ -187,6 +187,49 @@ function quarantined(cmdWord, cmd, args, cwd, ctx) {
   return false;
 }
 
+// ---------- read-only sources (v0.1.1, spec 5.2b) ----------
+// rules.md "## Sources" "- readonly: <path> : <why>": an old system being migrated from. Any change is a hard deny
+// (no CONFIRM); reading stays free. To allow edits, the user removes the line.
+function readonlyRoots(ctx) {
+  return ((ctx.rules && ctx.rules.readonly) || []).map(r => ({ r, abs: norm(path.resolve(toFs(ctx.projectDir), toFs(r.path))) }));
+}
+function underReadonly(p, cwd, roots) {
+  if (!p || !roots.length) return null;
+  const a = norm(path.resolve(toFs(cwd), toFs(p)));
+  return roots.find(x => a === x.abs || inside(a, x.abs)) || null;
+}
+function readonlyHit(root, matched) {
+  const plain = `this changes ${root.r.path}, which rules.md marks read-only${root.r.reason ? ` (${root.r.reason})` : ''}. ` +
+    'There is no good reason to edit the source during a migration; to allow edits, remove its "readonly:" line from rules.md';
+  return { id: 'readonly-source', hard: true, plain, reason: reasonFor('readonly-source', plain, true), matched };
+}
+// Every path a shell stage changes: writes (redirects, tee, PowerShell write cmdlets, copy/move destinations) plus
+// deletes, moves (both ends), touch/mkdir, sed -i, and a git command that changes the work tree run with -C <path>.
+const GIT_CHANGES = new Set(['commit', 'add', 'rm', 'mv', 'reset', 'checkout', 'restore', 'switch', 'clean', 'stash', 'merge',
+  'rebase', 'pull', 'apply', 'am', 'cherry-pick', 'revert']);
+function stageChanges(stage, dialect, cwd) {
+  const out = stageWrites(stage, dialect);
+  const c = shell.command(stage.words);
+  if (!c) return out;
+  const { cmd, args } = c;
+  const plain = args.filter(a => !a.startsWith('-'));
+  if (['rm', 'rmdir', 'unlink', 'touch', 'mkdir', 'truncate', 'chmod', 'chown'].includes(cmd) && dialect !== 'ps') out.push(...plain);
+  if ((cmd === 'mv' || cmd === 'move' || cmd === 'move-item') ) out.push(...plain.map(p => (dialect === 'ps' ? psPath(p) : p)));
+  if ((cmd === 'cp' || cmd === 'ln') && dialect !== 'ps' && plain.length > 1) out.push(plain[plain.length - 1]);
+  if (cmd === 'sed' && args.some(a => /^-i/.test(a) || a === '--in-place')) out.push(...plain.slice(1));
+  if (dialect === 'ps' && (PS_REMOVE.has(cmd) || /^(rename-item|ren|rni|clear-content|clc)$/.test(cmd))) {
+    for (let i = 0; i < args.length; i++) {
+      if (/^-(path|literalpath|lp)$/i.test(args[i])) out.push(psPath(args[++i] || ''));
+      else if (!args[i].startsWith('-') && !/^\/[a-z]$/i.test(args[i])) out.push(psPath(args[i]));
+    }
+  }
+  if (cmd === 'git') {
+    const { dir, sub } = parseGit(args, cwd);
+    if (GIT_CHANGES.has(sub)) out.push(dir);
+  }
+  return out;
+}
+
 // ---------- icacls: the Windows form of chmod 777 (v0.1.1) ----------
 const WIDE_PRINCIPALS = /^(everyone|\*s-1-1-0|users|builtin\\users|\*s-1-5-32-545|authenticated users|\*s-1-5-11)$/i;
 function icaclsWide(args) {
@@ -303,6 +346,9 @@ function shellHits(raw, cwd, ctx, depth = 0, dialect = 'bash') {
     let fetchAt = -1;
     pl.forEach((stage, idx) => {
       for (const target of stageWrites(stage, dialect)) if (isSecretName(target)) hits.push(hit('secret-files', false, raw));
+      if (ctx.roRoots && ctx.roRoots.length) {
+        for (const p of stageChanges(stage, dialect, cwd)) { const root = underReadonly(p, cwd, ctx.roRoots); if (root) hits.push(readonlyHit(root, raw)); }
+      }
       const c = shell.command(stage.words);
       if (!c) return;
       const { cmd, args } = c;
@@ -364,10 +410,13 @@ function check(input, ctx) {
     const ti = input.tool_input || {};
     const cwd = input.cwd || ctx.projectDir;
     const disabled = new Set((ctx.rules && ctx.rules.disabled) || []);
+    ctx = Object.assign({}, ctx, { roRoots: readonlyRoots(ctx) });
     let hits = [];
     if (tool === 'Edit' || tool === 'Write' || tool === 'NotebookEdit') {
       const p = ti.file_path || ti.notebook_path || '';
       if (isSecretName(p)) hits.push(hit('secret-files', false, p));
+      const root = underReadonly(p, cwd, ctx.roRoots);
+      if (root) hits.push(readonlyHit(root, p));
     } else if (tool === 'Bash' || tool === 'PowerShell') {
       const raw = String(ti.command || '');
       hits = shellHits(raw, cwd, ctx, 0, tool === 'PowerShell' ? 'ps' : 'bash');

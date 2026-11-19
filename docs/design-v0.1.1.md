@@ -176,3 +176,17 @@ and its install, build and run commands need CONFIRM guest-quarantine. If it is 
 - **Q-H3** Is the quarantine list complete enough to be honest, given "seatbelt, not a sandbox"?
 - **Q-H4** Anything that would make a guest session write into the repo anyway (Claude Code itself, git, the status
   line, superpowers' own `.superpowers/` folder)?
+
+---
+
+## 3. Read-only sources (spec 5.2b)
+
+Built 2026-11-19. `rules.md` `## Sources` lines `- readonly: <path> : <why>` (user file or project file; a project's
+lines only restrict, so they count). Any change under that path is a hard deny with no CONFIRM: Edit / Write /
+NotebookEdit, shell writes (redirects, `tee`, PowerShell write cmdlets), copy or move into it, moves out of it, deletes,
+`touch` / `mkdir`, `sed -i`, and `git -C <path>` with a subcommand that changes the work tree. Reading stays free. A
+missing path is reported at session start and the rule is kept. The handoff names each source and its commit
+(`Source: ../legacy-app @ 3f2e1d0 (read-only)`), read from `.git` files without starting git.
+
+**Deviation [builder]:** the spec's "last read: <path>" is not recorded. It would need a PostToolUse hook on every Read,
+the most frequent tool call, which design-v0.1 section 3 left out on purpose for speed.

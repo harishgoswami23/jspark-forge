@@ -13,7 +13,7 @@ const SETTINGS = { notes: ['on', 'off'], 'statusline-segment': ['on', 'off'] };
 const slug = s => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'rule';
 
 function parseRules(text) {
-  const out = { confirm: [], never: [], disabled: [], settings: { notes: 'on', 'statusline-segment': 'on' }, errors: [] };
+  const out = { confirm: [], never: [], disabled: [], readonly: [], settings: { notes: 'on', 'statusline-segment': 'on' }, errors: [] };
   const ids = new Set(Object.keys(BUILTINS));
   let section = null;
   let reCount = 0;
@@ -21,8 +21,15 @@ function parseRules(text) {
   lines.forEach((line, idx) => {
     const n = idx + 1;
     const h = line.match(/^##\s+(.+?)\s*$/);
-    if (h) { const name = h[1].toLowerCase(); section = ['confirm', 'never', 'settings'].includes(name) ? name : null; return; }
+    if (h) { const name = h[1].toLowerCase(); section = ['confirm', 'never', 'settings', 'sources'].includes(name) ? name : null; return; }
     if (!section || !/^\s*[-*]\s+/.test(line)) return;
+    if (section === 'sources') { // v0.1.1 read-only sources: "- readonly: <path> : <why>" (" : " separates; a Windows path keeps its C:)
+      const m = line.match(/^\s*[-*]\s+readonly\s*:\s*(.+?)\s*$/i);
+      if (!m) { out.errors.push({ line: n, message: 'expected - readonly: <path> : <why>' }); return; }
+      const [p, ...why] = m[1].split(' : ');
+      out.readonly.push({ path: p.trim(), reason: why.join(' : ').trim(), line: n });
+      return;
+    }
     if (section === 'settings') {
       const m = line.match(/^\s*[-*]\s+([a-z-]+)\s*:\s*(.+?)\s*$/i);
       const key = m && m[1].toLowerCase();
@@ -79,6 +86,7 @@ function loadRules(projectDir, { claudeHome } = {}) {
     confirm: user.confirm.concat(repo.confirm.map(fresh)),
     never: user.never.concat(repo.never.map(fresh)),
     disabled: user.disabled,
+    readonly: user.readonly.concat(repo.readonly), // adding a read-only source only restricts: a repo's own lines count
     settings: Object.assign({}, user.settings, repo.settings),
     errors: user.errors.map(e => Object.assign({ file: USER_LABEL }, e))
       .concat(repo.errors.map(e => Object.assign({ file: REPO_LABEL }, e)))

@@ -249,6 +249,7 @@ for (const [group, cases] of Object.entries(CASES)) {
 
 test('every published entry has >= 5 positive and >= 5 negative cases', () => {
   for (const id of Object.keys(BUILTINS)) {
+    if (id === 'readonly-source') continue; // covered, Bash and PowerShell, in tests/readonly.test.js
     const cases = CASES[id] || [];
     const pos = cases.filter(([, w]) => w && w.replace('!', '') === id).length;
     const neg = cases.filter(([, w]) => w === null).length;
@@ -271,9 +272,9 @@ test('every match carries a reason with the stop sentence', () => {
   assert.ok(!/CONFIRM/.test(h.reason), 'a hard deny offers no override');
 });
 
-test('the published list is the nine design entries plus guest-quarantine (v0.1.1)', () => {
+test('the published list is the nine design entries plus guest-quarantine and readonly-source (v0.1.1)', () => {
   assert.deepEqual(Object.keys(BUILTINS).sort(), ['chmod-wide', 'git-clean-fdx', 'git-force-push-main', 'git-reset-hard',
-    'git-stash-drop', 'guest-quarantine', 'pipe-to-shell', 'rm-rf-outside', 'secret-files', 'sql-destroy']);
+    'git-stash-drop', 'guest-quarantine', 'pipe-to-shell', 'readonly-source', 'rm-rf-outside', 'secret-files', 'sql-destroy']);
 });
 
 test('a disabled built-in no longer matches', () => {

@@ -101,6 +101,10 @@ Add your own in `.jspark-forge/rules.md` ("Confirm" or "Never" lines; commit it 
 `~/.claude/jspark-forge/rules.md` for every project. Switching a built-in block off (`- disable: chmod-wide`) works
 only in that personal file: a project's `rules.md` may come from a repo you cloned, so it can add rules but never
 remove one. Blocks also fire inside helper agents.
+
+**Migrating from an old system?** List it under `## Sources` in `rules.md` (`- readonly: ../legacy-app : migrating
+from`): Claude can read it but any change to it (edit, write, move, delete, `sed -i`, `git -C … commit`) is always
+refused, with no CONFIRM. Remove the line to allow edits. The handoff names it and its commit.
 This is a seatbelt, not a sandbox: a deliberately disguised command can get past pattern matching.
 
 ## Install

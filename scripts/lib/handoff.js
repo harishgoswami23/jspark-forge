@@ -6,7 +6,7 @@ const path = require('path');
 const { writeAtomic } = require('./fsx');
 const { parsePlan } = require('./plan');
 const superpowers = require('./superpowers');
-const { gitInfo, headBranch } = require('./git');
+const { gitInfo, headBranch, headCommit } = require('./git');
 const log = require('./log');
 const state = require('./state');
 const paths = require('./paths');
@@ -78,6 +78,7 @@ function render(m, opts = {}) {
   if (m.ended) head += ` · session ended ${hhmm(new Date(m.ended.at))} (${m.ended.reason})`;
   L.push('# Where we were');
   if (m.review) L.push(`Review of ${m.review.origin || 'a repo that is not yours'}${m.review.head ? ` @ ${m.review.head}` : ''}`);
+  for (const s of m.sources || []) L.push(`Source: ${s.path}${s.head ? ` @ ${s.head}` : ''} (read-only)`);
   L.push(head, '');
   const step = m.step ? `${m.step.n} of ${m.step.m}${m.step.text ? `: ${cut(m.step.text)}` : ''}` : 'not recorded';
   L.push(`**Task:** ${m.task ? cut(m.task) : 'not recorded'}`);
@@ -177,6 +178,9 @@ function save(dir, sid, reason, { refreshGit = true, now = new Date(), force = f
   const meta = paths.isGuest(dir) ? paths.guestMeta(dir) : null;
   const model = {
     review: meta ? { origin: meta.origin, head: sess.git && sess.git.head } : null,
+    // read-only sources (v0.1.1): the path as written in rules.md and its commit (no git process); "last read" is not
+    // recorded: it would need a hook on every Read (design-v0.1.1 section 3)
+    sources: require('./rules').loadRules(dir).readonly.map(r => ({ path: r.path, head: headCommit(path.resolve(dir, r.path)) })),
     asOf: now, reason, git: sess.git, task: f.task, step: f.step, done, next: f.next,
     running: runningOf(sess), waiting: sess.waiting, lastRequest: sess.lastPrompt,
     notes: notes && notes.text ? { time: notes.time, text: notes.text } : null,
