@@ -674,7 +674,7 @@ const plural = (n, one, many) => `${n} ${n === 1 ? one : many || `${one}s`}`;
 
 function shortHead(dir) {
   try {
-    const r = spawnSync('git', ['-C', dir, 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8', timeout: 3000, windowsHide: true });
+    const r = spawnSync('git', ['--no-optional-locks', '-C', dir, 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8', timeout: 3000, windowsHide: true });
     const s = r.status === 0 ? String(r.stdout).trim() : '';
     return /^[0-9a-f]{4,40}$/.test(s) ? s : '';
   } catch { return ''; }

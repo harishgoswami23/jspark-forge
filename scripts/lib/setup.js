@@ -37,7 +37,7 @@ const startBudget = ms => { deadline = Date.now() + ms; };
 function git(dir, args, timeout = 3000) {
   const left = deadline - Date.now();
   if (left <= 0) return { ok: false, out: '', failed: true };
-  const r = spawnSync('git', args, { cwd: dir, encoding: 'utf8', timeout: Math.min(timeout, left), windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+  const r = spawnSync('git', ['--no-optional-locks', ...args], { cwd: dir, encoding: 'utf8', timeout: Math.min(timeout, left), windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
   return { ok: !r.error && r.status === 0, out: (r.stdout || '').trim(), failed: !!r.error || r.signal !== null };
 }
 // Origin without any user:password (it is stored and shown).
