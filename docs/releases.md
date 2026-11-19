@@ -175,7 +175,7 @@ everything below is then revisited from their feedback.
 
 ## v0.2.1: Database guard (spec 5.2c) [owner 2026-11-20]
 
-**Status: built** (branch `dev/v0.2-dbguard`). The `database dev:` line is honoured only from the user's own
+**Status: built** (2026-11-20, in dev/v0.2). The `database dev:` line is honoured only from the user's own
 `~/.claude/jspark-forge/rules.md`; a project's line is ignored and reported at SessionStart, like `disable:`.
 
 **What it does.** Guards databases instead of reading them: a write to a production database is denied until the
@@ -203,11 +203,15 @@ connects to a database.
 
 ## v0.2: UI/UX companions tip (spec 5.14)
 
-**Status: built** (branch `dev/v0.2-uitip`). Once per project (`state/tips.json`), own projects only, front-end
+**Status: built** (2026-11-20, in dev/v0.2). Once per project (`state/tips.json`), own projects only, front-end
 projects only: one SessionStart line naming only the missing companions (frontend-design, Playwright MCP, shadcn MCP
 for React) with pinned install lines. Installs nothing. Code: `scripts/lib/uitip.js`; tests: `tests/uitip.test.js`.
 
 ## v0.2: Decision memory (the "why")
+
+**Status (2026-11-20): built** on `dev/v0.2` with the licence check, the database guard (v0.2.1, released together),
+the skill and brief templates with lint, the model map and the UI/UX tip; design and review record in
+[`design-v0.2.md`](design-v0.2.md). Release after the Fable 5.2 code review, spike E and the owner's first-user check.
 
 **What it does.** Keeps one-line decisions, standing rules and lessons, each with the files it touches, and injects
 the matching ones as context **just before** Claude edits one of those files [owner, 2026-11-03]. It does not
@@ -233,7 +237,7 @@ describe code structure (that is v0.3).
 - **External code (spec 5.2b) [owner 2026-11-03; licence check: coordinator]:** migration mappings recorded as
   decisions (*"sessions: legacy/session.php → src/auth.ts, cookie format kept"*); licence check of guest repos and
   readonly sources (one file read) in plain words (permissive / restrictive / non-commercial / none found).
-  **Licence check built (branch `dev/v0.2-licence`):** `scripts/lib/licence.js`; one line in the SessionStart message per
+  **Licence check built (2026-11-20, in dev/v0.2):** `scripts/lib/licence.js`; one line in the SessionStart message per
   guest repo or read-only source, once per licence text (state in `licences.json` under the JSPARK Forge folder); a
   hint, not legal advice; reads only, failures silent. Tests: `tests/licence.test.js`.
 
