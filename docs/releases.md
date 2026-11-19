@@ -201,6 +201,12 @@ connects to a database.
 
 ---
 
+## v0.2: UI/UX companions tip (spec 5.14)
+
+**Status: built** (branch `dev/v0.2-uitip`). Once per project (`state/tips.json`), own projects only, front-end
+projects only: one SessionStart line naming only the missing companions (frontend-design, Playwright MCP, shadcn MCP
+for React) with pinned install lines. Installs nothing. Code: `scripts/lib/uitip.js`; tests: `tests/uitip.test.js`.
+
 ## v0.2: Decision memory (the "why")
 
 **What it does.** Keeps one-line decisions, standing rules and lessons, each with the files it touches, and injects

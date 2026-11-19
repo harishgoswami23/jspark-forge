@@ -24,6 +24,7 @@ const usageLib = require('./lib/usage');
 const setup = require('./lib/setup');
 const paths = require('./lib/paths');
 const licence = require('./lib/licence');
+const uitip = require('./lib/uitip');
 
 const event = process.argv[2] || '';
 const DEBOUNCE_MS = 5000;
@@ -142,6 +143,8 @@ const handlers = {
     const licItems = rules.readonly.filter(r => fs.existsSync(path.resolve(dir, r.path))).map(r => ({ label: r.path, folder: path.resolve(dir, r.path) }));
     if (paths.isGuest(dir)) licItems.unshift({ label: 'this repo', folder: paths.repoRoot(dir) });
     if (licItems.length) msgs.push(...licence.notices(dir, licItems));
+    const uiTip = uitip.notice(dir); // UI/UX companions tip, once per own front-end project (spec 5.14)
+    if (uiTip) msgs.push(uiTip);
     if (rules.disabled.length) msgs.push(`JSPARK Forge: you switched off ${rules.disabled.join(', ')} in rules.md.`);
     let offerAfterCompact = null;
     if (input.source === 'compact') { // the summary dropped the decisions Claude was shown: show them again when relevant

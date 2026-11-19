@@ -66,6 +66,15 @@ The handoff then shows superpowers plan progress ("Task 3 of 8").
 Already had superpowers from another marketplace? Then it is installed twice and its skills show twice; JSPARK Forge
 tells you once which copy to remove.
 
+## Building a UI?
+
+In your own front-end project, JSPARK Forge says one line, once, naming the companions you have not installed. It
+never installs anything. For top-quality UI work:
+
+- **frontend-design** (Anthropic's plugin): `/plugin install frontend-design@claude-plugins-official`
+- **Playwright MCP**, so Claude can check its own screens: `claude mcp add playwright npx @playwright/mcp@0.0.86`
+- **shadcn MCP** (React projects): `npx shadcn@4.23.0 mcp init --client claude`
+
 ## When it saves (published list)
 
 1. After any tool call that writes or edits a file.
