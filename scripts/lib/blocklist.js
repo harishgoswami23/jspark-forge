@@ -348,18 +348,13 @@ function isSecretName(p) {
 }
 
 // ---------- shell commands ----------
-// The command texts inside $( ... ) and `...` in one word ("$(npm install)" -> "npm install").
-function substitutions(word) {
-  const out = [];
-  const s = String(word);
-  for (let i = s.indexOf('$('); i >= 0; i = s.indexOf('$(', i + 2)) {
-    let depth = 0, j = i + 1;
-    for (; j < s.length; j++) { if (s[j] === '(') depth++; else if (s[j] === ')' && --depth === 0) break; }
-    out.push(s.slice(i + 2, j));
-  }
-  for (const m of s.matchAll(/`([^`]+)`/g)) out.push(m[1]);
-  return out;
-}
+// Commands nested deeper than this (shells in shells, $( ) in $( ), script blocks), or more than MAX_CALLS command
+// texts in one line, are not followed: the line is denied as too complex to check (Fable verification N2; a check
+// that runs past the hook's 3 s limit would let the command through).
+const MAX_DEPTH = 8;
+const MAX_CALLS = 400;
+const tooComplex = raw => hit('too-complex', true, raw,
+  'this command is nested too deeply to check; split it into simpler commands');
 
 // dialect: 'bash' (Bash / Git Bash forms) or 'ps' (PowerShell and cmd forms, v0.1.1). A shell started inside a
 // command (bash -c, powershell -Command, cmd /c) is checked in its own dialect.
@@ -382,7 +377,10 @@ function innerScript(cmd, args) {
 function shellHits(raw, cwd, ctx, depth = 0, dialect = 'bash') {
   const hits = [];
   const ps = dialect === 'ps';
+  const budget = ctx.budget || (ctx.budget = { calls: 0 });
+  if (++budget.calls > MAX_CALLS || depth > MAX_DEPTH) return [tooComplex(raw)];
   const pipelines = shell.parse(raw, { dialect });
+  if (pipelines.overflow) hits.push(tooComplex(raw));
   let sqlClient = false;
   for (const pl of pipelines) {
     let fetchAt = -1;
@@ -391,6 +389,9 @@ function shellHits(raw, cwd, ctx, depth = 0, dialect = 'bash') {
       if (ctx.roRoots && ctx.roRoots.length) {
         for (const p of stageChanges(stage, dialect, cwd)) { const root = underReadonly(p, cwd, ctx.roRoots); if (root) hits.push(readonlyHit(root, raw)); }
       }
+      // Commands inside $( ), backticks, <( ) and script blocks are commands too ("echo $(npm install)",
+      // "X=$(rm -rf ~)"); the parser leaves out text that is only data (single quotes, quoted heredoc bodies).
+      for (const inner of stage.subs || []) hits.push(...shellHits(inner, cwd, ctx, depth + 1, dialect));
       const c = shell.command(stage.words);
       if (!c) return;
       const { cmd, args } = c;
@@ -403,7 +404,7 @@ function shellHits(raw, cwd, ctx, depth = 0, dialect = 'bash') {
       if (ps && PS_EXEC.has(cmd) && args.some(a => FETCH_TEXT.test(a))) hits.push(hit('pipe-to-shell', false, raw));
       // Fable code review M7: what iex / Invoke-Expression runs is a command too ("iex 'npm ci'"); running a file's
       // contents ("iex (gc ./build.ps1 -Raw)") runs the repo's code.
-      if (ps && PS_EXEC.has(cmd) && args.length && !args.some(a => FETCH_TEXT.test(a)) && depth < 3) {
+      if (ps && PS_EXEC.has(cmd) && args.length && !args.some(a => FETCH_TEXT.test(a))) {
         if (ctx.quarantine && args.some(a => /(^|[\s(])(gc|get-content|cat|type)\s/i.test(a))) hits.push(hit('guest-quarantine', false, raw));
         else hits.push(...shellHits(args.join(' '), cwd, ctx, depth + 1, 'ps'));
       }
@@ -417,12 +418,10 @@ function shellHits(raw, cwd, ctx, depth = 0, dialect = 'bash') {
         }
         if (exe && quarantined(exe, shell.baseName(exe), argList, cwd, ctx)) hits.push(hit('guest-quarantine', false, raw));
       }
-      // Commands inside $( ... ) and backticks are commands too ("echo $(npm install)", "echo `rm -rf ~`").
-      if (depth < 3) for (const w of stage.words) for (const inner of substitutions(w)) hits.push(...shellHits(inner, cwd, ctx, depth + 1, dialect));
       const inner = innerScript(cmd, args);
       if (inner) {
         if (/^\s*(\$\(|`)\s*(curl|wget)\b/i.test(inner.script)) hits.push(hit('pipe-to-shell', false, raw));
-        else if (depth < 3) hits.push(...shellHits(inner.script, cwd, ctx, depth + 1, inner.dialect));
+        else hits.push(...shellHits(inner.script, cwd, ctx, depth + 1, inner.dialect));
       }
       if (cmd === 'rm' && !ps) {
         const level = rmCheck(args, cwd, ctx);
@@ -480,7 +479,7 @@ function check(input, ctx, opts = {}) {
     const ti = input.tool_input || {};
     const cwd = input.cwd || ctx.projectDir;
     const disabled = new Set((ctx.rules && ctx.rules.disabled) || []);
-    ctx = Object.assign({}, ctx, { roRoots: readonlyRoots(ctx) });
+    ctx = Object.assign({}, ctx, { roRoots: readonlyRoots(ctx), budget: { calls: 0 } });
     let hits = [];
     if (tool === 'Edit' || tool === 'Write' || tool === 'NotebookEdit') {
       const p = ti.file_path || ti.notebook_path || '';
@@ -502,7 +501,7 @@ function check(input, ctx, opts = {}) {
     if (!hits.length) return null;
     return hits.find(h => h.hard) || hits[0];
   } catch {
-    return null;
+    return opts.all ? [] : null; // fail open, in the shape the caller expects (Fable verification N8)
   }
 }
 
