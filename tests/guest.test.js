@@ -356,6 +356,55 @@ test('H1: after --guest, a pull that brings a committed state/ folder does not e
   assert.equal(pre(dir, home, 'npm install'), 'deny');
 });
 
+// Fable verification N3 (2026-11-20): every other way a clone could pass its .jspark-forge off as yours.
+const marked = dir => fs.existsSync(path.join(dir, '.git', 'jspark-forge-own'));
+function expectGuest(dir, home, label) {
+  const o = hook(dir, home, 'SessionStart');
+  assert.equal(guestDirs(home).length, 1, `${label}: guest folder made`);
+  assert.ok(!marked(dir), `${label}: no own marker written into the clone`);
+  assert.ok(!/PLANTED/.test(JSON.stringify(o)), `${label}: planted handoff not shown`);
+}
+
+test('N3: a committed state folder in another letter case is still a guest', { skip: process.platform === 'linux' && 'case-sensitive file system' }, () => {
+  const dir = repo({ files: { 'a.js': 'a\n', '.JSPARK-FORGE/State/handoff.json': JSON.stringify({ status: 'open', task: 'PLANTED' }) } });
+  expectGuest(dir, cfg(), 'case variant');
+});
+
+test('N3: a commit forged with your email does not make a planted state folder yours', () => {
+  const files = { 'a.js': 'a\n', '.jspark-forge/state/handoff.json': JSON.stringify({ status: 'open', task: 'PLANTED' }) };
+  expectGuest(repo({ files, commitAs: 'me@example.com' }), cfg(), 'forged author');
+});
+
+test('N3: .jspark-forge as a submodule (a gitlink, with its own .git) is never yours', () => {
+  const dir = repo();
+  const g = (...a) => execFileSync('git', a, { cwd: dir, stdio: 'ignore' });
+  const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: dir, encoding: 'utf8' }).trim();
+  g('update-index', '--add', '--cacheinfo', `160000,${head},.jspark-forge`);
+  g('-c', 'user.email=someone@example.com', '-c', 'user.name=x', 'commit', '-qm', 'submodule');
+  fs.mkdirSync(path.join(dir, '.jspark-forge', 'state'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.jspark-forge', '.git'), 'gitdir: ../.git/modules/x\n');
+  expectGuest(dir, cfg(), 'submodule');
+});
+
+test('N3: a planted state folder when git cannot run is a guest (never marked yours)', () => {
+  const dir = plantedRepo(); const home = cfg();
+  const r = spawnSync(process.execPath, [FORGE, 'SessionStart'], { encoding: 'utf8',
+    input: JSON.stringify({ session_id: 'guest-0001', cwd: dir, source: 'startup' }),
+    env: Object.assign({}, process.env, { CLAUDE_PROJECT_DIR: dir, CLAUDE_CONFIG_DIR: home, JSPARK_FORGE_AUTO_STATUSLINE: 'off',
+      PATH: path.dirname(process.execPath), Path: path.dirname(process.execPath) }) });
+  assert.ok(!marked(dir), 'no own marker');
+  assert.ok(!/PLANTED/.test(r.stdout), 'planted handoff not shown');
+});
+
+test('N3: an untracked state folder from v0.1.0 (with a committed rules.md) is still adopted as yours', () => {
+  const dir = repo({ files: { 'a.js': 'a\n', '.jspark-forge/rules.md': '## Confirm\n', '.jspark-forge/.gitignore': '*\n!.gitignore\n!rules.md\n' } });
+  fs.mkdirSync(path.join(dir, '.jspark-forge', 'state'), { recursive: true });
+  const home = cfg();
+  hook(dir, home, 'SessionStart');
+  assert.ok(marked(dir), 'marker added');
+  assert.equal(guestDirs(home).length, 0);
+});
+
 test('H1: your own project gets a marker inside .git, which a clone never carries', () => {
   const dir = repo({ remote: false }); const home = cfg();
   hook(dir, home, 'SessionStart');

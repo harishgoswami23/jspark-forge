@@ -77,17 +77,29 @@ function writeMeta(dir, origin, { quarantine } = {}) {
 // /jspark-forge:init --guest: make (or update) the guest folder, with the quarantine switch.
 const writeGuest = (dir, opts) => writeMeta(dir, (paths.guestMeta(dir) || {}).origin || originOf(dir), opts);
 
+// True only when the project's .jspark-forge/ was made on this machine: a real folder (not a link, not a submodule)
+// in which git tracks nothing but rules.md and .gitignore, in any letter case. Git failing proves nothing, so false
+// (Fable review H1; verification N3).
+function stateMadeHere(dir) {
+  const f = paths.repoForgeDir(dir);
+  try { if (!fs.lstatSync(f).isDirectory()) return false; } catch { return false; }
+  if (fs.existsSync(path.join(f, '.git'))) return false;
+  const tracked = git(dir, ['-c', 'core.quotePath=false', 'ls-files', '--', `:(icase)${paths.NAME}`]);
+  if (!tracked.ok) return false;
+  const allowed = new Set([`${paths.NAME}/rules.md`, `${paths.NAME}/.gitignore`]);
+  return tracked.out.split(/\r?\n/).filter(Boolean).every(p => allowed.has(p));
+}
+
 // -> 'created' (yours: files in the repo) | 'guest' (files in the guest folder) | 'exists' | 'skipped'
 function ensureProject(dir, { force = false } = {}) {
   if (paths.isActive(dir)) return 'exists';
   if (!force && !inGitProject(dir)) return 'skipped';
-  // Projects set up before the .git marker existed (v0.1.0): a state/ folder that git does not track was made on this
-  // machine, so the project is yours; add the marker once. A tracked one came with a clone (Fable review H1).
-  if (!force && paths.hasRepoState(dir)) {
-    const tracked = git(dir, ['ls-files', '--', `${paths.NAME}/state`, `${paths.NAME}/log`, `${paths.NAME}/handoff.md`]);
-    if (tracked.ok && !tracked.out) { paths.markOwn(dir); return 'exists'; }
-  }
-  if (!force && decide(dir) === 'guest') { paths.unmarkOwn(dir); writeMeta(dir, originOf(dir)); return 'guest'; }
+  const toGuest = () => { paths.unmarkOwn(dir); writeMeta(dir, originOf(dir)); return 'guest'; };
+  // Projects set up before the .git marker existed (v0.1.0): a state/ folder made on this machine means the project is
+  // yours; add the marker once. Anything else (tracked, linked, a submodule, or git not answering) came with a clone or
+  // cannot be proven, so the repo is a guest whatever its authors say (Fable review H1; verification N3).
+  if (!force && paths.hasRepoState(dir)) return stateMadeHere(dir) ? (paths.markOwn(dir), 'exists') : toGuest();
+  if (!force && decide(dir) === 'guest') return toGuest();
   const forge = paths.repoForgeDir(dir);
   fs.mkdirSync(path.join(forge, 'state'), { recursive: true });
   paths.markOwn(dir); // the never-cloned proof that it is yours (a marker inside .git)
