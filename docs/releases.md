@@ -223,6 +223,9 @@ describe code structure (that is v0.3).
 - **External code (spec 5.2b) [owner 2026-11-03; licence check: coordinator]:** migration mappings recorded as
   decisions (*"sessions: legacy/session.php → src/auth.ts, cookie format kept"*); licence check of guest repos and
   readonly sources (one file read) in plain words (permissive / restrictive / non-commercial / none found).
+  **Licence check built (branch `dev/v0.2-licence`):** `scripts/lib/licence.js`; one line in the SessionStart message per
+  guest repo or read-only source, once per licence text (state in `licences.json` under the JSPARK Forge folder); a
+  hint, not legal advice; reads only, failures silent. Tests: `tests/licence.test.js`.
 
 **Files in `.jspark-forge/`** adds `decisions.md` (committed; human-readable).
 
