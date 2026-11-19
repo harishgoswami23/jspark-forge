@@ -215,10 +215,15 @@ spike): which helper does each step, what it hands to the next, which steps run 
 pass, and where you must act. `/jspark-forge:build <name>` runs it; JSPARK Forge keeps the record, so a crash, a usage
 limit or a new session picks up at the running step.
 
-What JSPARK Forge checks, and what it can only ask for:
-- **Checked:** the graph is valid before it starts; a step's outputs are exactly the declared ones and are real (a
-  path exists, a commit resolves); a helper of the right kind actually ran; a check passes only on its command's real
-  exit code; a step that needs you completes only when you type `DONE <step>`; its record cannot be edited by Claude.
+What JSPARK Forge checks, what it guards, and what it can only ask for:
+- **Checked:** the graph is valid before it starts and is fixed for the run; a step's outputs are exactly the declared
+  ones and are real (a path exists, a commit resolves); a step that needs you completes only on your own typed
+  `DONE <step>`.
+- **Backed by evidence:** a helper of the right kind ran for the step; a check passed on its command's real exit code,
+  run in this session and project, not in the background.
+- **Guarded:** Claude is blocked from editing the run's record or imitating your `DONE` / `TRUST GRAPH` from the shell.
+  This is pattern matching on what a command does: it stops mistakes and shortcuts, not a program written to a file
+  and run on purpose. Nothing that runs as your user account can promise more.
 - **Asked for:** the order of steps and the limit on helpers running at once; JSPARK Forge hands out work that way but
   cannot stop Claude doing something else.
 - A graph whose checks run commands needs you to type `TRUST GRAPH <name>` first, and again when those commands
