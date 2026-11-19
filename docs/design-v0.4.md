@@ -32,16 +32,27 @@ A build is written once as a graph file. **Claude runs it** through `/jspark-for
 helpers itself): it asks JSPARK Forge for the next step, dispatches the named helper, and reports back. **JSPARK Forge
 keeps the record and checks what it can check.** It cannot control which tools Claude uses, so the honest split is:
 
-| Rule | How |
-|---|---|
-| The graph is valid before it runs (fields, order, no cycles) | **Enforced** (`graph check`, refuses to start) |
-| State and trust files cannot be written by Claude or a helper | **Enforced** (block-list hard deny on `.jspark-forge/state/graph-*` for Edit / Write / shell writes) |
-| A step is reported done only while it is running, of kind agent, with exactly its declared outputs | **Enforced** (`graph done` refuses otherwise) |
-| Outputs are real: a `*_path` exists, a `commit` resolves | **Enforced** (checked on `done`) |
-| A helper of the named type actually ran for that step | **Evidence** (SubagentStart of that type since the step was handed out; spike J) |
-| A gate passed | **Enforced from evidence** (the exact command's real exit code, recorded by the hooks; spike I) |
-| A human step is done | **Enforced** (only the user's own typed message completes it) |
-| Steps run in order; no more helpers than the cap; no work outside the graph | **Instructed** (the skill; JSPARK Forge hands out steps in order and never more than the cap, but cannot stop Claude doing other work) |
+**Revision 3 (2026-11-20), after the Fable 5.2 code review.** The review showed that Claude, which controls a shell,
+could reach around several "enforced" rules (running JSPARK Forge's hooks itself, writing the state through paths the
+block list did not resolve, editing the graph mid-run). Every route it found is closed, but the honest word for
+anything that depends on recognising what a command does is **guarded**, not enforced: a program written to a file and
+run (`node fix.js`) can do anything the user's account can. So:
+
+| Rule | How | Level |
+|---|---|---|
+| The graph is valid before it runs (fields, order, no cycles) | `graph check`; refuses to start | **Enforced** |
+| The run uses the graph as it was at start | the steps that matter are snapshotted into the run state at `start` | **Enforced** (given the state is not written, below) |
+| Outputs are declared and real: a `*_path` exists, a `commit` resolves | checked on `done` | **Enforced** |
+| State and trust files are written only by JSPARK Forge | hard deny on any change resolving to `.jspark-forge/state/graph-*` or its folders (Edit, Write, shell targets resolved from the working folder, renames of the folders), and on commands naming those files except known readers | **Guarded** (a script file can still write them) |
+| Claude cannot fake JSPARK Forge's own hook events (TRUST, DONE, helper evidence, gate results) | hard deny on running `forge.js <hook event>` or loading its hook modules from the shell | **Guarded** (same limit) |
+| A helper of the named type ran for that step | SubagentStart evidence of exactly `jspark-forge:<helper>`, from the run's session, after the step was handed out, used once (spike J) | **Evidence** |
+| A gate passed | the exact command's real exit code from the hooks (spike I), only in the run's session, in the project folder, not in the background, not interrupted | **Evidence** |
+| A human step is done | only the user's own whole message `DONE <step>` in an attended session | **Enforced** by Claude Code's hooks (only real user messages reach UserPromptSubmit), **guarded** against shell imitation (row 5) |
+| Steps run in order; no more helpers than the cap; no work outside the graph | the skill; JSPARK Forge hands out steps in order and never more than the cap | **Instructed** |
+
+What this means for the user, said in the README: the build graph keeps an honest record and stops ordinary mistakes
+and shortcuts; it is not a sandbox against an AI determined to cheat, and nothing that runs as your user account can
+be.
 
 ## 2. The graph file
 
