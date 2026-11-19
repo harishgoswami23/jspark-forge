@@ -70,9 +70,16 @@ const writeGuest = (dir, opts) => writeMeta(dir, (paths.guestMeta(dir) || {}).or
 function ensureProject(dir, { force = false } = {}) {
   if (paths.isActive(dir)) return 'exists';
   if (!force && !inGitProject(dir)) return 'skipped';
-  if (!force && decide(dir) === 'guest') { writeMeta(dir, originOf(dir)); return 'guest'; }
+  // Projects set up before the .git marker existed (v0.1.0): a state/ folder that git does not track was made on this
+  // machine, so the project is yours; add the marker once. A tracked one came with a clone (Fable review H1).
+  if (!force && paths.hasRepoState(dir)) {
+    const tracked = git(dir, ['ls-files', '--', `${paths.NAME}/state`, `${paths.NAME}/log`, `${paths.NAME}/handoff.md`]);
+    if (tracked.ok && !tracked.out) { paths.markOwn(dir); return 'exists'; }
+  }
+  if (!force && decide(dir) === 'guest') { paths.unmarkOwn(dir); writeMeta(dir, originOf(dir)); return 'guest'; }
   const forge = paths.repoForgeDir(dir);
-  fs.mkdirSync(path.join(forge, 'state'), { recursive: true }); // state/ is the never-cloned proof that it is yours
+  fs.mkdirSync(path.join(forge, 'state'), { recursive: true });
+  paths.markOwn(dir); // the never-cloned proof that it is yours (a marker inside .git)
   if (!fs.existsSync(path.join(forge, '.gitignore'))) fs.writeFileSync(path.join(forge, '.gitignore'), GITIGNORE);
   if (!fs.existsSync(path.join(forge, 'rules.md'))) {
     fs.copyFileSync(path.join(__dirname, '..', '..', 'templates', 'rules.md'), path.join(forge, 'rules.md'));

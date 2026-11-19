@@ -15,6 +15,7 @@ function repo() {
   fs.mkdirSync(path.join(dir, '.jspark-forge', 'state'), { recursive: true }); // state/ = a real (own) project
   const g = (...a) => execFileSync('git', a, { cwd: dir, stdio: 'ignore' });
   g('init', '-q', '-b', 'main');
+  require('../scripts/lib/paths').markOwn(dir); // and the marker inside .git that setup writes (review H1)
   g('config', 'user.email', 't@example.invalid'); g('config', 'user.name', 't');
   fs.writeFileSync(path.join(dir, 'a.txt'), 'a\n');
   g('add', 'a.txt'); g('commit', '-qm', 'init');

@@ -44,6 +44,7 @@ if (args.includes('--mine')) {
     fs.rmSync(paths.guestDir(PROJECT), { recursive: true, force: true });
   }
   fs.mkdirSync(path.join(FORGE, 'state'), { recursive: true });
+if (!args.includes('--guest')) paths.markOwn(PROJECT); // yours: the marker inside .git
   if (!fs.existsSync(path.join(FORGE, '.gitignore'))) fs.writeFileSync(path.join(FORGE, '.gitignore'), GITIGNORE);
   if (!fs.existsSync(path.join(FORGE, 'rules.md'))) fs.copyFileSync(path.join(__dirname, '..', 'templates', 'rules.md'), path.join(FORGE, 'rules.md'));
   out.push('This repo is now yours: JSPARK Forge keeps its files in .jspark-forge/ (commit rules.md and .gitignore; the ' +
@@ -53,6 +54,7 @@ if (args.includes('--mine')) {
 
 if (args.includes('--guest')) {
   if (!paths.isGuest(PROJECT) && paths.isOwn(PROJECT)) moveOwnFiles(FORGE, paths.guestDir(PROJECT));
+  paths.unmarkOwn(PROJECT);
   setup.writeGuest(PROJECT, { quarantine: true });
   out.push('JSPARK Forge now treats this repo as one you are reviewing: nothing is written into it (its files are in ' +
     `${paths.guestDir(PROJECT).replace(/\\/g, '/')}), and its common install, build, test and run commands are held ` +
@@ -75,6 +77,7 @@ else {
 }
 // Running init here is an explicit "this project is mine": state/ is the never-cloned proof of that (guest mode).
 fs.mkdirSync(path.join(FORGE, 'state'), { recursive: true });
+if (!args.includes('--guest')) paths.markOwn(PROJECT); // yours: the marker inside .git
 if (!fs.existsSync(path.join(FORGE, '.gitignore'))) fs.writeFileSync(path.join(FORGE, '.gitignore'), GITIGNORE);
 if (!fs.existsSync(path.join(FORGE, 'rules.md'))) {
   fs.copyFileSync(path.join(__dirname, '..', 'templates', 'rules.md'), path.join(FORGE, 'rules.md'));

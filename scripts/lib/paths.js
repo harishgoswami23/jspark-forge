@@ -27,7 +27,36 @@ const guestsRoot = () => path.join(claudeHome(), 'jspark-forge', 'guests');
 const guestDir = project => path.join(guestsRoot(), guestId(project));
 
 const repoForgeDir = project => path.join(project, NAME);
-const isOwn = project => isDir(path.join(repoForgeDir(project), 'state')) || isDir(path.join(repoForgeDir(project), 'log'));
+const hasRepoState = project => isDir(path.join(repoForgeDir(project), 'state')) || isDir(path.join(repoForgeDir(project), 'log'));
+
+// The git folder of the repo the project is in (walks up; follows a worktree's ".git" file). None -> null.
+function gitDirOf(project) {
+  try {
+    for (let d = path.resolve(project); ; d = path.dirname(d)) {
+      const g = path.join(d, '.git');
+      if (fs.existsSync(g)) {
+        if (!fs.statSync(g).isFile()) return g;
+        const m = fs.readFileSync(g, 'utf8').match(/^gitdir:\s*(.+?)\s*$/m);
+        return m ? path.resolve(d, m[1]) : null;
+      }
+      if (path.dirname(d) === d) return null;
+    }
+  } catch { return null; }
+}
+// Proof that a repo is yours (Fable code review H1, 2026-11-19): a marker inside .git, which no clone carries.
+// A committed .jspark-forge/state/ proves nothing. Outside git (no .git anywhere up) a state/ folder is enough:
+// nothing was cloned.
+const ownMarker = project => { const g = gitDirOf(project); return g ? path.join(g, 'jspark-forge-own') : null; };
+function isOwn(project) {
+  if (!hasRepoState(project)) return false;
+  const m = ownMarker(project);
+  return !m || fs.existsSync(m);
+}
+function markOwn(project) {
+  const m = ownMarker(project);
+  if (m) fs.writeFileSync(m, `${JSON.stringify({ path: normPath(project), at: Date.now() })}\n`);
+}
+function unmarkOwn(project) { const m = ownMarker(project); if (m) { try { fs.unlinkSync(m); } catch { /* none */ } } }
 const isGuest = project => !isOwn(project) && isDir(guestDir(project));
 const forgeDir = project => (isGuest(project) ? guestDir(project) : repoForgeDir(project));
 const isActive = project => isOwn(project) || isGuest(project);
@@ -43,5 +72,6 @@ function display(project, p) {
   return shown.replace(/\\/g, '/');
 }
 
-module.exports = { NAME, claudeHome, normPath, guestId, guestsRoot, guestDir, guestMeta, repoForgeDir, isOwn, isGuest,
+module.exports = { NAME, claudeHome, normPath, guestId, guestsRoot, guestDir, guestMeta, repoForgeDir, hasRepoState, gitDirOf,
+  ownMarker, markOwn, unmarkOwn, isOwn, isGuest,
   forgeDir, isActive, display };

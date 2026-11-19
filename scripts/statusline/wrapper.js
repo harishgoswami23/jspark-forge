@@ -26,9 +26,25 @@ function normPath(p) {
   if (r.length > 1 && !/^[a-zA-Z]:\/$/.test(r)) r = r.replace(/\/+$/, '');
   return process.platform === 'win32' ? r.toLowerCase() : r;
 }
+function gitDirOf(proj) {
+  try {
+    for (let d = path.resolve(proj); ; d = path.dirname(d)) {
+      const g = path.join(d, '.git');
+      if (fs.existsSync(g)) {
+        if (!fs.statSync(g).isFile()) return g;
+        const m = fs.readFileSync(g, 'utf8').match(/^gitdir:\s*(.+?)\s*$/m);
+        return m ? path.resolve(d, m[1]) : null;
+      }
+      if (path.dirname(d) === d) return null;
+    }
+  } catch { return null; }
+}
 function forgeOf(proj) {
   const repo = path.join(proj, '.jspark-forge');
-  if (isDir(path.join(repo, 'state')) || isDir(path.join(repo, 'log'))) return { dir: repo, guest: false };
+  const gitDir = gitDirOf(proj);
+  const own = (isDir(path.join(repo, 'state')) || isDir(path.join(repo, 'log'))) &&
+    (!gitDir || fs.existsSync(path.join(gitDir, 'jspark-forge-own'))); // a committed state/ proves nothing (paths.js isOwn)
+  if (own) return { dir: repo, guest: false };
   const id = require('crypto').createHash('sha1').update(normPath(proj)).digest('hex').slice(0, 12);
   const g = path.join(__dirname, 'guests', id);
   return isDir(g) ? { dir: g, guest: true } : null;

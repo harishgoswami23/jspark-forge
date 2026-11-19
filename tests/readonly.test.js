@@ -70,6 +70,7 @@ function project(sources) {
   execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: dir });
   fs.mkdirSync(path.join(dir, '.jspark-forge', 'state'), { recursive: true });
   fs.writeFileSync(path.join(dir, '.jspark-forge', 'rules.md'), `## Sources\n${sources}`);
+  require('../scripts/lib/paths').markOwn(dir); // the marker inside .git that setup writes (review H1)
   return dir;
 }
 const hook = (dir, event, input = {}) => {
