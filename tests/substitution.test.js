@@ -58,6 +58,29 @@ test('N7: assignment-only commands run their substitutions', () => {
   assert.equal(bash('X=$(git status)'), null);
 });
 
+test('N7: install/build commands inside shell keywords and wrappers are held in a guest repo', () => {
+  for (const c of ['if [ -f package.json ]; then npm install; fi', 'for d in a b; do make; done', 'while true; do npm test; done',
+    '! npm test', 'timeout 60 npm install', 'timeout -s KILL 5m make', 'eval npm install', 'eval "npm install"',
+    'find . -name package.json -execdir npm install \\;', 'cat build.sh | bash', 'pwsh build.ps1', 'conda env create -f environment.yml',
+    'docker image build .', 'until make; do sleep 1; done']) {
+    assert.equal(bash(c, Q), 'guest-quarantine', c);
+  }
+  for (const c of ['if [ -f x ]; then cat x; fi', 'timeout 5 git status', 'find . -name "*.js"', 'conda env list', 'docker image ls',
+    'eval "git status"', 'echo hi | cat']) {
+    assert.equal(bash(c, Q), null, c);
+  }
+  assert.equal(bash('if true; then rm -rf ~; fi'), 'rm-rf-outside!', 'keywords never hide a built-in block');
+  assert.equal(bash('find . -exec rm -rf ~ \\;'), 'rm-rf-outside!');
+});
+
+test('N7: PowerShell forms that run the repo are held', () => {
+  for (const c of ['gc build.ps1 | iex', 'Get-Content x.ps1 -Raw | Invoke-Expression', 'Start-Process cmd -ArgumentList "/c npm install"',
+    'Start-Process npm -ArgumentList install', 'pwsh ./build.ps1']) {
+    assert.equal(ps(c, Q), 'guest-quarantine', c);
+  }
+  for (const c of ['gc package.json', 'Start-Process notepad', 'Get-ChildItem | Select-Object Name']) assert.equal(ps(c, Q), null, c);
+});
+
 test('N2: deep nesting is fast and cannot hide a block', () => {
   let t = Date.now();
   assert.equal(bash(`echo '${'$('.repeat(400)}' ; rm -rf ~`), 'rm-rf-outside!');

@@ -190,9 +190,14 @@ function quarantined(cmdWord, cmd0, args, cwd, ctx, fromPipe = false) {
   if ((cmd === 'make' || cmd === 'gmake') && args.some(a => MAKE_DRY.test(a))) return false; // make -n prints, runs nothing
   const { sub, rest } = subcommandOf(args);
   if (PM_ALWAYS.has(cmd)) return true;
-  if (cmd === 'docker' || cmd === 'podman' || cmd === 'docker-compose') return cmd === 'docker-compose' || (!!sub && !DOCKER_READONLY.has(sub));
+  if (cmd === 'docker' || cmd === 'podman' || cmd === 'docker-compose') {
+    if (cmd === 'docker-compose') return true;
+    if (sub === 'image') return /^(build|load|import)$/i.test(rest[0] || ''); // "docker image build ."
+    return !!sub && !DOCKER_READONLY.has(sub);
+  }
   if (PACKAGE_MANAGERS.has(cmd)) {
     if (!sub) return cmd === 'yarn' || cmd === 'bundle' || cmd === 'gradle' || cmd === 'mvn'; // bare "yarn" installs
+    if ((cmd === 'conda' || cmd === 'mamba') && sub === 'env') return !/^(list|export|config)$/i.test(rest[0] || ''); // "env create" installs
     if (sub === 'audit' && rest.includes('fix')) return true; // npm audit fix installs
     return !READONLY_SUBS[cmd].split(' ').includes(sub);
   }
@@ -205,12 +210,15 @@ function quarantined(cmdWord, cmd0, args, cwd, ctx, fromPipe = false) {
   }
   if (SCRIPT_SHELLS.has(cmd) && !args.includes('-c')) {
     const script = args.find(a => !a.startsWith('-'));
-    return !!script && insideRepo(script, cwd, ctx);
+    return script ? insideRepo(script, cwd, ctx) : fromPipe; // "cat build.sh | bash" runs what it is fed
   }
   if (PS_SHELLS.has(cmd)) {
+    if (args.some(a => /^-(c|command|com|comm|comma|comman|encodedcommand|e|ec)$/i.test(a))) return false; // checked as a script
     const i = args.findIndex(a => /^-(f|file)$/i.test(a));
-    return i >= 0 && insideRepo(args[i + 1], cwd, ctx);
+    const script = i >= 0 ? args[i + 1] : args.find(a => !a.startsWith('-')); // "pwsh build.ps1": -File is the default
+    return script ? insideRepo(script, cwd, ctx) : fromPipe;
   }
+  if (PS_EXEC.has(cmd) && !args.length) return fromPipe; // "gc build.ps1 | iex"
   // The repo's own executable run by path: ./x, scripts/x.sh, .\build.ps1, gradlew.bat
   if (/[\\/]/.test(cmdWord) || /\.(sh|bash|ps1|bat|cmd|py|js|mjs|rb|pl)$/i.test(cmdWord)) return insideRepo(cmdWord, cwd, ctx);
   return false;
@@ -408,15 +416,29 @@ function shellHits(raw, cwd, ctx, depth = 0, dialect = 'bash') {
         if (ctx.quarantine && args.some(a => /(^|[\s(])(gc|get-content|cat|type)\s/i.test(a))) hits.push(hit('guest-quarantine', false, raw));
         else hits.push(...shellHits(args.join(' '), cwd, ctx, depth + 1, 'ps'));
       }
-      // Start-Process npm -ArgumentList install: judged as "npm install".
-      if (ps && /^(start-process|saps|start)$/.test(cmd) && ctx.quarantine) {
+      // Start-Process npm -ArgumentList install: judged as "npm install"; a shell it starts runs its script
+      // ("Start-Process cmd -ArgumentList '/c npm install'", Fable verification N7).
+      if (ps && /^(start-process|saps|start)$/.test(cmd)) {
         let exe = null; const argList = [];
         for (let i = 0; i < args.length; i++) {
           if (/^-(filepath|fi)$/i.test(args[i])) exe = args[++i];
           else if (/^-(argumentlist|args)$/i.test(args[i])) argList.push(...String(args[++i] || '').split(/[\s,]+/).filter(Boolean));
           else if (!args[i].startsWith('-')) { if (!exe) exe = args[i]; else argList.push(args[i]); }
         }
-        if (exe && quarantined(exe, shell.baseName(exe), argList, cwd, ctx)) hits.push(hit('guest-quarantine', false, raw));
+        const started = exe && innerScript(shell.baseName(exe), argList);
+        if (started) hits.push(...shellHits(started.script, cwd, ctx, depth + 1, started.dialect));
+        else if (exe && ctx.quarantine && quarantined(exe, shell.baseName(exe), argList, cwd, ctx)) hits.push(hit('guest-quarantine', false, raw));
+      }
+      // eval runs its words as a command line; find -exec / -execdir / -ok runs a command per file (N7).
+      if (!ps && cmd === 'eval' && args.length) hits.push(...shellHits(args.join(' '), cwd, ctx, depth + 1, 'bash'));
+      if (!ps && cmd === 'find') {
+        for (let i = 0; i < args.length; i++) {
+          if (!/^-(exec|execdir|ok|okdir)$/.test(args[i])) continue;
+          let j = i + 1; const part = [];
+          for (; j < args.length && args[j] !== ';' && args[j] !== '+'; j++) part.push(args[j]);
+          if (part.length) hits.push(...shellHits(part.map(w => (/[\s'"]/.test(w) ? `'${w.replace(/'/g, "'\\''")}'` : w)).join(' '), cwd, ctx, depth + 1, 'bash'));
+          i = j;
+        }
       }
       const inner = innerScript(cmd, args);
       if (inner) {

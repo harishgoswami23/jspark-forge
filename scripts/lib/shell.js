@@ -269,8 +269,12 @@ function cleanStage(st) {
   return { words, redirects: st.redirects, subs: st.subs || [] }; // same subs array: heredoc bodies add to it later
 }
 
-const PREFIX = new Set(['sudo', 'env', 'command', 'nohup', 'time', 'exec', 'xargs', 'builtin', 'nice', 'doas']);
-const WITH_VALUE = { sudo: new Set(['-u', '-g', '-h', '-p', '-C']), xargs: new Set(['-I', '-n', '-P', '-L', '-d', '-s', '-E']), nice: new Set(['-n']) };
+// Wrappers and shell keywords that run the command after them ("then npm install", "timeout 60 make", "! npm test").
+const PREFIX = new Set(['sudo', 'env', 'command', 'nohup', 'time', 'exec', 'xargs', 'builtin', 'nice', 'doas', 'timeout',
+  'if', 'then', 'else', 'elif', 'do', 'while', 'until', '!']);
+const WITH_VALUE = { sudo: new Set(['-u', '-g', '-h', '-p', '-C']), xargs: new Set(['-I', '-n', '-P', '-L', '-d', '-s', '-E']), nice: new Set(['-n']),
+  timeout: new Set(['-s', '--signal', '-k', '--kill-after']) };
+const NEEDS_ARG = new Set(['timeout']); // its first plain word is a duration, not the command
 
 // Strip env assignments and wrapper commands; returns { cmd, args } with cmd lower-cased, no path, no .exe.
 function command(words) {
@@ -285,6 +289,7 @@ function command(words) {
         const takesValue = WITH_VALUE[base] && WITH_VALUE[base].has(words[i]);
         i += takesValue ? 2 : 1;
       }
+      if (NEEDS_ARG.has(base)) i++;
       continue;
     }
     break;
