@@ -16,6 +16,7 @@ const confirm = require('./lib/confirm');
 const shell = require('./lib/shell');
 const state = require('./lib/state');
 const handoff = require('./lib/handoff');
+const waiting = require('./lib/waiting');
 const git = require('./lib/git');
 const { parsePlan } = require('./lib/plan');
 const usageLib = require('./lib/usage');
@@ -81,11 +82,13 @@ const preTool = (decision, reason) => ({ hookSpecificOutput: { hookEventName: 'P
 const context = (ev, text) => ({ hookSpecificOutput: { hookEventName: ev, additionalContext: text } });
 const notesOn = dir => loadRules(dir).settings.notes !== 'off';
 
-function lastQuestion(msg) {
-  const t = String(msg || '').trim();
-  if (!t.endsWith('?')) return null;
-  const q = t.split(/(?<=[.!?])\s+/).pop();
-  return `Claude asked: "${q.length > 150 ? `${q.slice(0, 149)}…` : q}"`;
+const WAIT_CTX = 'JSPARK Forge: these questions to the user are still open (spec 5.2a). Ask them again in one short list, ' +
+  "or carry on with work they do not block and say what is parked. Never act on a recommendation without the user's answer.";
+function waitingNotice(dir) { // -> { msg, ctx } for session start, or null
+  const items = waiting.read(dir);
+  if (!items.length) return null;
+  const list = items.map((x, i) => `${i + 1}. ${waiting.line(x)}`).join('\n');
+  return { msg: `Waiting on you (${items.length}):\n${list}\nAnswer here, or run /jspark-forge:waiting.`, ctx: `${WAIT_CTX}\n${list}` };
 }
 
 function doSave(dir, sid, reason, lines, opts) {
@@ -106,7 +109,9 @@ const handlers = {
     if (rules.disabled.length) msgs.push(`JSPARK Forge: you switched off ${rules.disabled.join(', ')} in rules.md.`);
     const rc = handoff.resumeContext(dir, input.session_id, input.source || 'startup');
     if (rc.systemMessage) msgs.unshift(rc.systemMessage);
-    const out = context('SessionStart', rc.context);
+    const w = input.source === 'compact' ? null : waitingNotice(dir); // shown first (spec 5.2a)
+    if (w) msgs.unshift(w.msg);
+    const out = context('SessionStart', w ? `${rc.context}\n\n${w.ctx}` : rc.context);
     if (msgs.length) out.systemMessage = msgs.join('\n');
     return { lines: [['GROUNDING', input.source || '']], out };
   },
@@ -118,6 +123,9 @@ const handlers = {
       const sess = state.readSession(dir, input.session_id);
       sess.lastPrompt = redact(prompt, log.envSecrets(dir)).replace(/\s+/g, ' ').trim().slice(0, 200);
       state.writeSession(dir, input.session_id, sess);
+      // The user replied: a question Claude ended its last reply with is answered (spec 5.2a).
+      const n = waiting.remove(dir, x => x.source === 'reply' && x.session === input.session_id);
+      if (n) lines.push(['WAIT', `${n} answered`]);
     }
     const granted = confirm.grantFromPrompt(dir, input.session_id, prompt, confirmableIds(loadRules(dir)));
     for (const id of granted) lines.push(['CONFIRM', `${id} granted`]);
@@ -130,6 +138,10 @@ const handlers = {
   },
 
   PreToolUse(dir, input) {
+    if (input.tool_name === 'AskUserQuestion') { // filed before the dialog shows: a cutoff cannot lose it (spec 5.2a)
+      const n = waiting.add(dir, waiting.fromTool(input.tool_input, input.session_id));
+      return n ? ['WAIT', `${n} asked`] : null;
+    }
     const rules = loadRules(dir);
     let hits = check(input, blockCtx(dir, rules), { all: true });
     // A session-long CONFIRM (guest-quarantine) removes only its own hit: every other block in the same command is
@@ -173,6 +185,12 @@ const handlers = {
     const sid = input.session_id;
     const t = input.tool_name || '';
     const ti = input.tool_input || {};
+    if (t === 'AskUserQuestion') { // answered in the dialog
+      const asked = new Set(waiting.fromTool(ti, sid).map(q => q.question.replace(/\s+/g, ' ').trim()));
+      const n = waiting.remove(dir, x => x.session === sid && asked.has(x.question));
+      if (n) lines.push(['WAIT', `${n} answered`]);
+      return { lines, out: null };
+    }
     const now = Date.now();
     const sess = state.readSession(dir, sid);
     const task = state.readTask(dir);
@@ -225,9 +243,12 @@ const handlers = {
       sess.background = input.background_tasks.filter(b => b && b.status === 'running')
         .map(b => ({ id: b.id, command: b.command || '', description: b.description || '', at: (prev.get(b.id) || {}).at || Date.now() }));
     }
-    sess.waiting = lastQuestion(input.last_assistant_message);
     state.writeSession(dir, sid, sess);
     const lines = [['STOP', '']];
+    // The reply ends with a question for the user: filed only when there is work it can hold up ("Hello! What shall
+    // we do?" is not waiting on anyone).
+    const q = waiting.lastQuestion(input.last_assistant_message);
+    if (q && handoff.hasWork(dir, sid) && waiting.add(dir, [{ question: q, session: sid, source: 'reply' }])) lines.push(['WAIT', '1 asked']);
     doSave(dir, sid, 'reply finished', lines);
     return { lines, out: null };
   },
@@ -390,7 +411,26 @@ function cliSave(args) {
     : 'Handoff saved. Next session, JSPARK Forge shows where you were.\n');
 }
 
-const CLI = { save: cliSave, show: cliShow, where: cliWhere };
+// `forge.js waiting [--clear <id>|all]`: the /jspark-forge:waiting skill lists the open questions and clears answered ones.
+function cliWaiting(args) {
+  const dir = cliProject();
+  if (!dir) { process.stdout.write(NOT_SET_UP); return; }
+  const i = args.indexOf('--clear');
+  if (i >= 0) {
+    const ids = new Set(args.slice(i + 1).filter(a => !a.startsWith('--')));
+    const n = waiting.remove(dir, x => ids.has('all') || ids.has(x.id));
+    if (n) log.append(dir, { time: new Date(), session: process.env.CLAUDE_CODE_SESSION_ID || 'manual', kind: 'WAIT', detail: `${n} cleared` });
+    process.stdout.write(`Removed ${n} from the list; ${waiting.read(dir).length} still waiting.\n`);
+    return;
+  }
+  const items = waiting.read(dir);
+  if (!items.length) { process.stdout.write('Nothing is waiting on you.\n'); return; }
+  const now = Date.now();
+  process.stdout.write(`${items.length} waiting on you (oldest first):\n${items.map((x, n) =>
+    `${n + 1}. [${x.id}] ${waiting.line(x)}${x.about ? ` (about: ${x.about})` : ''}${x.options.length ? `; options: ${x.options.join(' / ')}` : ''}; asked ${waiting.ago(now - x.askedAt)} ago`).join('\n')}\n`);
+}
+
+const CLI = { save: cliSave, show: cliShow, where: cliWhere, waiting: cliWaiting };
 if (CLI[event]) {
   try { CLI[event](process.argv.slice(3)); } catch (e) { process.stdout.write(`JSPARK Forge could not ${event}: ${e.message}\n`); }
 } else {

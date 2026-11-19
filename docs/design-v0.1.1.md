@@ -190,3 +190,45 @@ missing path is reported at session start and the rule is kept. The handoff name
 
 **Deviation [builder]:** the spec's "last read: <path>" is not recorded. It would need a PostToolUse hook on every Read,
 the most frequent tool call, which design-v0.1 section 3 left out on purpose for speed.
+
+---
+
+## 4. Waiting on you (spec 5.2a)
+
+Built 2026-11-20. A question Claude asks you that blocks work is kept in a list until you answer it, so it survives
+a cutoff and cannot get buried.
+
+**Capture**
+- **The question tool (`AskUserQuestion`):** PreToolUse files each question (question, the header as "what it is
+  about", option labels, the option marked "(Recommended)"), before the dialog shows. PostToolUse (you answered)
+  removes them. A session cut off while the dialog is open leaves them in the list. Input shape taken from real
+  calls in this project's own sessions; the tool does not exist in headless runs (`claude -p`), so the integration
+  tests cannot drive it: one manual check before release (below).
+- **A reply that ends in a question:** Stop files it (the existing v0.1 rule, `last_assistant_message` ends with
+  `?`). Your next message in that session removes it (you replied). Filed only when the session has work it can hold up (files touched, a commit, todos, a plan, notes or a running job): "Hello! What shall we do?" waits on nobody.
+- Items carry the session; at most 20 are kept (oldest dropped); items older than 14 days are dropped.
+
+**Shown**
+- **Status line:** `⏳ 2 waiting on you · oldest 14h`, before the "saved" note, only when the list is not empty.
+- **Session start:** the list comes first (system message to you, and context for Claude: "ask these again or carry on
+  with what is not blocked; never act on a recommendation without the user's answer").
+- **Handoff:** the "Waiting on you" line shows the count and the oldest question.
+- **`/jspark-forge:waiting`:** shows the list with recommendations; "go with recommendations" or answers from you,
+  then `forge.js waiting --clear <id|all>`. Dismissing works the same way.
+
+**Files** `state/waiting.json` (the list) and `waiting.md` (a readable copy, rewritten on each change); both local
+(guest repos: the guest folder).
+
+**Cut from spec 5.2a [builder, 2026-11-20]**
+| Spec item | Why | Where |
+|---|---|---|
+| Reminder after 4 h and a daily summary through the Notification event | Hooks only run when Claude Code calls them; nothing runs between sessions to send a reminder, and the Notification event cannot be raised by a plugin. Needs a spike on the scheduled-task / remote features | Later, after a spike |
+| Deadline defaults ("if no answer by 18:00 I'll go with my recommendation") | Judging "reversible" is a verdict (principle 12); off by default anyway | Cut |
+| Cost of delay linked to the launch list | The launch list is v0.3 | v0.3 |
+| `/jspark-forge:check` for questions written in prose and not filed | `/check` is v0.2 | v0.2 |
+
+**Limits** a question in the middle of a reply (not its last sentence) is not captured. "Answered" means you replied,
+not that the reply settled the question.
+
+**Manual check before release** in an interactive session: ask Claude to use the question tool, kill the window while
+the dialog is open, reopen: the question is listed first and in the status line; answer it with `/jspark-forge:waiting`.

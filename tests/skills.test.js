@@ -8,7 +8,7 @@ const path = require('node:path');
 const read = n => fs.readFileSync(path.join(__dirname, '..', 'skills', n, 'SKILL.md'), 'utf8');
 const front = t => { const m = t.match(/^---\n([\s\S]*?)\n---\n/); assert.ok(m, 'frontmatter'); return m[1]; };
 
-for (const name of ['resume', 'handoff']) {
+for (const name of ['resume', 'handoff', 'waiting']) {
   test(`${name}: frontmatter has its name and a "Use when" description`, () => {
     const f = front(read(name));
     assert.match(f, new RegExp(`^name: ${name}$`, 'm'));
@@ -48,4 +48,12 @@ test('the rules template parses with no errors and no active rules', () => {
   assert.equal(r.errors.length, 0);
   assert.equal(r.confirm.length + r.never.length, 0);
   assert.equal(r.settings.notes, 'on');
+});
+
+test('waiting lists the open questions with the script, answers only with the user, then clears them', () => {
+  const t = read('waiting');
+  assert.match(t, /node "\$\{CLAUDE_PLUGIN_ROOT\}\/scripts\/forge\.js" waiting/);
+  assert.match(t, /--clear/);
+  assert.match(t, /go with recommendations/i);
+  assert.match(t, /Never act on a recommendation the user has not accepted/);
 });

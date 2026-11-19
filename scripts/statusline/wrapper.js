@@ -76,11 +76,31 @@ function writeUsage(forge, data) {
   } catch { /* never break the status line */ }
 }
 
+// "⏳ 2 waiting on you · oldest 14h" (spec 5.2a), or null when nothing waits. Same 14-day window as lib/waiting.js.
+function waitingNote(forge) {
+  try {
+    const now = Date.now();
+    const items = (JSON.parse(fs.readFileSync(path.join(forge.dir, 'state', 'waiting.json'), 'utf8')).items || [])
+      .filter(x => x && x.question && now - (x.askedAt || 0) <= 14 * 86400000);
+    if (!items.length) return null;
+    const ms = now - Math.min(...items.map(x => x.askedAt || now));
+    const h = Math.floor(ms / 3600000);
+    const age = h >= 48 ? `${Math.floor(h / 24)}d` : h >= 1 ? `${h}h` : `${Math.max(1, Math.floor(ms / 60000))}m`;
+    return `⏳ ${items.length} waiting on you · oldest ${age}`;
+  } catch { return null; }
+}
+
 function segment(forge) {
   try { // a guest repo's rules.md is the repo author's file: not read
     const rules = forge.guest ? '' : fs.readFileSync(path.join(forge.dir, 'rules.md'), 'utf8');
     if (/^\s*[-*]\s*statusline-segment\s*:\s*off\s*$/im.test(rules)) return null;
   } catch { /* no rules.md: segment on */ }
+  const wait = waitingNote(forge);
+  const base = savedNote(forge);
+  return wait ? `${wait} · ${base}` : base;
+}
+
+function savedNote(forge) {
   try {
     const meta = JSON.parse(fs.readFileSync(path.join(forge.dir, 'state', 'handoff.json'), 'utf8'));
     if (meta && meta.status === 'open' && meta.savedAt) {

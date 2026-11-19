@@ -59,7 +59,7 @@
             "timeout": 3
           }
         ],
-        "matcher": "Bash|PowerShell|Edit|Write|NotebookEdit|mcp__.*"
+        "matcher": "Bash|PowerShell|Edit|Write|NotebookEdit|AskUserQuestion|mcp__.*"
       }
     ],
     "PostToolUse": [
@@ -75,7 +75,7 @@
             "timeout": 10
           }
         ],
-        "matcher": "Edit|Write|NotebookEdit|Bash|PowerShell|TodoWrite|TaskCreate|TaskUpdate|Agent|mcp__.*"
+        "matcher": "Edit|Write|NotebookEdit|Bash|PowerShell|TodoWrite|TaskCreate|TaskUpdate|Agent|AskUserQuestion|mcp__.*"
       }
     ],
     "PostToolUseFailure": [

@@ -149,15 +149,23 @@ function readNotes(dir) {
 
 // Writes the handoff and returns its model, or returns null without writing when there is no work to resume
 // (only talk so far, or a task just closed with done). force: the user asked (/jspark-forge:handoff).
+// Work worth resuming: files touched, a commit, todos, a plan, notes or something still running. Only talk is not.
+function workOf(sess, task, notes, planFile) {
+  return task.files.length > 0 || !!task.lastCommit || (Array.isArray(task.todos) && task.todos.length > 0) ||
+    !!planFile || !!(notes && (notes.text || notes.task)) || runningOf(sess).length > 0;
+}
+const hasWork = (dir, sid) => {
+  const task = state.readTask(dir);
+  return workOf(state.readSession(dir, sid), task, readNotes(dir), task.planFile || superpowers.newestLedgerPlan(dir, task.closedAt || 0));
+};
+
 function save(dir, sid, reason, { refreshGit = true, now = new Date(), force = false } = {}) {
   const sess = state.readSession(dir, sid);
   const task = state.readTask(dir);
   const notes = readNotes(dir);
   let plan = null;
   const planFile = task.planFile || superpowers.newestLedgerPlan(dir, task.closedAt || 0);
-  const hasWork = force || task.files.length > 0 || !!task.lastCommit || (Array.isArray(task.todos) && task.todos.length > 0) ||
-    !!planFile || !!(notes && (notes.text || notes.task)) || runningOf(sess).length > 0;
-  if (!hasWork) return null;
+  if (!force && !workOf(sess, task, notes, planFile)) return null;
   if (refreshGit) sess.git = gitInfo(dir);
   if (planFile) {
     try { plan = parsePlan(fs.readFileSync(path.join(dir, planFile), 'utf8')); } catch {}
@@ -182,7 +190,7 @@ function save(dir, sid, reason, { refreshGit = true, now = new Date(), force = f
     // recorded: it would need a hook on every Read (design-v0.1.1 section 3)
     sources: require('./rules').loadRules(dir).readonly.map(r => ({ path: r.path, head: headCommit(path.resolve(dir, r.path)) })),
     asOf: now, reason, git: sess.git, task: f.task, step: f.step, done, next: f.next,
-    running: runningOf(sess), waiting: sess.waiting, lastRequest: sess.lastPrompt,
+    running: runningOf(sess), waiting: require('./waiting').summary(dir), lastRequest: sess.lastPrompt,
     notes: notes && notes.text ? { time: notes.time, text: notes.text } : null,
     recent: recentActions(dir, sid, now), files: task.files, ended: sess.ended,
     logFile: paths.display(dir, path.join(forgeDir(dir), 'log', `${log.dayStamp(now)}.log`)), others,
@@ -276,4 +284,4 @@ function pruneArchive(dir, now = new Date()) {
   }
 }
 
-module.exports = { render, taskFields, parseNotes, save, resumeContext, archive, pruneArchive, notesLine, grounding };
+module.exports = { render, taskFields, parseNotes, save, hasWork, resumeContext, archive, pruneArchive, notesLine, grounding };
