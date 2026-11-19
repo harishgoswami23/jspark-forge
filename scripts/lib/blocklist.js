@@ -14,7 +14,13 @@ const SQL_CLIENTS = new Set(['psql', 'mysql', 'mariadb', 'mysqlsh', 'sqlite3', '
 const TEMPLATE_WORDS = new Set(['example', 'sample', 'template', 'dist']);
 const WIN = process.platform === 'win32';
 
+// A refused build-graph line is most often a step report written through the shell: name the route that is allowed,
+// or Claude stops the build (integration 2026-11-20).
+const FORGE_ROUTE = 'Do not try an equivalent command. If you were reporting a build-graph step: write its report file ' +
+  'with the Write tool, then run the graph done command that graph next printed, as a command of its own. Otherwise ' +
+  'tell the user and stop.';
 function reasonFor(id, plain, hard) {
+  if (id === 'forge-state') return `JSPARK Forge blocked: ${plain}. This is never allowed. ${FORGE_ROUTE}`;
   return hard
     ? `JSPARK Forge blocked: ${plain}. This is never allowed. ${STOP}`
     : `JSPARK Forge blocked: ${plain}. ${STOP} To allow ${require('./confirm').SESSION_LONG.has(id)

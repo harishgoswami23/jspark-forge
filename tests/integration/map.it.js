@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const { project, claude } = require('./lib');
+const { project, claude, tmp } = require('./lib');
 
 const BIN = process.env.JSPARK_FORGE_MAP_BIN ||
   path.join(os.homedir(), 'forge-try', 'engine-trial', 'bin', process.platform === 'win32' ? 'codebase-memory-mcp.exe' : 'codebase-memory-mcp');
@@ -18,7 +18,7 @@ test('a map answer comes with "as of <commit>"', { timeout: 600000, skip: !fs.ex
     'src/price.js': 'function cents (d) { return Math.round(d * 100) }\nmodule.exports = { cents }\n',
     'src/cart.js': "const { cents } = require('./price')\nfunction total (items) { return items.reduce((s, i) => s + cents(i), 0) }\nmodule.exports = { total }\n",
   } });
-  const cfg = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-it-mapcfg-')), 'mcp.json');
+  const cfg = path.join(tmp('forge-it-mapcfg-'), 'mcp.json');
   fs.writeFileSync(cfg, JSON.stringify({ mcpServers: { 'codebase-memory': { command: BIN.replace(/\\/g, '/'), args: [] } } }));
   const repo = dir.replace(/\\/g, '/');
   const prev = process.env.JSPARK_FORGE_MAP_CMD;

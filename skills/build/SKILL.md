@@ -15,8 +15,8 @@ Run a build graph step by step. JSPARK Forge keeps the record and checks it; you
 3. Loop: run `node "${CLAUDE_PLUGIN_ROOT}/scripts/forge.js" graph next <name>` and do exactly what it prints:
    - **agent step:** use the Agent tool with the subagent_type and the description it gives (keep the
      `[graph <name>/<step>]` marker); pass the brief and the inputs. Several agent steps printed together run side by
-     side (dispatch them in one message). Write each helper's declared fields as JSON to the report file it names, then
-     run the `graph done` command it prints. If a step fails, run `graph fail` with the reason.
+     side (dispatch them in one message). Write each helper's declared fields as JSON to the report file it names with the
+     Write tool (never through the shell), then run the `graph done` command it prints as a command of its own. If a step fails, run `graph fail` with the reason.
    - **gate step:** run each command with the Bash tool exactly as written, one per call. JSPARK Forge records the
      exit codes; if one fails, the run stops: show the user the command and its output.
    - **human step:** show the user the instruction and stop. Only the user's own message `DONE <step>` completes it.

@@ -442,6 +442,20 @@ test('every published entry has >= 5 positive and >= 5 negative cases', () => {
   }
 });
 
+// Integration 2026-11-20: a refused report line ended the build, because the reason only said "stop". A forge-state
+// refusal names the allowed route for reporting a step.
+test('a forge-state refusal names the allowed way to report a build-graph step', () => {
+  for (const input of [
+    bash(`node -e "require('fs').writeFileSync('.jspark-forge/state/report-look.json','{}')" && node /p/scripts/forge.js graph done g look --from .jspark-forge/state/report-look.json`),
+    edit('.jspark-forge/state/graph-g.json', 'Write'),
+  ]) {
+    const h = check(input, ctx());
+    assert.equal(h && h.id, 'forge-state');
+    assert.match(h.reason, /Write tool/);
+    assert.match(h.reason, /graph done/);
+  }
+});
+
 test('the table holds at least 150 commands', () => {
   const n = Object.values(CASES).reduce((a, c) => a + c.length, 0);
   assert.ok(n >= 150, `only ${n}`);

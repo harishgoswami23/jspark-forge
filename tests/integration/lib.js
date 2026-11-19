@@ -11,9 +11,17 @@ const PLUGIN = path.resolve(__dirname, '..', '..');
 // Real Claude Code runs with the real login and config: never let automatic setup touch the real status line.
 process.env.JSPARK_FORGE_AUTO_STATUSLINE = 'off';
 const MODEL = process.env.FORGE_IT_MODEL || 'haiku';
+// Every folder a test file makes goes under one root, removed when the file ends; kept when a test failed, to look at.
+const ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-it-run-'));
+process.on('exit', code => {
+  if (code || process.exitCode) { process.stderr.write(`integration files kept for a look: ${ROOT}
+`); return; }
+  try { fs.rmSync(ROOT, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }); } catch { /* best effort */ }
+});
+const tmp = prefix => fs.mkdtempSync(path.join(ROOT, prefix));
 
 function project(prefix, { files = { 'a.txt': 'a\n' } } = {}) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `forge-it-${prefix}-`));
+  const dir = tmp(`forge-it-${prefix}-`);
   for (const [f, c] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true }); fs.writeFileSync(path.join(dir, f), c); }
   gitInit(dir);
   initForge(dir);
@@ -27,7 +35,7 @@ function gitInit(dir) {
 }
 function initForge(dir) {
   // A private claude-home so the one-time superpowers tip state of the real ~/.claude is not touched.
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-it-home-'));
+  const home = tmp('forge-it-home-');
   execFileSync(process.execPath, [path.join(PLUGIN, 'scripts', 'init.js'), '--project', dir, '--claude-home', home]);
 }
 const args = (prompt, extra = []) => ['-p', prompt, '--plugin-dir', PLUGIN, '--model', MODEL, ...extra];
@@ -55,4 +63,4 @@ const gitStatus = dir => execFileSync('git', ['status', '--porcelain', '--untrac
   .split('\n').filter(l => l && !l.includes('.jspark-forge/')).join('\n');
 const head = dir => execFileSync('git', ['rev-parse', '--short=7', 'HEAD'], { cwd: dir, encoding: 'utf8' }).trim();
 
-module.exports = { PLUGIN, MODEL, project, gitInit, initForge, claude, claudeBackground, killTree, logText, kinds, gitStatus, head };
+module.exports = { PLUGIN, tmp, MODEL, project, gitInit, initForge, claude, claudeBackground, killTree, logText, kinds, gitStatus, head };

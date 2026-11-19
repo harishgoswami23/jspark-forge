@@ -193,7 +193,7 @@ function next(dir, n, sid, opts = {}) {
         const inputs = x.needs.map(f => `${f}=${clean(outputs[f], 200)}`).join('; ');
         out.push(`Step ${x.id} (agent): use the Agent tool with subagent_type "jspark-forge:${x.helper}" and description "[graph ${n}/${x.id}] ${x.id}".` +
           `${x.brief ? ` Brief: ${clean(x.brief, 200)}.` : ''}${inputs ? ` Inputs: ${inputs}.` : ''} Return exactly: ${x.gives.length ? x.gives.join(', ') : 'nothing'}.` +
-          ` Then write those fields as JSON to .jspark-forge/state/report-${x.id}.json and run: node "${FORGE_JS}" graph done ${n} ${x.id} --from .jspark-forge/state/report-${x.id}.json` +
+          ` Then write those fields as JSON with the Write tool to .jspark-forge/state/report-${x.id}.json and run, as a command of its own: node "${FORGE_JS}" graph done ${n} ${x.id} --from .jspark-forge/state/report-${x.id}.json` +
           ` (if the step fails: node "${FORGE_JS}" graph fail ${n} ${x.id} "<reason>").`);
       } else if (x.kind === 'gate') {
         // Printed exactly as stored and matched exactly (review M2); graph check refuses lines that would print otherwise.

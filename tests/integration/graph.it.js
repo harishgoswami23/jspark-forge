@@ -36,7 +36,8 @@ test('a small build graph runs end to end: helper step, then a gate judged by it
   assert.equal(r.status, 0, r.err);
   const st = JSON.parse(fs.readFileSync(path.join(dir, '.jspark-forge', 'state', 'graph-tiny.json'), 'utf8'));
   assert.equal(st.steps.look.state, 'done', `look: ${JSON.stringify(st.steps.look)}\n${r.out}`);
-  assert.equal(st.steps.look.outputs.readme_path.replace(/^\.\//, ''), 'README.md');
+  // Relative or absolute, it must name this project's README.md.
+  assert.equal(path.resolve(dir, st.steps.look.outputs.readme_path).toLowerCase(), path.join(dir, 'README.md').toLowerCase());
   assert.equal(st.steps.gate.state, 'done', `gate: ${JSON.stringify(st.steps.gate)}\n${r.out}`);
   assert.ok(st.finished, 'the run finished');
 });

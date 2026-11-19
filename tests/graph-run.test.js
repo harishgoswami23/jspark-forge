@@ -73,6 +73,16 @@ test('start validates and records the run; next hands out the first step with ev
   assert.equal(st(dir).owner, SID);
 });
 
+// Integration 2026-11-20: Claude wrote the report with `node -e` and ran `graph done` in the same shell line; the
+// forge-state guard refused the whole line and Claude stopped. The instruction names the route that is allowed.
+test('next says to write the report with the Write tool and run graph done as a command of its own', () => {
+  const dir = project({ g: SIMPLE });
+  cli(dir, ['start', 'g']);
+  const n = cli(dir, ['next', 'g']);
+  assert.match(n, /with the Write tool/);
+  assert.match(n, /as a command of its own/);
+});
+
 test('done needs a running agent step, a helper of that type, and exactly its declared outputs, which must be real', () => {
   const dir = project({ g: SIMPLE });
   cli(dir, ['start', 'g']);

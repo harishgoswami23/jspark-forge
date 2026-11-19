@@ -48,6 +48,13 @@ test('every git call JSPARK Forge makes passes --no-optional-locks', () => {
   assert.deepEqual(bad, []);
 });
 
+// 2026-11-20: test runs had left about 50,000 folders in the OS temp folder. Each `npm test` run gets its own temp
+// folder (tests/helpers/isolate.js), removed when the run ends.
+test('tests write their temp files into one per-run folder', { skip: !process.env.FORGE_TEST_ISOLATED && 'not under npm test' }, () => {
+  assert.match(path.basename(require('node:os').tmpdir()), /^forge-run-/);
+  assert.ok(process.env.CLAUDE_CONFIG_DIR.startsWith(require('node:os').tmpdir()), 'the config folder is inside it too');
+});
+
 // 2026-11-20: a merge left conflict markers in a graph template that still passed lint. No shipped text file may hold one.
 test('no shipped file holds a merge conflict marker', () => {
   const walk = dir => fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true }).flatMap(e =>
