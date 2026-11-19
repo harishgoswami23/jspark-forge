@@ -52,6 +52,57 @@ test('MCP: reads and other servers are never blocked', () => {
   for (const r of READS) assert.equal(id(r), null, `${r.tool_name} ${JSON.stringify(r.tool_input)}`);
 });
 
+// Code review H1: any statement that is not a read, and the write tools of key-value and document stores.
+const sql = q => mcp(`${SUPA}execute_sql`, { project_id: 'p', query: q });
+const MORE_WRITES = [
+  sql('UPDATE users u SET admin = true WHERE u.id = 1'),
+  sql('update users as u set admin = true where u.id = 1'),
+  sql('insert t values (1)'),
+  sql('SELECT * INTO backup FROM users'),
+  sql('vacuum full'),
+  sql('refresh materialized view sales_mv'),
+  sql('WITH d AS (DELETE FROM t WHERE id = 1 RETURNING *) SELECT * FROM d'),
+  sql("select set_config('a.b', 'c', false); select setval('s', 1)"),
+  mcp('mcp__mssql__execute_query', { query: 'EXEC sp_purge' }),
+  mcp('mcp__dynamodb__put_item', { TableName: 't', Item: { id: { S: '1' } } }),
+  mcp('mcp__dynamodb__update_item', { TableName: 't', Key: { id: { S: '1' } } }),
+  mcp('mcp__dynamodb__delete_item', { TableName: 't', Key: { id: { S: '1' } } }),
+  mcp('mcp__dynamodb__execute_statement', { Statement: "UPDATE t SET a = 1 WHERE id = '1'" }),
+  mcp('mcp__redis__set', { key: 'k', value: 'v' }),
+  mcp('mcp__redis__del', { key: 'k' }),
+  mcp('mcp__redis__flushall', {}),
+  mcp('mcp__redis__execute_command', { command: 'FLUSHALL' }),
+  mcp('mcp__mongodb__updateOne', { collection: 'users', filter: { a: 1 }, update: { $set: { b: 2 } } }),
+  mcp('mcp__mongodb__findOneAndUpdate', { collection: 'users', filter: { a: 1 }, update: { $set: { b: 2 } } }),
+  mcp('mcp__mongodb__find_and_modify', { collection: 'users', query: { a: 1 } }),
+  mcp('mcp__mongodb__delete-many', { collection: 'users', filter: { a: 1 } }),
+  mcp('mcp__mongodb__aggregate', { collection: 'users', pipeline: [{ $match: {} }, { $out: 'copy' }] }),
+];
+const MORE_READS = [
+  sql('show create table t'),
+  sql("select * from notes where note = 'call me (now); update x set a = 1'"),
+  sql('-- create table x\nselect 1'),
+  sql('/* insert later */ SELECT count(*) FROM users'),
+  sql('select * from t for update'),
+  mcp('mcp__dynamodb__get_item', { TableName: 't', Key: { id: { S: '1' } } }),
+  mcp('mcp__dynamodb__query', { TableName: 't', KeyConditionExpression: 'id = :v' }),
+  mcp('mcp__dynamodb__scan', { TableName: 't' }),
+  mcp('mcp__dynamodb__execute_statement', { Statement: "SELECT * FROM t WHERE id = '1'" }),
+  mcp('mcp__redis__get', { key: 'k' }),
+  mcp('mcp__redis__hgetall', { key: 'k' }),
+  mcp('mcp__redis__execute_command', { command: 'GET k' }),
+  mcp('mcp__mongodb__aggregate', { collection: 'users', pipeline: [{ $match: { a: 1 } }] }),
+  mcp('mcp__mongodb__count', { collection: 'users' }),
+];
+
+test('MCP: every statement that is not a read, and store write tools, are held (code review H1)', () => {
+  for (const w of MORE_WRITES) assert.equal(id(w), 'db-write', `${w.tool_name} ${JSON.stringify(w.tool_input)}`);
+});
+
+test('MCP: reads stay free, also with write words in strings and comments (code review H1)', () => {
+  for (const r of MORE_READS) assert.equal(id(r), null, `${r.tool_name} ${JSON.stringify(r.tool_input)}`);
+});
+
 test('MCP: a write is a confirm, not a hard deny, and the reason names the confirm', () => {
   const r = check(WRITES[0], ctx());
   assert.equal(r.hard, false);
@@ -67,24 +118,57 @@ test('MCP: sql-destroy stays as it is (DROP, TRUNCATE, DELETE without WHERE)', (
 });
 
 test('dev line: a write passes for the server it names, and only that server', () => {
-  const rules = rulesWith(['Supabase']);
-  assert.equal(id(WRITES[0], rules), null);
-  assert.equal(id(WRITES[3], rules), null);
-  assert.equal(id(mcp('mcp__postgres__query', { sql: 'INSERT INTO t VALUES (1)' }), rules), 'db-write');
+  for (const rules of [rulesWith(['claude_ai_Supabase']), rulesWith(['mcp:claude_ai_Supabase'])]) {
+    assert.equal(id(WRITES[0], rules), null);
+    assert.equal(id(WRITES[3], rules), null);
+    assert.equal(id(mcp('mcp__postgres__query', { sql: 'INSERT INTO t VALUES (1)' }), rules), 'db-write');
+  }
 });
 
 test('dev line: a glob works, a host pattern works for clients, and sql-destroy still applies', () => {
-  assert.equal(id(mcp('mcp__pg_local__query', { sql: 'insert into t values (1)' }), rulesWith(['pg_*'])), null);
+  assert.equal(id(mcp('mcp__pg_local__query', { sql: 'insert into t values (1)' }), rulesWith(['mcp:pg_*'])), null);
   const psql = c => ({ tool_name: 'Bash', tool_input: { command: c }, cwd: PROJECT });
-  assert.equal(id(psql('psql -h dev.db.example.com -c "insert into t values (1)"'), rulesWith(['*.db.example.com'])), null);
-  assert.equal(id(psql('psql -h prod.example.com -c "insert into t values (1)"'), rulesWith(['*.db.example.com'])), 'db-write');
+  assert.equal(id(psql('psql -h dev.db.example.com -c "insert into t values (1)"'), rulesWith(['host:*.db.example.com'])), null);
+  assert.equal(id(psql('psql -h prod.example.com -c "insert into t values (1)"'), rulesWith(['host:*.db.example.com'])), 'db-write');
   assert.equal(id(mcp('mcp__postgres__query', { sql: 'DROP TABLE x' }), rulesWith(['postgres'])), 'sql-destroy');
 });
 
+// Code review M7: a dev line clears exactly what it names.
+test('dev line: MCP server names match exactly, or a declared prefix with an explicit *', () => {
+  assert.equal(id(WRITES[0], rulesWith(['supabase'])), 'db-write', 'supabase does not clear the hosted claude_ai_Supabase');
+  assert.equal(id(WRITES[0], rulesWith(['mcp:supabase'])), 'db-write');
+  assert.equal(id(mcp('mcp__pg_dev__query', { sql: 'insert into t values (1)' }), rulesWith(['dev'])), 'db-write', 'no suffix match');
+  assert.equal(id(mcp('mcp__pg_dev__query', { sql: 'insert into t values (1)' }), rulesWith(['pg_dev'])), null);
+  assert.equal(id(mcp('mcp__local_postgres__query', { sql: 'insert into t values (1)' }), rulesWith(['mcp:local_*'])), null);
+  assert.equal(id(mcp('mcp__postgres_local__query', { sql: 'insert into t values (1)' }), rulesWith(['mcp:local_*'])), 'db-write');
+});
+
+test('dev line: host patterns and MCP server names are kept apart', () => {
+  const psql = c => ({ tool_name: 'Bash', tool_input: { command: c }, cwd: PROJECT });
+  assert.equal(id(mcp('mcp__postgres__query', { sql: 'insert into t values (1)' }), rulesWith(['host:postgres'])), 'db-write');
+  assert.equal(id(psql('psql -h prod.example.com -c "insert into t values (1)"'), rulesWith(['mcp:prod.example.com'])), 'db-write');
+  assert.equal(id(psql('psql -h dev.internal -c "insert into t values (1)"'), rulesWith(['dev.internal'])), null, 'bare = exact host');
+  assert.equal(id(psql('psql -h x.dev.internal -c "insert into t values (1)"'), rulesWith(['dev.internal'])), 'db-write');
+  assert.equal(id(psql('psql -h a.dev.internal -c "insert into t values (1)"'), rulesWith(['host:*.dev.internal'])), null);
+});
+
+test('dev line: every host in the command must be a dev host', () => {
+  const psql = c => ({ tool_name: 'Bash', tool_input: { command: c }, cwd: PROJECT });
+  const rules = rulesWith(['host:*.dev.internal']);
+  assert.equal(id(psql('PGHOST=a.dev.internal psql -h prod.internal -c "insert into t values (1)"'), rules), 'db-write');
+  assert.equal(id(psql('psql -h a.dev.internal,prod.internal -c "insert into t values (1)"'), rules), 'db-write');
+  assert.equal(id(psql('psql "$DEV_DB" -c "insert into t values (1)"'), rules), 'db-write', 'an unknown host is never dev');
+  assert.equal(id(psql('PGHOST=a.dev.internal psql -h b.dev.internal -c "insert into t values (1)"'), rules), null);
+});
+
 test('parseRules reads "database dev:" lines under Settings', () => {
-  const r = parseRules('## Settings\n- database dev: Supabase\n- database dev: *.dev.example.com, staging-db\n- notes: off\n');
-  assert.deepEqual(r.dbDev, ['Supabase', '*.dev.example.com', 'staging-db']);
+  const r = parseRules('## Settings\n- database dev: claude_ai_Supabase\n- database dev: host:*.dev.example.com, mcp:local_*, staging-db\n- notes: off\n');
+  assert.deepEqual(r.dbDev, ['claude_ai_Supabase', 'host:*.dev.example.com', 'mcp:local_*', 'staging-db']);
   assert.deepEqual(r.errors, []);
+  const bad = parseRules('## Settings\n- database dev: *.dev.example.com\n- database dev: mcp:*_dev\n');
+  assert.deepEqual(bad.dbDev, []);
+  assert.equal(bad.errors.length, 2);
+  assert.match(bad.errors[0].message, /host:/);
 });
 
 const FORGE = path.join(__dirname, '..', 'scripts', 'forge.js');
@@ -105,7 +189,7 @@ const hook = (s, event, input) => {
 const decision = o => (o && o.hookSpecificOutput && o.hookSpecificOutput.permissionDecision) || null;
 
 test('trust: a repo "database dev:" line is ignored and reported; the user file honours it', () => {
-  const line = '## Settings\n- database dev: Supabase\n';
+  const line = '## Settings\n- database dev: claude_ai_Supabase\n';
   const repo = setup({ repoRules: line });
   assert.deepEqual(loadRules(repo.dir, { claudeHome: repo.cfg }).dbDev, []);
   assert.equal(decision(hook(repo, 'PreToolUse', WRITES[1])), 'deny');
@@ -114,13 +198,13 @@ test('trust: a repo "database dev:" line is ignored and reported; the user file 
   assert.match(msg, /~\/\.claude\/jspark-forge\/rules\.md/);
 
   const user = setup({ userRules: line });
-  assert.deepEqual(loadRules(user.dir, { claudeHome: user.cfg }).dbDev, ['Supabase']);
+  assert.deepEqual(loadRules(user.dir, { claudeHome: user.cfg }).dbDev, ['claude_ai_Supabase']);
   assert.equal(decision(hook(user, 'PreToolUse', WRITES[1])), null);
 });
 
 test('trust: a repo dev line does not weaken a user file, and the user file still applies alongside a repo file', () => {
-  const s = setup({ repoRules: '## Settings\n- database dev: postgres\n', userRules: '## Settings\n- database dev: Supabase\n' });
-  assert.deepEqual(loadRules(s.dir, { claudeHome: s.cfg }).dbDev, ['Supabase']);
+  const s = setup({ repoRules: '## Settings\n- database dev: postgres\n', userRules: '## Settings\n- database dev: claude_ai_Supabase\n' });
+  assert.deepEqual(loadRules(s.dir, { claudeHome: s.cfg }).dbDev, ['claude_ai_Supabase']);
   assert.equal(decision(hook(s, 'PreToolUse', mcp('mcp__postgres__query', { sql: 'insert into t values (1)' }))), 'deny');
 });
 

@@ -346,69 +346,293 @@ function sqlDestructive(text) {
   return false;
 }
 
-// ---------- database guard (v0.2.1, spec 5.2c) ----------
-// A write to a production database needs CONFIRM db-write. Production = every database MCP server and every client
-// connection to a host that is not local, unless the USER's rules.md names it ("- database dev: <name or host
-// pattern>", rules.dbDev; a project's own line is ignored). Reads (SELECT, WITH ... SELECT, EXPLAIN, SHOW, DESCRIBE)
-// are never held. A seatbelt: SQL inside a script file or a stored procedure is not seen.
-const DB_CLIENTS = new Set([...SQL_CLIENTS, 'mongosh', 'mongo', 'pgcli', 'mycli', 'usql']);
-const SQL_WRITE = [
-  /\binsert\s+(into|ignore|or\s+\w+\s+into)\b/i,
-  /\bupdate\s+(only\s+)?[\w."`[\]$]+\s+set\b/i,
-  /\bdelete\s+from\b/i,
-  /\b(create|alter|drop)\s+(or\s+replace\s+|unique\s+|temp(orary)?\s+|materialized\s+|global\s+|virtual\s+|if\s+exists\s+)*(table|database|schema|index|view|user|role|function|procedure|type|extension|sequence|trigger|policy|publication|subscription|domain)\b/i,
-  /\btruncate\s+(table\s+)?["'`\w]/i,
-  /\b(grant|revoke)\s+\w+/i,
-  /\b(merge|replace)\s+into\b/i,
-  /\bcopy\s+[\w."()]+\s+from\b/i,
-  /\bselect\b[^;]*\binto\s+(outfile|dumpfile|temp|temporary|unlogged|table)\b/i,
-  /\bcall\s+[\w.]+\s*\(/i,
-  /\bdo\s+\$\$/i,
-];
-const MONGO_WRITE = /\.(insert\w*|update\w*|delete\w*|drop\w*|remove|replaceOne|bulkWrite|save|createIndex|createCollection|renameCollection|findOneAndUpdate|findOneAndDelete|findOneAndReplace)\s*\(|\$(out|merge)\b/;
-const dbWriteText = text => SQL_WRITE.some(re => re.test(text)) || MONGO_WRITE.test(text);
+// ---------- database guard (v0.2.1, spec 5.2c; Fable code review H1, M7) ----------
+// A write to a production database needs CONFIRM db-write. A write is every statement that is not a read: the guard
+// lists the reads (SELECT, WITH ... SELECT, EXPLAIN, SHOW, DESCRIBE, ...) and holds everything else, so a write
+// nobody listed is held, not passed. String literals and comments are removed first and only the SQL that goes to
+// the client (its -c / -e / -Query ... argument) is read, so text elsewhere in the line never decides. A script file,
+// a stdin redirect or a pipe into a remote client is unknown content: held. Production = every database MCP server
+// and every client connection to a host that is not local (an unresolved variable, a service name or a login path is
+// not local), unless the USER's rules.md names every host or the server as dev ("- database dev: host:<glob> |
+// mcp:<server or prefix*> | <exact host or server>", rules.dbDev; a project's own line is ignored). A seatbelt: SQL
+// inside a stored procedure is not seen.
 
-function hostLocal(h) {
+// SQL with string literals, quoted identifiers and comments blanked out. MySQL runs /*! ... */, so its text is kept.
+// One pass, every character read once (patterns run on every command; no backtracking on the input).
+function sqlStrip(text) {
+  const s = String(text);
+  let out = '';
+  const dollar = /\$([A-Za-z_]\w{0,62})?\$/y;
+  for (let i = 0; i < s.length;) {
+    const c = s[i], n = s[i + 1];
+    if (c === '-' && n === '-') { const k = s.indexOf('\n', i); i = k < 0 ? s.length : k; continue; }
+    if (c === '/' && n === '*') {
+      if (s[i + 2] === '!') { out += ' '; i += 3; while (i < s.length && /\d/.test(s[i])) i++; continue; }
+      const k = s.indexOf('*/', i + 2); out += ' '; i = k < 0 ? s.length : k + 2; continue;
+    }
+    if (c === "'") {
+      let j = i + 1;
+      while (j < s.length) { if (s[j] === "'") { if (s[j + 1] === "'") { j += 2; continue; } break; } j++; }
+      out += " '' "; i = j + 1; continue;
+    }
+    if (c === '"' || c === '`') { const k = s.indexOf(c, i + 1); out += ' q '; i = k < 0 ? s.length : k + 1; continue; }
+    if (c === '$') {
+      dollar.lastIndex = i;
+      const m = dollar.exec(s);
+      if (m) { const k = s.indexOf(m[0], i + m[0].length); out += " '' "; i = k < 0 ? s.length : k + m[0].length; continue; }
+    }
+    out += c; i++;
+  }
+  return out;
+}
+
+// Words that make a read statement (SELECT, WITH, VALUES, EXPLAIN ANALYZE) change data: SELECT ... INTO, a
+// data-modifying CTE, a second statement without a semicolon (T-SQL), and functions with side effects.
+const SQL_WRITE_WORD = /\b(insert|update|delete|merge|upsert|into|create|alter|drop|truncate|grant|revoke|exec|execute|call)\b/i;
+const SQL_SIDE_EFFECT = /\b(setval|nextval|set_config|pg_terminate_backend|pg_cancel_backend|pg_reload_conf|pg_rotate_logfile|pg_switch_wal|pg_promote|pg_drop_replication_slot|pg_create_\w+|pg_file_\w+|lo_unlink|lo_import|lo_export|lo_create|dblink\w*|cron\.\w+)\s*\(/i;
+const SQL_READ_FIRST = new Set(['show', 'describe', 'desc', 'help', 'use', 'begin', 'commit', 'rollback', 'end', 'savepoint',
+  'release', 'abort', 'listen', 'unlisten', 'fetch', 'close', 'discard']);
+const READ_PRAGMA = /^pragma\s+(\w+\.)?(table_info|table_xinfo|table_list|index_list|index_info|index_xinfo|foreign_key_list|foreign_key_check|database_list|compile_options|collation_list|function_list|module_list|pragma_list|integrity_check|quick_check|user_version|schema_version|application_id|page_count|page_size|freelist_count|data_version|journal_mode|encoding|foreign_keys)\b[^=]*$/i;
+// psql / mysql meta-commands that run a file, a shell or generated SQL.
+const META_WRITE = /\\(gexec|ir?|include(_relative)?|!|\.|lo_import|lo_unlink)(?![a-z_])/i;
+
+function stmtWrites(stmt) {
+  const t = stmt.replace(/^[\s(]+/, '');
+  if (!t) return false;
+  if (META_WRITE.test(t)) return true;
+  if (t[0] === '\\') return /^\\copy\b/i.test(t) && (!/\bto\b/i.test(t) || /\bfrom\s+(stdin|pstdin|'')/i.test(t));
+  if (t[0] === '.') return /^\.(read|import|restore|load|shell|system|clone)\b/i.test(t); // sqlite / duckdb dot-commands
+  const m = t.match(/^[a-z_]+/i);
+  if (!m) return true; // not a statement we can read ("$SQL"): unknown, so held
+  const k = m[0].toLowerCase();
+  const body = t.replace(/\bfor\s+(no\s+key\s+)?(update|share)\b/gi, ' ');
+  if (k === 'select' || k === 'with' || k === 'values' || k === 'table') return SQL_WRITE_WORD.test(body) || SQL_SIDE_EFFECT.test(body);
+  if (k === 'explain') return /\banaly[sz]e\b/i.test(t) && (SQL_WRITE_WORD.test(body) || SQL_SIDE_EFFECT.test(body)); // plain EXPLAIN runs nothing
+  if (SQL_READ_FIRST.has(k)) return false;
+  if (k === 'start') return !/^start\s+transaction\b/i.test(t);
+  if (k === 'set') return /^set\s+(global|persist|persist_only|password|@@global|@@persist)\b/i.test(t);
+  if (k === 'pragma') return !READ_PRAGMA.test(t);
+  if (k === 'copy') return !/\bto\s+stdout\b/i.test(t) || /\bfrom\s+(stdin|program)\b/i.test(t);
+  return true;
+}
+const sqlWrites = text => sqlStrip(text).split(';').some(stmtWrites);
+
+const MONGO_WRITE = /\.\s*(insert\w*|update\w*|delete\w*|drop\w*|remove\w*|replaceOne|bulkWrite|save|create\w*|rename\w*|findOneAnd\w+|findAndModify|runCommand|adminCommand|grant\w*|revoke\w*|shardCollection|compact|initialize\w*BulkOp)\s*\(|\$(out|merge)\b|\bload\s*\(/;
+const REDIS_READ = new Set(('get mget hget hgetall hmget hkeys hvals hlen hexists hstrlen hscan keys scan sscan zscan exists ttl pttl ' +
+  'type info ping dbsize lrange llen lindex smembers sismember smismember scard srandmember zrange zrangebyscore zrevrange ' +
+  'zrevrangebyscore zrangebylex zcard zscore zmscore zrank zrevrank zcount zlexcount strlen getrange getbit bitcount bitpos ' +
+  'xrange xrevrange xlen xinfo time echo lastsave role randomkey pfcount geopos geodist geohash geosearch json.get json.type ' +
+  'json.mget ft.search ft.info memory').split(' '));
+const REDIS_READ_SUB = /^(config|slowlog|client|cluster|object|command|acl|latency|pubsub)\s+(get|list|info|nodes|slots|shards|myid|encoding|freq|idletime|refcount|count|docs|whoami|getuser|users|cat|latest|history|len|channels|numsub|numpat|getname|id)\b/i;
+function redisWrites(words) {
+  const w = words.map(x => String(x).trim()).filter(Boolean);
+  if (!w.length) return false;
+  return !REDIS_READ.has(w[0].toLowerCase()) && !REDIS_READ_SUB.test(w.slice(0, 2).join(' '));
+}
+
+// A host name as written ('tcp:db,1433', '[::1]:5432', '(localdb)\x') reduced to the name.
+function hostName(h) {
   let s = String(h).trim().replace(/^['"]|['"]$/g, '').toLowerCase().replace(/^tcp:/, '');
-  if (/[$%`]/.test(s)) return false; // an unresolved variable: unknown, so production
-  if (s.startsWith('/')) return true; // a Unix socket directory
-  s = s.split('\\')[0].split(',')[0]; // (localdb)\MSSQLLocalDB, .\SQLEXPRESS, host,1433
+  s = s.split('\\')[0];
   const v6 = s.match(/^\[(.+)\](:\d+)?$/);
-  if (v6) s = v6[1]; else if ((s.match(/:/g) || []).length === 1) s = s.split(':')[0];
+  if (v6) return v6[1];
+  if ((s.match(/:/g) || []).length === 1) s = s.split(':')[0];
+  return s;
+}
+const isVar = s => /[$%`]/.test(String(s)); // $VAR, ${VAR}, $env:VAR, %VAR%: unknown, so production
+function hostLocal(h) {
+  const raw = String(h).trim().replace(/^['"]|['"]$/g, '');
+  if (isVar(raw)) return false;
+  if (raw.startsWith('/')) return !/\/cloudsql\//i.test(raw); // a Unix socket directory; a Cloud SQL socket is remote
+  const s = hostName(raw);
   return s === '' || s === '.' || s === 'localhost' || s === '(local)' || s === '(localdb)' || s === '::1' ||
-    s === '0.0.0.0' || /^127\./.test(s) || /\.localhost$/.test(s);
+    s === '0.0.0.0' || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(s) || /\.localhost$/.test(s);
 }
 function urlHost(u) {
-  const m = String(u).match(/^[a-z][a-z0-9+.-]*:\/\/(?:[^@/?]*@)?(\[[^\]]+\]|[^/:?,]*)/i);
-  return m ? m[1] : null;
+  const m = String(u).match(/^[a-z][a-z0-9+.-]*:\/\/(?:[^@/?]*@)?(\[[^\]]+\]|[^/?]*)/i);
+  if (!m) return null;
+  // postgres://a,b:5433/db lists hosts; keep the commas, drop the ports (an IPv6 [..] stays whole)
+  return m[1].startsWith('[') ? m[1] : m[1].split(',').map(x => x.replace(/:\d*$/, '')).join(',');
 }
-// The connection a database client command makes: { remote, names } (names: what a "database dev:" pattern is matched to).
-function dbClientTarget(c, words) {
-  const { cmd, args } = c;
-  if (!DB_CLIENTS.has(cmd)) return null;
-  const hosts = [];
-  for (const w of words) {
-    const e = w.match(/^(PGHOST|PGHOSTADDR|MYSQL_HOST)=(.*)$/);
-    if (e) hosts.push(e[2]);
-    const u = w.match(/^(DATABASE_URL|MONGODB_URI|POSTGRES_URL)=(.*)$/);
-    if (u) hosts.push(urlHost(u[2]) || '');
-  }
-  const sqlcmd = cmd === 'sqlcmd' || cmd === 'invoke-sqlcmd';
+
+// How each client takes its SQL (sql), a script file (file), its server (host), a connection string or URL (conn),
+// options with a value (value), and options that name a connection we cannot see (unknown: --login-path).
+const PG_CLIENT = { sql: ['-c', '--command'], file: ['-f', '--file'], host: ['-h', '--host'], conn: ['-d', '--dbname'],
+  value: ['-p', '--port', '-U', '--username', '-v', '--set', '--variable', '-o', '--output', '-L', '--log-file', '-P', '--pset',
+    '-F', '--field-separator', '-R', '--record-separator', '-T', '--table-attr'], uriPositional: true };
+const MY_CLIENT = { sql: ['-e', '--execute'], file: [], host: ['-h', '--host'], conn: [], unknown: ['--login-path'],
+  value: ['-u', '--user', '-P', '--port', '-D', '--database', '-S', '--socket', '--defaults-file', '--defaults-extra-file', '--protocol'] };
+const CH_CLIENT = { sql: ['-q', '--query'], file: ['--queries-file'], host: ['-h', '--host'], conn: [],
+  value: ['--port', '-u', '--user', '--password', '-d', '--database'] };
+const MONGO_CLIENT = { sql: ['--eval'], file: ['-f', '--file'], host: ['--host'], conn: [], mongo: true, uriPositional: true,
+  value: ['--port', '-u', '--username', '-p', '--password', '--authenticationDatabase', '--tlsCAFile', '--tlsCertificateKeyFile', '--apiVersion'] };
+const REDIS_CLIENT = { sql: [], file: [], host: ['-h'], conn: ['-u'], redis: true, value: ['-p', '-a', '-n', '--user', '--pass', '-s', '-r', '-i', '-d'] };
+const LITE_CLIENT = { sql: ['-cmd'], file: ['-init'], host: [], conn: [], positionalSql: true,
+  value: ['-separator', '-newline', '-nullvalue', '-vfs', '-maxsize', '-mmap', '-lookaside', '-pagecache'] };
+const DB_CLIENT_SPECS = {
+  psql: PG_CLIENT, pgcli: PG_CLIENT, usql: PG_CLIENT,
+  pg_restore: { sql: [], file: [], host: ['-h', '--host'], conn: ['-d', '--dbname'], restore: true,
+    value: ['-p', '--port', '-U', '--username', '-f', '--file', '-j', '--jobs', '-n', '--schema', '-t', '--table', '-I', '--index',
+      '-P', '--function', '-T', '--trigger', '-L', '--use-list', '-S', '--superuser', '--role', '-F', '--format'] },
+  mysql: MY_CLIENT, mariadb: MY_CLIENT, mycli: Object.assign({}, MY_CLIENT, { uriPositional: true }),
+  mysqlsh: Object.assign({}, MY_CLIENT, { file: ['-f', '--file'], uriPositional: true, atHost: true }),
+  'clickhouse-client': CH_CLIENT, clickhouse: CH_CLIENT,
+  cockroach: { sql: ['-e', '--execute'], file: ['-f', '--file'], host: ['--host'], conn: ['--url'],
+    value: ['--port', '-p', '--user', '-u', '--database', '-d', '--certs-dir'] },
+  sqlcmd: { sql: ['-Q', '-q'], file: ['-i'], host: ['-S'], conn: [], value: ['-U', '-P', '-d', '-o', '-s', '-w', '-h', '-t', '-l', '-v', '-f'] },
+  'invoke-sqlcmd': { ci: true, sql: ['-query'], file: ['-inputfile'], host: ['-serverinstance'], conn: ['-connectionstring'], positionalSql: true,
+    value: ['-database', '-username', '-password', '-credential', '-hostname', '-querytimeout', '-connectiontimeout', '-variable',
+      '-encrypt', '-accesstoken', '-applicationname', '-maxcharlength', '-maxbinarylength', '-outputas'] },
+  sqlite3: LITE_CLIENT, sqlite: LITE_CLIENT,
+  duckdb: Object.assign({}, LITE_CLIENT, { sql: ['-c', '-cmd'], file: ['-init', '-f'] }),
+  mongosh: MONGO_CLIENT, mongo: MONGO_CLIENT,
+  'redis-cli': REDIS_CLIENT, 'valkey-cli': REDIS_CLIENT,
+};
+const GENERIC_CONN = ['--url', '--uri', '--db-url', '--connection-string', '-connectionstring'];
+
+function clientArgs(spec, args) {
+  const r = { sql: [], file: false, hosts: [], conn: [], positional: [], other: [], unknown: false };
+  const has = (list, o) => (list || []).includes(o);
   for (let i = 0; i < args.length; i++) {
-    const a = args[i];
-    if (sqlcmd ? (a === '-S' || /^-server(instance)?$/i.test(a)) : (a === '-h' || a === '--host')) { if (args[i + 1] !== undefined) hosts.push(args[++i]); continue; }
-    let m;
-    if ((m = a.match(/^--host=(.*)$/)) || (!sqlcmd && (m = a.match(/^-h(.+)$/)))) { hosts.push(m[1]); continue; }
-    if (/^(--(url|uri|db-url|connection-string)|-connectionstring)$/i.test(a) && args[i + 1] !== undefined) { i++; hosts.push(urlHost(args[i]) ?? (args[i].match(/(?:server|data source)=([^;]+)/i) || [, args[i]])[1]); continue; }
-    if (/^\s*(?:["']?)(?:\$\{?|\$env:|%)\w*(url|uri|dsn|conn|host)/i.test(a)) { hosts.push(a); continue; }
-    if (/^(md|motherduck):/i.test(a)) { hosts.push('motherduck.com'); continue; }
-    const uh = urlHost(a);
-    if (uh !== null) { hosts.push(uh); continue; }
-    if ((m = a.match(/(?:^|\s)host=([^\s'"]+)/i)) && !/\bselect\b/i.test(a)) hosts.push(m[1]);
-    if ((m = a.match(/(?:^|;)\s*(?:server|data source)=([^;]+)/i))) hosts.push(m[1]);
+    const a = String(args[i]);
+    const long = a.match(/^(--[\w-]+)=([\s\S]*)$/);
+    const opt = long ? long[1] : (spec.ci ? a.toLowerCase() : a);
+    const optValue = () => (long ? long[2] : args[++i]); // SQL may start with "-" ("-- a comment")
+    const plainValue = () => { // "-p" without a value must not swallow the next option
+      if (long) return long[2];
+      const nx = args[i + 1];
+      if (nx === undefined || (String(nx).startsWith('-') && String(nx).length > 1)) return undefined;
+      return args[++i];
+    };
+    if (has(spec.sql, opt)) { const v = optValue(); if (v !== undefined) r.sql.push(String(v)); continue; }
+    if (has(spec.file, opt)) { optValue(); r.file = true; continue; }
+    if (has(spec.host, opt)) { const v = plainValue(); if (v !== undefined) r.hosts.push(String(v)); continue; }
+    if (has(spec.conn, opt) || has(GENERIC_CONN, opt.toLowerCase())) { const v = plainValue(); if (v !== undefined) r.conn.push(String(v)); continue; }
+    if (has(spec.unknown, opt)) { r.unknown = true; plainValue(); continue; }
+    if (has(spec.value, opt)) { plainValue(); continue; }
+    if (!spec.ci && /^-[a-zA-Z]./.test(a) && !a.startsWith('--')) { // attached short forms: -e"..." -hprod
+      const o = a.slice(0, 2);
+      if (has(spec.sql, o)) { r.sql.push(a.slice(2)); continue; }
+      if (has(spec.host, o)) { r.hosts.push(a.slice(2)); continue; }
+    }
+    if (a.startsWith('-') && a.length > 1) { r.other.push(a); continue; }
+    r.positional.push(a);
   }
-  const remote = hosts.filter(h => !hostLocal(h));
-  return { remote: remote.length > 0, names: [remote[0] || '', cmd] };
+  return r;
+}
+
+const DB_ENV = /^(PGHOST|PGHOSTADDR|PGSERVICE|MYSQL_HOST|DATABASE_URL|MONGODB_URI|POSTGRES_URL)$/i;
+function addHosts(t, v) {
+  if (isVar(v)) { t.unknown = true; t.hosts.push(String(v)); return; }
+  for (const part of String(v).split(',')) if (!/^\s*\d+\s*$/.test(part)) t.hosts.push(part); // "host,1433": a port
+}
+// A connection string, URL or conninfo ("host=db dbname=x", "Server=db;...", "service=prod"), or a database name.
+function connInfo(t, v, spec, asUri) {
+  const s = String(v);
+  if (/^(md|motherduck):/i.test(s)) { t.hosts.push('motherduck.com'); return; }
+  const u = urlHost(s);
+  if (u !== null) { addHosts(t, u); return; }
+  let found = false;
+  if (/(^|[\s;])service\s*=/i.test(s)) { t.unknown = true; found = true; }
+  const re = /(?:^|[\s;])(?:host|hostaddr|server|data source|address|addr)\s*=\s*([^\s;'"]+)/gi;
+  let m;
+  while ((m = re.exec(s))) { addHosts(t, m[1]); found = true; }
+  if (found || !asUri) return;
+  if (isVar(s)) { t.unknown = true; return; }
+  if (spec.mongo && (m = s.match(/^([^\s/:@]+)(?::\d+)?\//) || s.match(/^([^\s/:@]+):\d+$/))) addHosts(t, m[1]);
+  else if (spec.atHost && (m = s.match(/@([^\s/:@]+)/))) addHosts(t, m[1]);
+}
+// Every host a client command connects to: { hosts, unknown }. env: the stage's own prefix and earlier exports.
+function clientTarget(spec, p, words, ctx) {
+  const t = { hosts: [], unknown: p.unknown };
+  const env = Object.assign({}, ctx.dbEnv || {});
+  for (const w of words) { const m = String(w).match(/^([A-Za-z_]\w*)=([\s\S]*)$/); if (m && DB_ENV.test(m[1])) env[m[1].toUpperCase()] = m[2]; }
+  for (const [k, v] of Object.entries(env)) {
+    if (k === 'PGSERVICE') { t.unknown = true; continue; }
+    if (k === 'PGHOST' || k === 'PGHOSTADDR' || k === 'MYSQL_HOST') { addHosts(t, v); continue; }
+    if (isVar(v)) { t.unknown = true; continue; }
+    const u = urlHost(v);
+    if (u !== null) addHosts(t, u);
+  }
+  for (const h of p.hosts) addHosts(t, h);
+  for (const c of p.conn) connInfo(t, c, spec, true);
+  const candidates = spec.redis ? [] : spec.positionalSql ? (spec.ci ? [] : p.positional.slice(0, 1)) : p.positional;
+  for (const c of candidates) connInfo(t, c, spec, !!spec.uriPositional);
+  return t;
+}
+
+// Shell assignments that later commands in the same line inherit: "export PGHOST=x", "PGHOST=x" alone, cmd's
+// "set PGHOST=x", PowerShell's "$env:PGHOST = 'x'". A prefix ("PGHOST=x psql") is read from the stage itself.
+function noteDbEnv(stage, ctx) {
+  const w = stage.words;
+  if (!w.length) return;
+  let list = [];
+  const ps = String(w[0]).match(/^\$env:(\w+)(?:=([\s\S]*))?$/i);
+  if (ps) list = [[ps[1], ps[2] !== undefined ? ps[2] : (w[1] === '=' ? w[2] : undefined)]];
+  else {
+    const assigns = /^(export|set|declare|typeset|local|readonly)$/i.test(w[0]) ? w.slice(1) : w.every(x => /^[A-Za-z_]\w*=/.test(x)) ? w : [];
+    list = assigns.map(x => String(x).match(/^([A-Za-z_]\w*)=([\s\S]*)$/)).filter(Boolean).map(m => [m[1], m[2]]);
+  }
+  for (const [k, v] of list) if (DB_ENV.test(k) && v !== undefined) (ctx.dbEnv || (ctx.dbEnv = {}))[k.toUpperCase()] = v;
+}
+
+// The SQL a stage pipes into the next one when it is plain text we can read: echo / printf / Write-Output, or a
+// PowerShell string on its own ("'SELECT 1;' | psql"). null: unknown content (a file, a command's output).
+function literalFeed(st, dialect) {
+  if (!st || st.input || (st.subs && st.subs.length)) return null;
+  if (dialect === 'ps' && st.words.length === 1 && /\s/.test(st.words[0])) return st.words[0];
+  const c = shell.command(st.words);
+  if (!c || !/^(echo|printf|write-output)$/.test(c.cmd)) return null;
+  return c.args.filter(a => !/^-[neE]+$/.test(a)).join(' ');
+}
+
+const devPatterns = ctx => ((ctx.rules && ctx.rules.dbDev) || []).map(p => String(p).trim()).filter(Boolean);
+const globRe = p => new RegExp(`^${p.split('*').map(x => x.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`, 'i');
+// A host is dev when a "host:<glob>" pattern or a bare exact name matches its host name.
+function devHost(ctx, h) {
+  const name = hostName(h);
+  if (!name || isVar(h)) return false;
+  return devPatterns(ctx).some(p => {
+    if (/^host:/i.test(p)) return globRe(p.slice(5).trim().toLowerCase()).test(name);
+    if (/^mcp:/i.test(p)) return false;
+    return p.toLowerCase() === name;
+  });
+}
+// An MCP server is dev when "mcp:<name>" or a bare pattern names it exactly, or "mcp:<prefix>*" starts it.
+function devServer(ctx, server) {
+  const s = String(server).toLowerCase();
+  return devPatterns(ctx).some(p => {
+    if (/^host:/i.test(p)) return false;
+    const v = (/^mcp:/i.test(p) ? p.slice(4) : p).trim().toLowerCase();
+    if (/^mcp:/i.test(p) && v.endsWith('*')) return s.startsWith(v.slice(0, -1));
+    return v === s;
+  });
+}
+
+// Is this pipeline stage a write to a production database? A stage after a pipe reads the stage before it.
+function dbStageWrite(stage, pl, idx, dialect, ctx) {
+  const c = shell.command(stage.words);
+  const spec = c && DB_CLIENT_SPECS[c.cmd];
+  if (!spec) return false;
+  const p = clientArgs(spec, c.args);
+  const t = clientTarget(spec, p, stage.words, ctx);
+  const remote = t.hosts.filter(h => !hostLocal(h));
+  if (!t.unknown && !remote.length) return false; // local
+  if (!t.unknown && remote.every(h => devHost(ctx, h))) return false; // every host is a dev host
+  if (spec.restore) return p.conn.length > 0; // pg_restore -d writes; without -d it prints a script
+  if (p.file) return true; // a script file: unknown content
+  if (spec.mongo && p.positional.some(a => /\.js$/i.test(a))) return true;
+  const texts = p.sql.slice();
+  if (spec.positionalSql) texts.push(...p.positional.slice(spec.ci ? 0 : 1));
+  let stdin = !!stage.input || idx > 0;
+  if (idx > 0 && !stage.input) { const lit = literalFeed(pl[idx - 1], dialect); if (lit !== null) { texts.push(lit); stdin = false; } }
+  if (spec.redis) {
+    return stdin || p.other.some(o => o === '-x' || o === '--pipe') || redisWrites(p.positional) ||
+      texts.some(x => x.split(/\r?\n/).some(line => redisWrites(line.split(/\s+/))));
+  }
+  if (stdin && !p.sql.length) return true; // a redirect, heredoc or pipe: unknown content (-c / -e ignore stdin)
+  if (spec.mongo) return texts.some(x => MONGO_WRITE.test(x));
+  return texts.some(sqlWrites);
 }
 
 // supabase / prisma, also run through npx, pnpm dlx, bunx ...
@@ -422,41 +646,62 @@ function dbCliWrite(cmd0, args0) {
   }
   if (cmd !== 'prisma' && cmd !== 'supabase') return null;
   const pos = args.filter(a => !a.startsWith('-'));
-  if (cmd === 'prisma') return pos[0] === 'migrate' && (pos[1] === 'deploy' || pos[1] === 'resolve') ? 'prisma' : null;
+  const sub = `${pos[0] || ''} ${pos[1] || ''}`;
+  // prisma reads its database from the schema or .env: never known to be dev. "migrate dev" uses a dev database.
+  if (cmd === 'prisma') return /^(db push|db execute|migrate deploy|migrate resolve|migrate reset)$/.test(sub) ? { tool: 'prisma', host: null } : null;
   let dbUrl = null;
   args.forEach((a, i) => { if (a === '--db-url') dbUrl = args[i + 1]; else if (a.startsWith('--db-url=')) dbUrl = a.slice(9); });
-  const remoteUrl = dbUrl !== null && !hostLocal(urlHost(dbUrl) ?? dbUrl);
+  const urlH = dbUrl === null ? null : (urlHost(dbUrl) ?? dbUrl);
+  const remoteUrl = dbUrl !== null && !hostLocal(urlH);
   const localOnly = args.includes('--local') || (dbUrl !== null && !remoteUrl);
   const toRemote = args.includes('--linked') || remoteUrl;
-  const sub = `${pos[0] || ''} ${pos[1] || ''}`;
-  if (sub === 'db push' || sub === 'migration repair') return localOnly ? null : 'supabase'; // remote unless told otherwise
-  if (sub === 'db reset' || sub === 'migration up') return toRemote ? 'supabase' : null; // local unless told otherwise
+  const held = { tool: 'supabase', host: remoteUrl && !args.includes('--linked') ? urlH : null };
+  if (sub === 'db push' || sub === 'migration repair') return localOnly ? null : held; // remote unless told otherwise
+  if (sub === 'db reset' || sub === 'migration up') return toRemote ? held : null; // local unless told otherwise
   return null;
 }
 
-function devNamed(ctx, names) {
-  const pats = (ctx.rules && ctx.rules.dbDev) || [];
-  return pats.some(p => {
-    const pl = String(p).toLowerCase();
-    const re = pl.includes('*') ? new RegExp(`^${pl.split('*').map(x => x.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`) : null;
-    return names.some(n => {
-      const nl = String(n).toLowerCase();
-      return nl && (re ? re.test(nl) : nl === pl || nl.endsWith(`_${pl}`));
-    });
-  });
+// Database MCP tools. A tool is a write when its name says so (insert, update, delete, put, set, drop, write, merge,
+// reset, restore, apply ... and the Redis / DynamoDB / MongoDB write verbs), when it creates a database object, when
+// a pipeline writes ($out, $merge), or when it runs a statement (execute, query, sql, command ...) that is not a read.
+const DB_SERVER = /supabase|postgres|pgsql|mysql|maria|sqlite|mongo|database|neon|planetscale|turso|cockroach|clickhouse|duckdb|snowflake|bigquery|dynamo|redis|valkey|firebase|firestore|prisma|cassandra|oracle|mssql|sqlserver|libsql|upstash|xata|convex|(^|[^a-z])(db|sql|pg)([^a-z]|$)/i;
+const TOOL_WRITE = new Set(('insert update delete del drop put set write remove upsert truncate rename replace bulk flush flushall ' +
+  'flushdb incr incrby incrbyfloat decr decrby expire expireat pexpire persist lpush rpush lpushx rpushx lpop rpop lset ltrim lrem ' +
+  'linsert sadd srem spop smove zadd zrem zincrby zpopmin zpopmax hset hsetnx hmset hdel hincrby mset msetnx setex setnx psetex ' +
+  'append getdel getset xadd xdel xtrim unlink restore reset rebase merge migrate apply modify import load alter grant revoke ' +
+  'push pop save patch add').split(' '));
+const DB_OBJECTS = new Set('table tables collection collections index indexes database schema view user role function procedure trigger type extension sequence policy keyspace'.split(' '));
+const RUN_WORDS = new Set('sql query execute exec run command statement eval script raw cypher'.split(' '));
+const STRONG_RUN = new Set('sql execute exec run command statement eval script raw'.split(' '));
+const SQL_FIELD = /^(sql|query|queries|statement|statements|command|commands|script|q|eval|code|cypher)$/i;
+const toolWords = name => name.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase().split(/[^a-z0-9.]+/).filter(Boolean);
+function fieldTexts(v, out = [], depth = 0) {
+  if (!v || typeof v !== 'object' || depth > 6) return out;
+  for (const [k, x] of Object.entries(v)) {
+    if (SQL_FIELD.test(k) && typeof x === 'string') out.push(x);
+    else if (SQL_FIELD.test(k) && Array.isArray(x)) out.push(...x.filter(y => typeof y === 'string'));
+    else if (x && typeof x === 'object') fieldTexts(x, out, depth + 1);
+  }
+  return out;
 }
-
-const DB_SERVER = /supabase|postgres|pgsql|mysql|maria|sqlite|mongo|database|neon|planetscale|turso|cockroach|clickhouse|duckdb|snowflake|bigquery|dynamo|redis|firebase|firestore|prisma|cassandra|oracle|mssql|sqlserver|libsql|upstash|xata|convex|(^|[^a-z])(db|sql|pg)([^a-z]|$)/i;
 function mcpDbWrite(tool, ti, ctx) {
   const m = tool.match(/^mcp__(.+?)__(.+)$/);
   if (!m) return false;
-  const server = m[1], name = m[2].toLowerCase().replace(/-/g, '_');
+  const server = m[1], words = toolWords(m[2]);
   const isDb = DB_SERVER.test(server);
-  if (!isDb && name !== 'apply_migration') return false;
-  if (devNamed(ctx, [server])) return false;
-  if (/^(apply_migration|merge_branch|reset_branch|restore_project|rebase_branch|run_migration|migrate)$/.test(name)) return true;
-  if (/(insert|update|delete|drop|remove|upsert|truncate|rename|create_index|create_collection|bulk_write|replace)/.test(name)) return true;
-  return /(sql|query|execute|exec|run|command|statement|eval|aggregate)/.test(name) && dbWriteText(mcpText(ti));
+  if (!isDb && m[2].toLowerCase().replace(/-/g, '_') !== 'apply_migration') return false;
+  if (devServer(ctx, server)) return false;
+  if (words.some(w => TOOL_WRITE.has(w))) return true;
+  if (words.includes('create') && words.some(w => DB_OBJECTS.has(w))) return true;
+  let json = '';
+  try { json = JSON.stringify(ti) || ''; } catch { /* not JSON: no pipeline */ }
+  if (/"\$(out|merge)"\s*:/.test(json)) return true;
+  if (!words.some(w => RUN_WORDS.has(w))) return false;
+  const texts = fieldTexts(ti);
+  if (!texts.length) return words.some(w => STRONG_RUN.has(w)); // it runs something we cannot see: held
+  if (/redis|valkey|upstash/i.test(server)) return texts.some(x => redisWrites(x.split(/\s+/)));
+  if (/mongo/i.test(server)) return texts.some(x => MONGO_WRITE.test(x)) || /"(insert|update|delete|drop\w*|findAndModify|create\w*|renameCollection)"\s*:/.test(json);
+  return texts.some(sqlWrites);
 }
 
 // ---------- secret files ----------
@@ -502,10 +747,11 @@ function shellHits(raw, cwd, ctx, depth = 0, dialect = 'bash') {
   if (++budget.calls > MAX_CALLS || depth > MAX_DEPTH) return [tooComplex(raw)];
   const pipelines = shell.parse(raw, { dialect });
   if (pipelines.overflow) hits.push(tooComplex(raw));
-  let sqlClient = false, dbRemote = false;
+  let sqlClient = false;
   for (const pl of pipelines) {
     let fetchAt = -1;
     pl.forEach((stage, idx) => {
+      noteDbEnv(stage, ctx);
       for (const target of stageWrites(stage, dialect)) if (isSecretName(target)) hits.push(hit('secret-files', false, raw));
       if (ctx.roRoots && ctx.roRoots.length) {
         for (const p of stageChanges(stage, dialect, cwd)) { const root = underReadonly(p, cwd, ctx.roRoots); if (root) hits.push(readonlyHit(root, raw)); }
@@ -517,10 +763,9 @@ function shellHits(raw, cwd, ctx, depth = 0, dialect = 'bash') {
       if (!c) return;
       const { cmd, args } = c;
       if (SQL_CLIENTS.has(cmd)) sqlClient = true;
-      const dbc = dbClientTarget(c, stage.words);
-      if (dbc && dbc.remote && !devNamed(ctx, dbc.names)) dbRemote = true;
+      if (dbStageWrite(stage, pl, idx, dialect, ctx)) hits.push(hit('db-write', false, raw));
       const dbCli = dbCliWrite(cmd, args);
-      if (dbCli && !devNamed(ctx, [dbCli])) hits.push(hit('db-write', false, raw));
+      if (dbCli && !(dbCli.host && devHost(ctx, dbCli.host))) hits.push(hit('db-write', false, raw));
       if ((ps ? PS_FETCH : FETCH).has(cmd)) fetchAt = fetchAt < 0 ? idx : fetchAt;
       if (SHELLS.has(cmd) || (ps && PS_EXEC.has(cmd)) || PS_SHELLS.has(cmd)) {
         if (fetchAt >= 0 && idx > fetchAt) hits.push(hit('pipe-to-shell', false, raw));
@@ -579,7 +824,6 @@ function shellHits(raw, cwd, ctx, depth = 0, dialect = 'bash') {
     });
   }
   if (sqlClient && sqlDestructive(raw)) hits.push(hit('sql-destroy', false, raw));
-  if (dbRemote && dbWriteText(raw)) hits.push(hit('db-write', false, raw));
   return hits;
 }
 
@@ -627,7 +871,7 @@ function check(input, ctx, opts = {}) {
     const ti = input.tool_input || {};
     const cwd = input.cwd || ctx.projectDir;
     const disabled = new Set((ctx.rules && ctx.rules.disabled) || []);
-    ctx = Object.assign({}, ctx, { roRoots: readonlyRoots(ctx), budget: { calls: 0 } });
+    ctx = Object.assign({}, ctx, { roRoots: readonlyRoots(ctx), budget: { calls: 0 }, dbEnv: {} });
     let hits = [];
     if (tool === 'Edit' || tool === 'Write' || tool === 'NotebookEdit') {
       const p = ti.file_path || ti.notebook_path || '';

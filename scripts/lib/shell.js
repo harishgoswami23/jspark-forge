@@ -198,6 +198,7 @@ function lexBash(s, start, nested, st) {
     if ((c === '<' || c === '>') && n === '(') { endWord(); i = sub(i + 1, i); endWord(); continue; }
     if (c === '<' && n === '<') {
       endWord();
+      stage.input = true; // the stage reads stdin from a heredoc or here-string (database guard)
       if (s[i + 2] === '<') { i += 3; continue; } // here-string: the next word is data on stdin
       i += 2;
       const strip = s[i] === '-'; if (strip) i++;
@@ -250,7 +251,7 @@ function lexBash(s, start, nested, st) {
       if (s[i] === '|') i++;
       pendingRedirect = true; continue;
     }
-    if (c === '<') { endWord(); i++; continue; }
+    if (c === '<') { endWord(); stage.input = true; i++; continue; } // "< file": the file word stays a word
     if (c === ')' && nested && parens === 0) { endPipeline(); return { pipelines, end: i + 1, found: true }; }
     if (c === '(') { parens++; endWord(); i++; continue; } // subshell grouping syntax
     if (c === ')') { if (parens) parens--; endWord(); i++; continue; }
@@ -266,7 +267,8 @@ function cleanStage(st) {
   const words = st.words.slice();
   while (words.length && words[0] === '{') words.shift();
   while (words.length && words[words.length - 1] === '}') words.pop();
-  return { words, redirects: st.redirects, subs: st.subs || [] }; // same subs array: heredoc bodies add to it later
+  // same subs array: heredoc bodies add to it later; input: the stage reads stdin from a file, heredoc or here-string
+  return { words, redirects: st.redirects, subs: st.subs || [], input: !!st.input };
 }
 
 // Wrappers and shell keywords that run the command after them ("then npm install", "timeout 60 make", "! npm test").
