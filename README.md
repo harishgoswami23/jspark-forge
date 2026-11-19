@@ -75,6 +75,21 @@ never installs anything. For top-quality UI work:
 - **Playwright MCP**, so Claude can check its own screens: `claude mcp add playwright npx @playwright/mcp@0.0.86`
 - **shadcn MCP** (React projects): `npx shadcn@4.23.0 mcp init --client claude`
 
+## Launch list
+
+Keeps scope creep in sight before a launch. `/jspark-forge:launch` creates `.jspark-forge/launch.md` (commit it): a
+launch date, 5 blank slots for what must work, a "Critical paths" line and an "After launch" list. Until that file
+exists, JSPARK Forge does nothing here. Then, in your own projects only:
+
+- each session starts with the launch date and the open and done items (titles are passed to Claude as data);
+- a prompt that sounds like new scope ("can we add", "while we're at it", "new feature") gets one line suggesting
+  `/jspark-forge:scope`, at most every 30 minutes, only when someone is at the keyboard, never at 95 % usage;
+- `/jspark-forge:scope` shows the facts first (the list count, "this becomes #8", critical paths touched, and an
+  estimate only after 10 finished items with dates), then asks: now, after launch, a smaller version, or drop;
+- items that arrived with git are listed to you once; every change through JSPARK Forge is announced.
+
+It never blocks anything.
+
 ## When it saves (published list)
 
 1. After any tool call that writes or edits a file.
@@ -185,6 +200,8 @@ guidance, not a lock: superpowers chooses a model for each helper it starts.
 | `/jspark-forge:status` | What is saved now: the handoff, what is waiting on you, usage as of when |
 | `/jspark-forge:doctor` | Is JSPARK Forge working here? One line per check, each problem with its fix. Changes nothing |
 | `/jspark-forge:upgrade` | Update JSPARK Forge (asks first); run the doctor after the restart |
+| `/jspark-forge:launch` | Create the launch list (launch date, 5 blank slots), or show and update it |
+| `/jspark-forge:scope` | Weigh a new idea against the launch list: facts first, then now / after launch / smaller / drop |
 | `/jspark-forge:init` | Optional. Wrap your own status line (asks first); `--undo-statusline` restores it exactly; `--guest` / `--mine` for someone else's repo or your own |
 
 ## Uninstall
@@ -204,6 +221,15 @@ secrets (keys, tokens, passwords) before writing.
 
 See [docs/design-v0.1.md](docs/design-v0.1.md): each hook, the event it listens to, what it writes and what it
 blocks.
+
+Launch list ([docs/design-v0.3.md](docs/design-v0.3.md) section 2), only in your own projects with a
+`.jspark-forge/launch.md`:
+
+| Hook | What it does for the launch list |
+|---|---|
+| SessionStart | Adds the launch date and the open / done titles (at most 60 words, as data) for Claude; lists items that arrived with git to you once |
+| UserPromptSubmit | A prompt under 400 characters that sounds like new scope gets one line suggesting `/jspark-forge:scope` (at most every 30 minutes, attended sessions only, not at 95 % usage) |
+| PostToolUse | After a `forge.js launch` command, shows the change it made in the conversation, once |
 
 ## Credits and licence
 
