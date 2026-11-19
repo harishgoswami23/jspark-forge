@@ -12,6 +12,7 @@ const ENGINE = /codebase-memory/i;
 const QUERY_TOOLS = /(search_graph|trace_path|detect_changes|get_file_outline|get_architecture|get_code_snippet|search_code|query_graph)$/;
 const BACKOFF_MIN = [1, 5, 30];
 const RUNNER = path.join(__dirname, '..', 'map-refresh.js');
+const FORGE_JS = path.join(__dirname, '..', 'forge.js').replace(/\\/g, '/');
 const INSTALL_PAGE = 'https://github.com/DeusData/codebase-memory-mcp';
 
 const stateFile = dir => path.join(paths.forgeDir(dir), 'state', 'map.json');
@@ -352,8 +353,8 @@ function checkLines(dir) {
   const st = readState(dir);
   const head = headSha(dir);
   const out = [];
-  if (st.sha && head && head !== st.sha) out.push(`the code map is behind HEAD (as of ${st.sha.slice(0, 7)}): refresh now? (forge.js map refresh)`);
-  if (st.lastError) out.push(`the last code map refresh failed (${String(st.lastError).slice(0, 120)}): refresh now? (forge.js map refresh)`);
+  if (st.sha && head && head !== st.sha) out.push(`the code map is behind HEAD (as of ${st.sha.slice(0, 7)}): refresh now? (node "${FORGE_JS}" map refresh)`);
+  if (st.lastError) out.push(`the last code map refresh failed (${String(st.lastError).slice(0, 120)}): refresh now? (node "${FORGE_JS}" map refresh)`);
   return out;
 }
 

@@ -47,3 +47,22 @@ test('every git call JSPARK Forge makes passes --no-optional-locks', () => {
   }
   assert.deepEqual(bad, []);
 });
+
+// 2026-11-20: a merge left conflict markers in a graph template that still passed lint. No shipped text file may hold one.
+test('no shipped file holds a merge conflict marker', () => {
+  const walk = dir => fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true }).flatMap(e =>
+    e.isDirectory() ? walk(path.join(dir, e.name)) : /\.(js|md|json|ts)$/.test(e.name) ? [path.join(dir, e.name)] : []);
+  const bad = [];
+  for (const d of ['scripts', 'skills', 'agents', 'templates', 'rules', 'hooks', 'docs', '.claude-plugin']) {
+    if (!fs.existsSync(path.join(ROOT, d))) continue;
+    for (const f of walk(d)) {
+      fs.readFileSync(path.join(ROOT, f), 'utf8').split('\n').forEach((l, i) => {
+        if (/^(<{7}|>{7}|={7})( |$)/.test(l.replace(/\r$/, ''))) bad.push(`${f}:${i + 1}`);
+      });
+    }
+  }
+  for (const f of ['README.md', 'JSPARK-FORGE.md']) {
+    if (fs.existsSync(path.join(ROOT, f))) fs.readFileSync(path.join(ROOT, f), 'utf8').split('\n').forEach((l, i) => { if (/^(<{7}|>{7})( |$)/.test(l)) bad.push(`${f}:${i + 1}`); });
+  }
+  assert.deepEqual(bad, []);
+});

@@ -753,7 +753,7 @@ function run(dir, args) {
       if (hit.length) decisionLines.push(`  ${clean(f, 200)}: ${hit.map(e => `${e.id} ${clean(e.title, 100)}`).join('; ')}`);
     }
   }
-  if (more) L.push('', `and ${plural(more, 'more table')}: forge.js schema <table>`);
+  if (more) L.push('', `and ${plural(more, 'more table')}: /jspark-forge:schema <table>`);
   if (decisionLines.length) L.push('', 'Decisions that touch these migration files:', ...decisionLines.slice(0, MAX_DECISION_LINES), ...(decisionLines.length > MAX_DECISION_LINES ? [`  ... and ${decisionLines.length - MAX_DECISION_LINES} more files`] : []));
   return `${L.join('\n')}\n`;
 }

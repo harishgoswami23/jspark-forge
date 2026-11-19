@@ -3,7 +3,7 @@
 // JSPARK Forge hook dispatcher: `node forge.js <HookEvent>` with the hook JSON on stdin (design section 3),
 // or `node forge.js save [--done]` from the /jspark-forge:handoff skill.
 // Hook rules: never raise; on any internal error print nothing, exit 0 (fail open) and log one FORGE-ERROR line.
-// Writes nothing in a project without .jspark-forge/ (created by /jspark-forge:init).
+// Writes nothing in a project without .jspark-forge/ (created automatically in a git project).
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -88,7 +88,7 @@ const preTool = (decision, reason) => ({ hookSpecificOutput: { hookEventName: 'P
 const context = (ev, text) => ({ hookSpecificOutput: { hookEventName: ev, additionalContext: text } });
 const notesOn = dir => loadRules(dir).settings.notes !== 'off';
 
-const WAIT_CTX = 'JSPARK Forge: these questions to the user are still open (spec 5.2a). Ask them again in one short list, ' +
+const WAIT_CTX = 'JSPARK Forge: these questions to the user are still open. Ask them again in one short list, ' +
   "or carry on with work they do not block and say what is parked. Never act on a recommendation without the user's answer.";
 function waitingNotice(dir) { // -> { msg, ctx } for session start, or null
   const items = waiting.read(dir);
@@ -173,7 +173,7 @@ const handlers = {
     // otherwise, once per own project with code, a tip naming the engine (owner Q-M1: name it, install nothing).
     try { // a running build graph (design-v0.4 3); its own try, so a broken record never drops the code-map line
       const gr = graphRun.current(dir);
-      if (gr) rc.context = `${rc.context}\n\nJSPARK Forge: ${gr.text} Show it to the user and wait before continuing it (forge.js graph next ${gr.task.replace('Build graph ', '')}).`;
+      if (gr) rc.context = `${rc.context}\n\nJSPARK Forge: ${gr.text} Show it to the user and wait before continuing it (node "${path.join(__dirname, 'forge.js').replace(/\\/g, '/')}" graph next ${gr.task.replace('Build graph ', '')}).`;
     } catch { /* never break a session start */ }
     try {
       const ml = mapLayer.sessionLine(dir);

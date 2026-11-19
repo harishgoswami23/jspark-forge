@@ -519,7 +519,7 @@ test('M4 forge.js schema: without a table name at most 60 tables are listed, wit
   for (let i = 0; i < 300; i++) sql += `CREATE TABLE t${String(i).padStart(3, '0')} (id int, a text, b text);\n`;
   const out = forge(project({ 'migrations/001.sql': sql }));
   assert.ok(out.length < 20000, `output was ${out.length}`);
-  assert.match(out, /and 240 more tables: forge\.js schema <table>/);
+  assert.match(out, /and 240 more tables: \/jspark-forge:schema <table>/);
   assert.match(forge(project({ 'migrations/001.sql': sql }), 't299'), /t299/);
 });
 

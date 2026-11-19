@@ -91,7 +91,7 @@ const trustOf = dir => { const t = readJson(trustFile(dir)) || {}; return { aske
 const trusted = (dir, n, L) => !L.runs.length || trustOf(dir).trusted[n] === L.runHash;
 const active = dir => readJson(activeFile(dir));
 const setActive = (dir, v) => { if (v) writeJson(activeFile(dir), v); else { try { fs.unlinkSync(activeFile(dir)); } catch { /* none */ } } };
-const OLD_RECORD = n => `Build graph ${n} was started by an older JSPARK Forge; stop it (forge.js graph stop ${n}) and start it again.\n`;
+const OLD_RECORD = n => `Build graph ${n} was started by an older JSPARK Forge; stop it (node "${FORGE_JS}" graph stop ${n}) and start it again.\n`;
 
 function check(dir, n) {
   const L = load(dir, n);
@@ -111,8 +111,8 @@ function start(dir, n, sid) {
       `To allow them, the user types: TRUST GRAPH ${n} (the whole message). Asked again whenever these commands change.\n`;
   }
   const a = active(dir);
-  if (a && a.name !== n) { const s = readJson(stateFile(dir, a.name)); if (s && !s.stopped && !s.finished) return `Another build graph is already running: ${a.name}. Stop it first: forge.js graph stop ${a.name}\n`; }
-  if (a && a.name === n) { const s = readJson(stateFile(dir, n)); if (s && !s.stopped && !s.finished) return `Build graph ${n} is already running; continue with: forge.js graph next ${n}\n`; }
+  if (a && a.name !== n) { const s = readJson(stateFile(dir, a.name)); if (s && !s.stopped && !s.finished) return `Another build graph is already running: ${a.name}. Stop it first: node "${FORGE_JS}" graph stop ${a.name}\n`; }
+  if (a && a.name === n) { const s = readJson(stateFile(dir, n)); if (s && !s.stopped && !s.finished) return `Build graph ${n} is already running; continue with: node "${FORGE_JS}" graph next ${n}\n`; }
   const steps = {};
   for (const s of L.g.steps) steps[s.id] = { state: 'waiting', retries: 0 };
   const now = Date.now();
@@ -145,11 +145,11 @@ function next(dir, n, sid, opts = {}) {
   const L = load(dir, n);
   if (L.error) return `${L.error}\n`;
   return update(dir, n, s => {
-    if (!s) return `Build graph ${n} has not started: forge.js graph start ${n}\n`;
+    if (!s) return `Build graph ${n} has not started: node "${FORGE_JS}" graph start ${n}\n`;
     if (s.stopped) return `Build graph ${n} is stopped (${s.stopped}).\n`;
     if (s.finished) return `Build graph ${n} is finished.\n`;
     if (!s.graph) return OLD_RECORD(n);
-    if (s.hash !== L.hash) { s.stopped = 'the graph file changed during the run'; setActive(dir, null); return `The graph file changed since the run started, so the run is stopped. Start it again: forge.js graph start ${n}\n`; }
+    if (s.hash !== L.hash) { s.stopped = 'the graph file changed during the run'; setActive(dir, null); return `The graph file changed since the run started, so the run is stopped. Start it again: node "${FORGE_JS}" graph start ${n}\n`; }
     const g = s.graph;
     const out = [];
     if (s.owner !== sid) {
@@ -162,7 +162,7 @@ function next(dir, n, sid, opts = {}) {
       const was = g.steps.filter(x => x.kind === 'agent' && s.steps[x.id].state === 'running').map(x => x.id);
       for (const k of was) s.steps[k].state = 'interrupted';
       s.owner = sid;
-      if (was.length) out.push(`Interrupted in an earlier session: ${was.join(', ')}. Ask the user: run again (forge.js graph rerun ${n} <step>) or stop (forge.js graph stop ${n}).`);
+      if (was.length) out.push(`Interrupted in an earlier session: ${was.join(', ')}. Ask the user: run again (node "${FORGE_JS}" graph rerun ${n} <step>) or stop (node "${FORGE_JS}" graph stop ${n}).`);
     }
     s.lastSeen = Date.now();
     settle(g, s);
@@ -238,7 +238,7 @@ function done(dir, n, id, file, sid) {
   if (!rep || typeof rep !== 'object' || Array.isArray(rep)) return 'The report must be a JSON object of the declared fields.\n';
   const judge = st => {
     if (st.state === 'done') return sameReport(rep, st) ? `${id} is already done; the same report is ignored.\n` : `Refused: ${id} was already reported with other values. Tell the user.\n`;
-    if (st.state !== 'running') return `${id} is not running (not handed out yet); run forge.js graph next ${n} first.\n`;
+    if (st.state !== 'running') return `${id} is not running (not handed out yet); run node "${FORGE_JS}" graph next ${n} first.\n`;
     return null;
   };
   const early = judge(s0.steps[id]);
@@ -280,7 +280,7 @@ function fail(dir, n, id, reason, sid) {
     seen(s, sid);
     const st = s.steps[id];
     if (st.state !== 'running') return `${id} is not running.\n`;
-    if (!st.retries) { st.retries = 1; st.state = 'waiting'; st.reason = clean(reason, 200); return `${id} failed (${st.reason}); it will retry once at the next forge.js graph next ${n}.\n`; }
+    if (!st.retries) { st.retries = 1; st.state = 'waiting'; st.reason = clean(reason, 200); return `${id} failed (${st.reason}); it will retry once at the next node "${FORGE_JS}" graph next ${n}.\n`; }
     st.state = 'failed'; st.reason = clean(reason, 200);
     return `${id} failed again (${st.reason}); the run is stopped. Show this to the user.\n`;
   });
@@ -294,7 +294,7 @@ function rerun(dir, n, id, sid) {
     const st = s.steps[id];
     if (!['interrupted', 'failed'].includes(st.state)) return `${id} is ${st.state}; only an interrupted or failed step can run again.\n`;
     st.state = 'waiting'; delete st.reason; delete s.stopped;
-    return `${id} will run again (the retry is not used up). Continue: forge.js graph next ${n}\n`;
+    return `${id} will run again (the retry is not used up). Continue: node "${FORGE_JS}" graph next ${n}\n`;
   });
 }
 function stop(dir, n, sid) {
@@ -403,8 +403,8 @@ function onPrompt(dir, prompt, sid) {
     const asked = trustOf(dir).asked[n];
     if (!asked) return null; // nothing was shown for it: an ordinary prompt
     const L = load(dir, n);
-    if (L.error || L.errs.length) return `JSPARK Forge: build graph ${n} cannot be trusted: ${L.error || 'it has errors (forge.js graph check)'}.`;
-    if (L.runHash !== asked) return `JSPARK Forge: build graph ${n}'s commands changed since they were shown, so nothing was trusted. Run forge.js graph start ${n} again to see them.`;
+    if (L.error || L.errs.length) return `JSPARK Forge: build graph ${n} cannot be trusted: ${L.error || `it has errors (node "${FORGE_JS}" graph check ${n})`}.`;
+    if (L.runHash !== asked) return `JSPARK Forge: build graph ${n}'s commands changed since they were shown, so nothing was trusted. Run node "${FORGE_JS}" graph start ${n} again to see them.`;
     withLock(trustFile(dir), () => { const tr = trustOf(dir); tr.trusted[n] = L.runHash; delete tr.asked[n]; writeJson(trustFile(dir), tr); });
     return `JSPARK Forge: you trusted build graph ${n}'s commands: ${L.runs.join('; ') || 'none'}. They run only when Claude runs the graph; asked again if they change.`;
   }
@@ -429,7 +429,7 @@ function onPrompt(dir, prompt, sid) {
       id = waiting[0];
     }
     s.steps[id].state = 'done'; s.steps[id].doneAt = Date.now();
-    return `JSPARK Forge: ${id} done (your reply). The build graph continues: forge.js graph next ${n}`;
+    return `JSPARK Forge: ${id} done (your reply). The build graph continues: node "${FORGE_JS}" graph next ${n}`;
   });
 }
 
