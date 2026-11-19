@@ -153,6 +153,17 @@ test('decisions on map answers: from files in the answer that exist, in their ow
   assert.match(edit, /D-001/, 'a map answer does not use up the note before an edit');
 });
 
+test('Claude indexing through the engine tool counts as a refresh (the next answer is "current")', () => {
+  const dir = project();
+  const ok = '{"project":"x","nodes":6,"edges":5,"status":"indexed"}';
+  hook(dir, 'PostToolUse', { tool_name: 'mcp__codebase-memory__index_repository', tool_input: { repo_path: dir }, tool_response: ok });
+  assert.equal(mapState(dir).sha, sh(dir, 'rev-parse', 'HEAD'));
+  assert.match(mapAnswer(dir, 'no files'), /Code map current/);
+  const failed = project();
+  hook(failed, 'PostToolUse', { tool_name: 'mcp__codebase-memory__index_repository', tool_input: {}, tool_response: 'error: repo_path not found' });
+  assert.ok(!mapState(failed).sha, 'a failed index is not recorded');
+});
+
 test('guest repos: no map layer', () => {
   const dir = project();
   require('../scripts/lib/paths').unmarkOwn(dir);

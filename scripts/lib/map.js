@@ -131,6 +131,16 @@ function filesIn(dir, input, response) {
 function onTool(dir, input) {
   if (!paths.isOwn(dir) || !isEngineTool(input.tool_name)) return null;
   noteTool(dir, input.tool_name);
+  // Claude indexed through the engine itself: that is a refresh. HEAD is read after it, not before (a commit landing
+  // during those seconds would be counted as indexed; the next commit refresh corrects it).
+  if (/index_repository$/.test(String(input.tool_name))) {
+    const resp = typeof input.tool_response === 'string' ? input.tool_response : JSON.stringify(input.tool_response || '');
+    if (/"status"\s*:\s*"(indexed|ready)"|status:\s*(indexed|ready)/i.test(resp) && !/\berror\b/i.test(resp.slice(0, 200))) {
+      const head = headSha(dir);
+      if (head) updateState(dir, s => { s.sha = head; s.indexedAt = Date.now(); s.lastError = null; s.failures = 0; s.nextTryAt = 0; });
+    }
+    return null;
+  }
   if (!QUERY_TOOLS.test(String(input.tool_name))) return null;
   const key = input.agent_id || 'main';
   const parts = [freshness(dir, input.session_id, key)];
