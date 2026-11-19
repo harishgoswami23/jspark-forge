@@ -294,4 +294,4 @@ function problems(dir, now = Date.now()) {
 }
 
 module.exports = { load, notesFor, relOf, clean, safeSee, readState, writeState, worthOffer, noteCommit, notePlan, deliver,
-  index, arrivals, markKnown, problems, hashOf, isGlob, readShown, addShown, clearShown };
+  index, arrivals, markKnown, problems, hashOf, isGlob, readShown, addShown, clearShown, withLock };
