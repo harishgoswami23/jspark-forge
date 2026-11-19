@@ -1,11 +1,7 @@
 # Graph: documents
 - max_parallel: 1
 
-<<<<<<< HEAD
-<!-- A document from research to publication. Start one with /jspark-forge:build (it copies this template). -->
-=======
 <!-- A document from research to publication. /jspark-forge:build copies it to .jspark-forge/graphs/<name>.md; then change the title to "# Graph: <name>". -->
->>>>>>> dev/v0.4-fix
 
 ## research (agent)
 - helper: planner
