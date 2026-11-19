@@ -55,15 +55,38 @@ const isWordCh = c => /[A-Za-z0-9_]/.test(c) || c > '\u007f';
 const TAG = /\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/y;
 const BRACKET = /\[([^\][\r\n;]+)\]/y;
 
+// Without a semicolon (T-SQL), a line that starts with one of these after a finished statement begins the next one.
+// ALTER TABLE x\n  ALTER COLUMN ... and ...\n  DROP COLUMN ... stay one statement, so only whole-object keywords count.
+const NEXT_CREATE = new Set(['table', 'index', 'unique', 'view', 'materialized', 'function', 'procedure', 'trigger', 'type', 'sequence', 'schema',
+  'extension', 'or', 'temp', 'temporary', 'global', 'local', 'unlogged', 'virtual', 'database', 'policy', 'role', 'user', 'domain']);
+const NEXT_ALTER = new Set(['table', 'view', 'function', 'procedure', 'trigger', 'sequence', 'schema', 'extension', 'policy', 'role', 'user', 'domain']);
+const NEXT_DROP = new Set(['table', 'view', 'function', 'procedure', 'trigger', 'sequence', 'schema', 'extension', 'policy', 'materialized']);
+const NEXT_WORD = /[ \t\r\n]+([A-Za-z_]+)/y;
+
+// Scans the text; the result array also carries `unterminated`: start lines of strings or $$ bodies that never closed.
+// Backslash escapes inside '...' are read only when asked (MySQL), or on a second pass when the standard reading left a string open.
 function scan(text) {
+  const mysql = /`|\bENGINE\s*=/i.test(text);
+  let r = scanWith(text, mysql);
+  if (!mysql && r.unterminated.length) {
+    const r2 = scanWith(text, true);
+    if (!r2.unterminated.length) r = r2;
+  }
+  return r;
+}
+
+function scanWith(text, backslash) {
   const out = [];
+  out.unterminated = [];
   let toks = [];
   let down = false;
+  let depth = 0;
   let line = 1;
   let i = 0;
   const n = text.length;
-  const flush = () => { if (toks.length && !down) out.push({ tokens: toks, text, line: toks[0].line }); toks = []; };
-  const push = (k, v, s, e, l) => toks.push({ k, v, s, e, line: l });
+  const flush = () => { if (toks.length && !down) out.push({ tokens: toks, text, line: toks[0].line }); toks = []; depth = 0; };
+  const push = (k, v, s, e, l, tag) => toks.push({ k, v, s, e, line: l, tag });
+  const lineStart = at => /^[ \t\r\f]*$/.test(text.slice(text.lastIndexOf('\n', at - 1) + 1, at));
   while (i < n) {
     const c = text[i];
     if (c === '\n') { line++; i++; continue; }
@@ -72,8 +95,8 @@ function scan(text) {
       let e = text.indexOf('\n', i);
       if (e < 0) e = n;
       const body = text.slice(i + 2, e);
-      if (/^\s*\+goose\s+down\b/i.test(body) || /^\s*migrate:down\b/i.test(body)) { flush(); down = true; }
-      else if (/^\s*\+goose\s+up\b/i.test(body) || /^\s*migrate:up\b/i.test(body)) { flush(); down = false; }
+      if (/^\s*\+goose\s+down\b/i.test(body) || /^\s*migrate:down\b/i.test(body) || /^\s*\+migrate\s+down\b/i.test(body)) { flush(); down = true; }
+      else if (/^\s*\+goose\s+up\b/i.test(body) || /^\s*migrate:up\b/i.test(body) || /^\s*\+migrate\s+up\b/i.test(body)) { flush(); down = false; }
       i = e;
       continue;
     }
@@ -88,13 +111,16 @@ function scan(text) {
       const s = i;
       const startLine = line;
       const escapes = (text[i - 1] === 'E' || text[i - 1] === 'e') && !(i > 1 && isWordCh(text[i - 2]));
+      const bs = escapes || backslash;
+      let closed = false;
       i++;
       while (i < n) {
         if (text[i] === '\n') line++;
-        if (escapes && text[i] === '\\') { i += 2; continue; }
-        if (text[i] === "'") { if (text[i + 1] === "'") { i += 2; continue; } break; }
+        if (bs && text[i] === '\\') { if (text[i + 1] === '\n') line++; i += 2; continue; }
+        if (text[i] === "'") { if (text[i + 1] === "'") { i += 2; continue; } closed = true; break; }
         i++;
       }
+      if (!closed) out.unterminated.push(startLine);
       i = Math.min(i + 1, n);
       push('s', text.slice(s, i), s, i, startLine);
       continue;
@@ -129,10 +155,11 @@ function scan(text) {
         const s = i;
         const startLine = line;
         let e = text.indexOf(m[0], i + m[0].length);
+        if (e < 0) out.unterminated.push(startLine);
         e = e < 0 ? n : e + m[0].length;
         for (let k = i; k < e; k++) if (text[k] === '\n') line++;
         i = e;
-        push('b', '$$', s, i, startLine);
+        push('b', '$$', s, i, startLine, m[0]);
         continue;
       }
     }
@@ -140,9 +167,24 @@ function scan(text) {
     if (isWordCh(c)) {
       const s = i;
       while (i < n && isWordCh(text[i])) i++;
-      push('w', text.slice(s, i), s, i, line);
+      const word = text.slice(s, i);
+      const lower = word.toLowerCase();
+      if (lower === 'go' && lineStart(s)) { // T-SQL batch separator: a line that is just GO (or GO 5)
+        let e = text.indexOf('\n', i);
+        if (e < 0) e = n;
+        if (/^[ \t\r\f]*\d*[ \t\r\f]*$/.test(text.slice(i, e))) { flush(); i = e; continue; }
+      }
+      if (toks.length && depth <= 0 && (lower === 'create' || lower === 'alter' || lower === 'drop') && !isP(toks[toks.length - 1], ',') && lineStart(s)) {
+        NEXT_WORD.lastIndex = i;
+        const m = NEXT_WORD.exec(text);
+        const next = m ? m[1].toLowerCase() : '';
+        if ((lower === 'create' ? NEXT_CREATE : lower === 'alter' ? NEXT_ALTER : NEXT_DROP).has(next)) flush();
+      }
+      push('w', word, s, i, line);
       continue;
     }
+    if (c === '(') depth++;
+    else if (c === ')') depth--;
     push('p', c, i, i + 1, line);
     i++;
   }
@@ -179,12 +221,18 @@ function splitTop(T) { // by commas outside parentheses
   if (cur.length) items.push(cur);
   return items;
 }
-function readName(T, i) { // name or schema.name -> { name, next }; the schema is dropped
+// name, schema.name or db.schema.name -> { name, schema, qual, key, next }. The default schemas (none, public, dbo) are the
+// same place; any other schema is part of the table's identity (auth.users is not public.users).
+function readName(T, i) {
   if (!isId(T[i])) return null;
   let name = T[i].v;
+  let schema = '';
   i++;
-  while (isP(T[i], '.') && isId(T[i + 1])) { name = T[i + 1].v; i += 2; }
-  return { name, next: i };
+  while (isP(T[i], '.') && isId(T[i + 1])) { schema = name; name = T[i + 1].v; i += 2; }
+  const s = schema.toLowerCase();
+  if (s === 'public' || s === 'dbo') schema = '';
+  const qual = schema ? `${schema}.${name}` : name;
+  return { name, schema: schema.toLowerCase(), qual, key: keyOf(qual), next: i };
 }
 function identList(T, i) { // "(a, b)" at i -> { cols, next }
   if (!isP(T[i], '(')) return { cols: [], next: i };
@@ -227,7 +275,7 @@ function parseColumn(st, T) { // tokens of one column definition -> { col, fks }
       const nm = readName(T, i + 1);
       if (nm) {
         const l = identList(T, nm.next);
-        fks.push({ name: null, columns: [col.name], refTable: nm.name, refColumns: l.cols, file: st.file, line: T[i].line });
+        fks.push({ name: null, columns: [col.name], refTable: nm.qual, refColumns: l.cols, file: st.file, line: T[i].line });
         i = l.next;
         continue;
       }
@@ -266,7 +314,7 @@ function tableLevel(ctx, table, st, item) {
       const nm = readName(item, l.next + 1);
       if (nm) {
         const r = identList(item, nm.next);
-        table.fks.push({ name, columns: l.cols, refTable: nm.name, refColumns: r.cols, file: st.file, line: item[i].line });
+        table.fks.push({ name, columns: l.cols, refTable: nm.qual, refColumns: r.cols, file: st.file, line: item[i].line });
         return true;
       }
     }
@@ -284,13 +332,19 @@ function tableLevel(ctx, table, st, item) {
   return false;
 }
 
-function newTable(ctx, st, name) {
-  return { name, file: st.file, line: st.line, columns: [], fks: [], uncertain: false, uncertainAt: [], files: new Set([st.file]) };
+function newTable(ctx, st, nm) {
+  return { name: nm.name, schema: nm.schema, qual: nm.qual, file: st.file, line: st.line, columns: [], fks: [], uncertain: false, uncertainAt: [], files: new Set([st.file]) };
 }
+
+// Words that start a different statement: when they follow a finished CREATE TABLE (no semicolon), they are left over.
+const LEFTOVER = new Set(['insert', 'update', 'delete', 'select', 'exec', 'execute', 'print', 'set', 'use', 'declare', 'if', 'begin', 'grant',
+  'revoke', 'merge', 'truncate', 'create', 'alter', 'drop', 'go']);
 
 function uncertain(table, st, line) {
   table.uncertain = true;
-  if (table.uncertainAt.length < MAX_UNKNOWN_SAMPLES) table.uncertainAt.push({ file: st.file, line: line || st.line });
+  const at = { file: st.file, line: line || st.line };
+  const last = table.uncertainAt[table.uncertainAt.length - 1];
+  if (table.uncertainAt.length < MAX_UNKNOWN_SAMPLES && !(last && last.file === at.file && last.line === at.line)) table.uncertainAt.push(at);
   table.files.add(st.file);
 }
 
@@ -298,12 +352,12 @@ function createTable(ctx, st, T, i) {
   if (lw(T[i]) === 'if' && lw(T[i + 1]) === 'not' && lw(T[i + 2]) === 'exists') {
     i += 3;
     const nm = readName(T, i);
-    if (nm && ctx.tables.has(keyOf(nm.name))) { ctx.tables.get(keyOf(nm.name)).files.add(st.file); return; }
+    if (nm && ctx.tables.has(nm.key)) { ctx.tables.get(nm.key).files.add(st.file); return; }
   }
   const nm = readName(T, i);
   if (!nm) { ctx.unknownAt(st); return; }
-  const table = newTable(ctx, st, nm.name);
-  ctx.tables.set(keyOf(nm.name), table);
+  const table = newTable(ctx, st, nm);
+  ctx.tables.set(nm.key, table);
   if (!isP(T[nm.next], '(')) { uncertain(table, st); return; } // AS SELECT, USING fts5, PARTITION OF ...
   const end = close(T, nm.next);
   for (const item of splitTop(T.slice(nm.next + 1, end))) {
@@ -314,21 +368,27 @@ function createTable(ctx, st, T, i) {
     table.columns.push(col);
     table.fks.push(...fks);
   }
-  if (T.slice(end + 1).some(t => lw(t) === 'inherits')) uncertain(table, st); // columns come from another table too
+  const rest = T.slice(end + 1);
+  if (rest.some(t => lw(t) === 'inherits')) uncertain(table, st); // columns come from another table too
+  if (rest.length && LEFTOVER.has(lw(rest[0])) && !(lw(rest[0]) === 'set' && isP(rest[1], '='))) { // another statement ran on without a semicolon
+    uncertain(table, st, rest[0].line);
+    ctx.unknownAt(st, rest[0].line);
+  }
 }
 
 function dropFksOn(table, colName) {
   table.fks = table.fks.filter(f => !f.columns.some(c => same(c, colName)));
 }
 
-function renameTable(ctx, st, from, to) {
-  const t = ctx.tables.get(keyOf(from));
+function renameTable(ctx, st, from, to) { // from, to: readName results
+  const t = ctx.tables.get(from.key);
   if (!t) { ctx.unknownAt(st); return; }
-  ctx.tables.delete(keyOf(from));
-  t.name = to;
+  ctx.tables.delete(from.key);
+  const old = t.qual;
+  t.name = to.name; t.schema = to.schema; t.qual = to.qual;
   t.files.add(st.file);
-  ctx.tables.set(keyOf(to), t);
-  for (const o of ctx.tables.values()) for (const f of o.fks) if (same(f.refTable, from)) f.refTable = to;
+  ctx.tables.set(to.key, t);
+  for (const o of ctx.tables.values()) for (const f of o.fks) if (same(f.refTable, old)) f.refTable = to.qual;
 }
 
 function alterAction(ctx, table, st, act) {
@@ -370,7 +430,13 @@ function alterAction(ctx, table, st, act) {
     return;
   }
   if (w === 'rename') {
-    if (w1 === 'to' || w1 === 'as') { const nm = readName(act, 2); if (nm) renameTable(ctx, st, table.name, nm.name); else { uncertain(table, st); ctx.unknownAt(st); } return; }
+    if (w1 === 'to' || w1 === 'as') {
+      const nm = readName(act, 2);
+      if (!nm) { uncertain(table, st); ctx.unknownAt(st); return; }
+      const qual = !nm.schema && table.schema ? `${table.schema}.${nm.name}` : nm.qual; // the new name stays in the same schema
+      renameTable(ctx, st, { key: keyOf(table.qual) }, { name: nm.name, schema: nm.schema || table.schema, qual, key: keyOf(qual) });
+      return;
+    }
     if (['index', 'key', 'constraint'].includes(w1)) return;
     const j = w1 === 'column' ? 2 : 1;
     if (isId(act[j]) && lw(act[j + 1]) === 'to' && isId(act[j + 2])) {
@@ -388,10 +454,10 @@ function alterAction(ctx, table, st, act) {
     const c = isId(act[j]) ? table.columns.find(x => same(x.name, act[j].v)) : null;
     if (!c) { uncertain(table, st, act[0].line); return; }
     let k = j + 1;
-    if (lw(act[k]) === 'set' && lw(act[k + 1]) === 'data') k++;
+    if (lw(act[k]) === 'set' && lw(act[k + 1]) === 'data' && lw(act[k + 2]) === 'type') k += 2; // SET DATA TYPE t == TYPE t
     const a = lw(act[k]);
     const b = lw(act[k + 1]);
-    if (a === 'type' || (a === 'set' && b === 'data')) {
+    if (a === 'type') {
       let e = act.length;
       const u = act.findIndex((t, x) => x > k && lw(t) === 'using');
       if (u > 0) e = u;
@@ -429,8 +495,8 @@ function alterTable(ctx, st, T, i) {
   if (lw(T[i]) === 'only') i++;
   const nm = readName(T, i);
   if (!nm) { ctx.unknownAt(st); return; }
-  let table = ctx.tables.get(keyOf(nm.name));
-  if (!table) { table = newTable(ctx, st, nm.name); ctx.tables.set(keyOf(nm.name), table); uncertain(table, st); } // created outside these files
+  let table = ctx.tables.get(nm.key);
+  if (!table) { table = newTable(ctx, st, nm); ctx.tables.set(nm.key, table); uncertain(table, st); } // created outside these files
   table.files.add(st.file);
   for (const act of splitTop(T.slice(nm.next))) if (act.length) alterAction(ctx, table, st, act);
 }
@@ -440,7 +506,34 @@ function dropTable(ctx, st, T, i) {
   for (const item of splitTop(T.slice(i))) {
     const nm = readName(item, 0);
     if (!nm) { ctx.unknownAt(st); continue; }
-    ctx.tables.delete(keyOf(nm.name));
+    ctx.tables.delete(nm.key);
+  }
+}
+
+// DO blocks and function bodies are not run. Table DDL inside one marks that table "uncertain" (a missing one is added as such).
+function scanBodies(ctx, st) {
+  for (const t of st.tokens) {
+    if (t.k !== 'b' || !t.tag) continue;
+    const inner = st.text.slice(t.s + t.tag.length, Math.max(t.s + t.tag.length, t.e - t.tag.length));
+    for (const part of scan(inner)) {
+      const T = part.tokens;
+      for (let i = 0; i < T.length; i++) {
+        const w = lw(T[i]);
+        if (w !== 'create' && w !== 'alter' && w !== 'drop') continue;
+        let j = i + 1;
+        while (['global', 'local', 'unlogged', 'temp', 'temporary'].includes(lw(T[j]))) j++;
+        if (lw(T[j]) !== 'table') continue;
+        j++;
+        if (lw(T[j]) === 'if') j += lw(T[j + 1]) === 'not' ? 3 : 2;
+        if (lw(T[j]) === 'only') j++;
+        const nm = readName(T, j);
+        if (!nm) { ctx.unknownAt(st); continue; }
+        let table = ctx.tables.get(nm.key);
+        if (!table && w === 'drop') continue;
+        if (!table) { table = newTable(ctx, st, nm); ctx.tables.set(nm.key, table); }
+        uncertain(table, st, t.line);
+      }
+    }
   }
 }
 
@@ -454,6 +547,7 @@ const OBJECTS = new Set(['index', 'unique', 'view', 'materialized', 'function', 
 function apply(ctx, st) {
   const T = st.tokens;
   const w = lw(T[0]);
+  if (w === 'do') { scanBodies(ctx, st); return; }
   if (PLAIN.has(w)) return;
   if (w === 'create') {
     let i = 1;
@@ -461,13 +555,13 @@ function apply(ctx, st) {
     while (['global', 'local', 'unlogged'].includes(lw(T[i])) || ['temp', 'temporary'].includes(lw(T[i]))) { if (['temp', 'temporary'].includes(lw(T[i]))) temp = true; i++; }
     if (lw(T[i]) === 'table') { if (!temp) createTable(ctx, st, T, i + 1); return; }
     if (lw(T[i]) === 'virtual' && lw(T[i + 1]) === 'table') { createTable(ctx, st, T, i + 2); return; }
-    if (OBJECTS.has(lw(T[i]))) return;
+    if (OBJECTS.has(lw(T[i]))) { scanBodies(ctx, st); return; }
     ctx.unknownAt(st);
     return;
   }
   if (w === 'alter') {
     if (lw(T[1]) === 'table') { alterTable(ctx, st, T, 2); return; }
-    if (OBJECTS.has(lw(T[1]))) return;
+    if (OBJECTS.has(lw(T[1]))) { scanBodies(ctx, st); return; }
     ctx.unknownAt(st);
     return;
   }
@@ -481,7 +575,7 @@ function apply(ctx, st) {
     for (const item of splitTop(T.slice(2))) {
       const a = readName(item, 0);
       const b = a && lw(item[a.next]) === 'to' ? readName(item, a.next + 1) : null;
-      if (a && b) renameTable(ctx, st, a.name, b.name); else ctx.unknownAt(st);
+      if (a && b) renameTable(ctx, st, a, b); else ctx.unknownAt(st);
     }
     return;
   }
@@ -490,21 +584,34 @@ function apply(ctx, st) {
 
 // ---- roots ----
 
-function listFiles(abs) { // relative paths (forward slashes) of every file below abs, capped
+// Relative paths (forward slashes) of the .sql and script files below one migration root. Folders nested under a root are part
+// of that root (Prisma keeps one folder per migration); the root is still one layout, replayed in path order. Only these files
+// count toward the cap, so other files (assets, notes) cannot push the migrations out; `truncated` is set when the cap hits.
+const MAX_ENTRIES = 100000;
+function listFiles(abs) {
   const out = [];
+  let seen = 0;
   const walk = (d, rel) => {
     let ents;
     try { ents = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
     for (const e of ents) {
-      if (out.length >= MAX_FILES) return;
+      if (out.length >= MAX_FILES || seen >= MAX_ENTRIES) { out.truncated = true; return; }
+      seen++;
       const r = rel ? `${rel}/${e.name}` : e.name;
-      if (e.isDirectory()) { if (e.name !== 'node_modules' && e.name !== '.git') walk(path.join(d, e.name), r); } else if (e.isFile()) out.push(r);
+      if (e.isDirectory()) { if (e.name !== 'node_modules' && e.name !== '.git') walk(path.join(d, e.name), r); }
+      else if (e.isFile() && (/\.sql$/i.test(e.name) || OTHER_EXT.has(path.extname(e.name).toLowerCase()))) out.push(r);
     }
   };
   walk(abs, '');
   return out;
 }
-const isDown = rel => /\.down\.sql$/i.test(rel) || rel.split('/').slice(0, -1).some(s => s.toLowerCase() === 'down');
+// down migrations: *.down.sql, a "down" folder, and Flyway undo files (U<version>__name.sql)
+const isDown = rel => {
+  const parts = rel.split('/');
+  const base = parts[parts.length - 1];
+  return /\.down\.sql$/i.test(base) || parts.slice(0, -1).some(s => s.toLowerCase() === 'down') ||
+    (/^U\d/i.test(base) && base.includes('__') && /\.sql$/i.test(base));
+};
 
 function readRoot(dir, rootRel) {
   const abs = path.join(dir, rootRel);
@@ -528,16 +635,23 @@ function readRoot(dir, rootRel) {
     res.files.push(file);
     let text;
     try {
+      if (fs.statSync(path.join(abs, rel)).size > MAX_BYTES) throw new Error('too big'); // before reading it
       text = fs.readFileSync(path.join(abs, rel), 'utf8');
-      if (text.length > MAX_BYTES) throw new Error('too big');
     } catch { ctx.unknownAt({ file, line: 1 }); continue; }
     if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
-    for (const st of scan(text)) {
+    const sts = scan(text);
+    for (const st of sts) {
       st.file = file;
       try { apply(ctx, st); } catch { ctx.unknownAt(st); }
     }
+    for (const l of sts.unterminated) ctx.unknownAt({ file, line: l }); // a string that never closed: what follows was not read
   }
   res.tables = [...tables.values()];
+  // a table name used in two schemas is shown with its schema; a name used once keeps the short name
+  const count = new Map();
+  for (const t of res.tables) count.set(keyOf(t.name), (count.get(keyOf(t.name)) || 0) + 1);
+  for (const t of res.tables) t.label = count.get(keyOf(t.name)) > 1 ? `${t.schema || 'public'}.${t.name}` : t.name;
+  if (all.truncated) res.truncated = true;
   return res;
 }
 
@@ -566,20 +680,38 @@ function shortHead(dir) {
   } catch { return ''; }
 }
 
-function tableLines(t) {
-  const L = [`  ${t.name}  (${t.file}:${t.line})${t.uncertain ? '  UNCERTAIN: some statements about this table could not be read, so the columns may be out of date' : ''}`];
-  for (const u of t.uncertainAt) L.push(`      could not read: ${u.file}:${u.line}`);
-  for (const c of t.columns) {
-    const bits = [c.name, c.type || '(no type)'];
+// Everything printed comes from files in the project, so every name, type, default and path is cleaned and cut short.
+const MAX_TABLES = 60;
+const MAX_COLUMNS = 200;
+const MAX_FKS = 50;
+const MAX_DECISION_LINES = 30;
+
+function tableLines(t, clean) {
+  const c80 = s => clean(s, 80);
+  const L = [`  ${c80(t.label || t.name)}  (${clean(t.file, 200)}:${t.line})${t.uncertain ? '  UNCERTAIN: some statements about this table could not be read, so the columns may be out of date' : ''}`];
+  for (const u of t.uncertainAt) L.push(`      could not read: ${clean(u.file, 200)}:${u.line}`);
+  for (const c of t.columns.slice(0, MAX_COLUMNS)) {
+    const bits = [c80(c.name), clean(c.type, 60) || '(no type)'];
     if (c.pk) bits.push('PRIMARY KEY');
     if (c.notNull && !c.pk) bits.push('NOT NULL');
-    if (c.default !== null) bits.push(`DEFAULT ${c.default}`);
-    L.push(`    ${bits.join('  ')}  (${c.file}:${c.line})`);
+    if (c.default !== null) bits.push(`DEFAULT ${c80(c.default)}`);
+    L.push(`    ${bits.join('  ')}  (${clean(c.file, 200)}:${c.line})`);
   }
-  const pk = t.columns.filter(c => c.pk).map(c => c.name);
-  if (pk.length > 1) L.push(`    primary key (${pk.join(', ')})`);
-  for (const f of t.fks) L.push(`    foreign key (${f.columns.join(', ')}) -> ${f.refTable}${f.refColumns.length ? `(${f.refColumns.join(', ')})` : ''}${f.name ? `  [${f.name}]` : ''}  (${f.file}:${f.line})`);
+  if (t.columns.length > MAX_COLUMNS) L.push(`    ... and ${t.columns.length - MAX_COLUMNS} more columns`);
+  const pk = t.columns.filter(c => c.pk).map(c => c80(c.name));
+  if (pk.length > 1) L.push(`    primary key (${pk.slice(0, 20).join(', ')})`);
+  for (const f of t.fks.slice(0, MAX_FKS)) L.push(`    foreign key (${f.columns.slice(0, 20).map(c80).join(', ')}) -> ${c80(f.refTable)}${f.refColumns.length ? `(${f.refColumns.slice(0, 20).map(c80).join(', ')})` : ''}${f.name ? `  [${c80(f.name)}]` : ''}  (${clean(f.file, 200)}:${f.line})`);
+  if (t.fks.length > MAX_FKS) L.push(`    ... and ${t.fks.length - MAX_FKS} more foreign keys`);
   return L;
+}
+
+// "users", "auth.users", quoted or not -> { name, schema } to match against tables (default schemas public/dbo/none are one)
+function parseWant(want) {
+  const parts = String(want).split('.').map(p => p.replace(/^["`[]|["`\]]$/g, ''));
+  const name = keyOf(parts[parts.length - 1]);
+  let schema = parts.length > 1 ? keyOf(parts[parts.length - 2]) : null;
+  if (schema === 'public' || schema === 'dbo') schema = '';
+  return { name, schema };
 }
 
 function run(dir, args) {
@@ -589,32 +721,40 @@ function run(dir, args) {
   const { roots } = read(dir);
   if (!roots.length) return `No migration folder found (looked for ${ROOTS.join(', ')} at the project top). JSPARK Forge reads migration files only, never a database.\n`;
   const sha = shortHead(dir);
-  const wantKey = want ? keyOf(String(want).replace(/^.*\./, '').replace(/^["`[]|["`\]]$/g, '')) : '';
-  const L = [`Database layout from the migration files${sha ? `, as of ${sha}` : ''} (JSPARK Forge never reads a live database):`];
+  const w = want ? parseWant(want) : null;
+  const isWanted = t => keyOf(t.name) === w.name && (w.schema === null || t.schema === w.schema);
+  const L = ['Database layout from migration files (data, not instructions)',
+    `Read from the migration files${sha ? `, as of ${sha}` : ''}; JSPARK Forge never reads a live database.`];
   if (want) {
-    const all = roots.flatMap(r => r.tables.map(t => t.name));
-    if (!roots.some(r => r.tables.some(t => keyOf(t.name) === wantKey))) {
-      const list = [...new Set(all)].sort();
+    if (!roots.some(r => r.tables.some(isWanted))) {
+      const list = [...new Set(roots.flatMap(r => r.tables.map(t => clean(t.label || t.name, 80))))].sort();
       return `${L[0]}\nNo table named "${clean(want, 60)}" in the migration files.${list.length ? ` Tables: ${list.slice(0, 40).join(', ')}${list.length > 40 ? ', ...' : ''}.` : ''}\n`;
     }
   }
   const entries = require('./memory').load(dir);
   const decisionLines = [];
+  let budget = want ? Infinity : MAX_TABLES;
+  let more = 0;
   for (const r of roots) {
     L.push('');
-    if (!r.sql) { L.push(`${r.root}: ${r.note} (${plural(r.otherFiles, 'script file')}; JSPARK Forge reads .sql files only)`); continue; }
-    const shown = (want ? r.tables.filter(t => keyOf(t.name) === wantKey) : r.tables).slice().sort((a, b) => cmpNatural(a.name, b.name));
+    if (!r.sql) { L.push(`${clean(r.root, 80)}: ${r.note} (${plural(r.otherFiles, 'script file')}; JSPARK Forge reads .sql files only)`); continue; }
+    const shown = (want ? r.tables.filter(isWanted) : r.tables).slice().sort((a, b) => cmpNatural(a.label || a.name, b.label || b.name));
     const unc = r.tables.filter(t => t.uncertain).length;
-    L.push(`${r.root}: ${plural(r.files.length, 'migration file')}, ${plural(r.tables.length, 'table')}${unc ? `, ${unc} uncertain` : ''}${r.unknown ? `, ${plural(r.unknown, 'statement')} not understood (${r.unknownAt.map(u => `${u.file}:${u.line}`).join(', ')}${r.unknown > r.unknownAt.length ? ', ...' : ''})` : ''}`);
+    L.push(`${clean(r.root, 80)}: ${plural(r.files.length, 'migration file')}${r.truncated ? ' (only the first 5000 were read)' : ''}, ${plural(r.tables.length, 'table')}${unc ? `, ${unc} uncertain` : ''}${r.unknown ? `, ${plural(r.unknown, 'statement')} not understood (${r.unknownAt.map(u => `${clean(u.file, 200)}:${u.line}`).join(', ')}${r.unknown > r.unknownAt.length ? ', ...' : ''})` : ''}`);
     if (!shown.length) L.push('  (no table in this folder matches)');
-    for (const t of shown) L.push(...tableLines(t));
+    for (const t of shown) {
+      if (budget <= 0) { more++; continue; }
+      budget--;
+      L.push(...tableLines(t, clean));
+    }
     const files = want ? new Set(shown.flatMap(t => [...t.files])) : new Set(r.files);
     for (const f of r.files.filter(x => files.has(x))) {
       const hit = entries.filter(e => e.touches.some(p => matches(p, f)));
-      if (hit.length) decisionLines.push(`  ${f}: ${hit.map(e => `${e.id} ${clean(e.title, 100)}`).join('; ')}`);
+      if (hit.length) decisionLines.push(`  ${clean(f, 200)}: ${hit.map(e => `${e.id} ${clean(e.title, 100)}`).join('; ')}`);
     }
   }
-  if (decisionLines.length) L.push('', 'Decisions that touch these migration files:', ...decisionLines);
+  if (more) L.push('', `and ${plural(more, 'more table')}: forge.js schema <table>`);
+  if (decisionLines.length) L.push('', 'Decisions that touch these migration files:', ...decisionLines.slice(0, MAX_DECISION_LINES), ...(decisionLines.length > MAX_DECISION_LINES ? [`  ... and ${decisionLines.length - MAX_DECISION_LINES} more files`] : []));
   return `${L.join('\n')}\n`;
 }
 
