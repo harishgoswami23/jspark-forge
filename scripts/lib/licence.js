@@ -100,7 +100,10 @@ function readLicence(folder) {
 }
 
 const FAMILY = n => String(n).replace(/-.*$/, '');
-function describe(label, c) {
+// A name can come from the repo's own package.json: someone else's text, so SPDX-like characters only, one line, short.
+const safeName = n => { const s = String(n || '').replace(/[^\w.+() -]/g, ' ').replace(/\s+/g, ' ').trim(); return s.length > 60 ? `${s.slice(0, 59)}…` : s; };
+function describe(label, c0) {
+  const c = Object.assign({}, c0, { name: safeName(c0.name) });
   const tail = ' A hint, not legal advice.';
   switch (c.kind) {
     case 'permissive': return `JSPARK Forge: ${label} is under ${c.name} (permissive: reuse is fine if you keep its copyright notice).${tail}`;
