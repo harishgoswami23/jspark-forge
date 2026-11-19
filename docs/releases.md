@@ -14,6 +14,7 @@ that date; **[spike]** depends on a spike. Spike results override review decisio
 | Real users (gate) | 20–50 users and ~2 weeks of feedback before v0.2; the roadmap below is reordered from it (spec 7) | ~2 weeks, calendar |
 | v0.2 | Decision memory, the "why" (the centrepiece); `/jspark-forge:check`; migration mappings, licence check | ~4½–5 days |
 | v0.2 | Skill and brief templates with lint; plugin + plain instruction file from one source (spec 5.11) | ~1 week |
+| v0.2 | UI/UX companions: frontend-design listed as a recommended companion; Playwright MCP and shadcn/ui recommended; one-time tip in front-end projects (spec 5.14) | ~½ day |
 | v0.2.1 | Database guard: production read-only unless `CONFIRM db-write` (spec 5.2c) | ~1–1½ days |
 | v0.3 | Codebase map as a thin layer on an existing engine (integrate, don't build): freshness, schema from source files, links to decisions; launch-scope guard; map of readonly sources | ~1 week, **soft** |
 | v0.4 (only if users ask) | Build graph: a build as a fixed graph of nodes, saved after every node, resumed on the running node (spec 5.10) | ~1½–2 weeks, **soft** |

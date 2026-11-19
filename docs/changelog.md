@@ -186,3 +186,11 @@ CI runs unit tests on Windows, macOS and Linux and the ship gate with the owner'
   guest-repo protection, decisions tied to files); new row "building ahead of real demand".
 **Why [owner, 2026-11-20]:** a global product review: win by doing a few things nobody else does; code maps and
 multi-agent runs are crowded or likely to be absorbed by the platform; zero users so far.
+
+### Rev 12: UI/UX companions in v0.2 (2026-11-20)
+**What:** new spec 5.14. JSPARK Forge builds no UI tooling; it recommends the best existing pieces: Anthropic's
+frontend-design skill (listed in the JSPARK Forge marketplace as a recommended companion, not a dependency), Playwright
+MCP (Claude checks its own UI in the running app), shadcn/ui with its MCP server, and a brand skill per product. A
+one-time tip in projects with a front end; nothing installed automatically. Each companion's licence, activity and
+Windows support checked before listing. Release table: v0.2, ~½ day.
+**Why [owner, 2026-11-20]:** "I want the UI UX build through JSPARK Forge top notch for any product."

@@ -752,6 +752,26 @@ step (Claude Code has no post-install hook); see `releases.md`.
 - Of the three this is the cheapest and the likeliest to be asked for; if one is pulled forward, it is this one
   (candidate for v0.1.1).
 
+### 5.14 UI/UX companions (v0.2) [owner 2026-11-20]
+
+**Integrate, don't build** (principles 4 and 7). JSPARK Forge builds no UI tooling; it points to the best existing
+pieces so products built with it get first-class UI/UX:
+- **frontend-design** (Anthropic's official skill, claude-plugins-official): a clear visual direction before UI code.
+  Listed in the JSPARK Forge marketplace as a **recommended companion, not a dependency** (many projects have no UI).
+- **Playwright MCP**: Claude opens the running app, takes screenshots and clicks through flows, so it checks its own
+  UI instead of guessing from code. Recommended in the README.
+- **shadcn/ui and its MCP server** (React / Next.js): accessible components copied into the project. Recommended in
+  the README.
+- **A brand skill per product** (colours, type, spacing, voice): recommended pattern, with a short template.
+
+**Behaviour** a one-time tip, only in a project with a front end (a `package.json` depending on react, vue, svelte,
+next, nuxt, astro or similar, or `.html` / `.tsx` / `.vue` files), naming the companions not installed and the one
+install line for each. Never installs anything by itself; shown once per project.
+
+**Before listing** each companion: check its licence (permissive), current activity and Windows support; pin it by
+commit like superpowers. **Limit** a tip, not a guarantee of good design; the check that matters is Claude looking at
+the running UI (Playwright).
+
 ---
 
 ## 6. Plugin shape and platforms [builder unless marked]
