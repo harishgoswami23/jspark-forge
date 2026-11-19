@@ -106,3 +106,13 @@ test('CRLF and a byte-order mark are read like plain text', () => {
   assert.deepEqual(validate(parse(t)), []);
   assert.equal(parse(t).steps.length, 7);
 });
+
+test('the three shipped templates are valid graphs (spec 5.10)', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  for (const n of ['software', 'documents', 'spike']) {
+    const g = parse(fs.readFileSync(path.join(__dirname, '..', 'templates', 'graphs', `${n}.md`), 'utf8'));
+    assert.deepEqual(validate(g), [], n);
+    assert.equal(order(g).length, g.steps.length, `${n}: every step can run`);
+  }
+});
