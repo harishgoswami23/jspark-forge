@@ -36,7 +36,9 @@ function claude(dir, prompt, extra = [], timeout = 300000) {
   return { out: r.stdout || '', err: r.stderr || '', status: r.status, ms: Date.now() - t };
 }
 function claudeBackground(dir, prompt, extra = []) {
-  return spawn('claude', args(prompt, extra), { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+  // detached on macOS/Linux makes claude a process-group leader, so killTree can kill the whole tree (-pid).
+  return spawn('claude', args(prompt, extra), { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
+    detached: process.platform !== 'win32' });
 }
 function killTree(child) {
   if (process.platform === 'win32') spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
