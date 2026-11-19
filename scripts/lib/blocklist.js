@@ -140,17 +140,33 @@ function stageWrites(stage, dialect) {
 // runners, containers, and the repo's own script files. Package managers are held for every subcommand except a short
 // read-only list, so new subcommands are held by default. A script is held only when its file is inside the repo, so
 // Claude's own scratch scripts elsewhere stay free. A seatbelt, not a sandbox: "common", never "all".
-const PM_READONLY = new Set(['info', 'view', 'show', 'list', 'ls', 'why', 'outdated', 'audit', 'help', 'search', 'config',
-  'licenses', 'whoami', 'ping', 'docs', 'repo', 'bugs', 'freeze', 'check', 'tree', 'version', '--version', '-v', '-V', '--help', '-h']);
-const PACKAGE_MANAGERS = new Set(['npm', 'pnpm', 'yarn', 'bun', 'pip', 'pip3', 'uv', 'pipx', 'poetry', 'pdm', 'hatch',
-  'conda', 'mamba', 'micromamba', 'composer', 'bundle', 'gem', 'cargo', 'go', 'dotnet', 'deno', 'mvn', 'gradle', 'ant',
-  'docker', 'docker-compose', 'podman', 'swift', 'mix', 'stack', 'cabal']);
+// Read-only subcommands, per tool (Fable code review M7): "check" is harmless for npm but runs build scripts for
+// cargo; "list" is harmless for npm but evaluates the Gemfile for bundle. A tool not listed has none: every
+// subcommand is held. Flags-only calls (--version, --help) are never held.
+const PM_READ = 'info view show list ls why outdated help search config licenses whoami ping docs repo bugs version';
+const READONLY_SUBS = {
+  npm: `${PM_READ} audit`, pnpm: `${PM_READ} audit`, yarn: `${PM_READ} audit`, bun: PM_READ,
+  pip: 'list show freeze help search check config index inspect', pip3: 'list show freeze help search check config index inspect',
+  uv: 'help version tree', pipx: 'list help', poetry: 'show help about search check config env', pdm: 'list show help info config',
+  conda: 'list info search help config env', mamba: 'list info search help config env', composer: 'show info help search licenses outdated why',
+  gem: 'list info help search query environment specification', cargo: 'fmt tree metadata version help search pkgid locate-project',
+  go: 'env fmt version doc help', dotnet: 'help --list-sdks --list-runtimes --info', deno: 'info help fmt lint doc',
+  swift: 'help', mix: 'help', stack: 'help', cabal: 'help list info', mvn: '', gradle: '', ant: '', bundle: '', hatch: 'version help',
+};
+const PACKAGE_MANAGERS = new Set(Object.keys(READONLY_SUBS));
 const PM_ALWAYS = new Set(['npx', 'pnpx', 'bunx', 'uvx', 'make', 'gmake', 'cmake', 'ninja', 'just', 'task', 'tox', 'nox', 'rake',
   'msbuild', 'pre-commit', 'pytest', 'py.test', 'jest', 'vitest', 'mocha', 'ava', 'tap', 'playwright', 'cypress',
-  'eslint', 'vite', 'webpack', 'rollup', 'next', 'nuxt', 'turbo', 'nx', 'lerna', 'tsx', 'ts-node', 'gradlew']);
+  'eslint', 'vite', 'webpack', 'rollup', 'next', 'nuxt', 'turbo', 'nx', 'lerna', 'tsx', 'ts-node', 'gradlew', 'mvnw',
+  'rspec', 'sbt', 'bazel', 'bazelisk', 'mill', 'lein', 'bats', 'phpunit', 'ctest', 'meson', 'scons']);
 const DOCKER_READONLY = new Set(['ps', 'images', 'image', 'inspect', 'logs', 'version', 'info', 'stats', 'top', 'volume', 'network', 'search', 'login', 'logout', 'pull']);
 const INTERPRETERS = new Set(['python', 'python3', 'py', 'node', 'nodejs', 'ruby', 'perl', 'php']);
 const SCRIPT_SHELLS = new Set(['bash', 'sh', 'zsh', 'dash', 'ksh', 'fish', 'source', '.']);
+// Flags that take a value, so the next word is not the subcommand ("npm --loglevel info install").
+const VALUE_FLAGS = /^(--loglevel|--prefix|-C|--cwd|--dir|--registry|--workspace|-w|--filter|-F|--manifest-path|--project|-p|--userconfig|--cache)$/;
+const FLAGS_ONLY = /^(--version|-v|-V|--help|-h)$/;
+const MAKE_DRY = /^(-n|--dry-run|--just-print|--recon|-q|--question)$/; // make only: runs nothing (pytest -q runs tests)
+// python3.11 -> python, pip3.12 -> pip, node22 -> node.
+const baseTool = cmd => cmd.replace(/^(python|pip|ruby|node|php|perl)\d+(\.\d+)*$/, '$1');
 
 function insideRepo(p, cwd, ctx) {
   if (!p || /^-/.test(p)) return false;
@@ -159,20 +175,33 @@ function insideRepo(p, cwd, ctx) {
   return r === project || inside(r, project);
 }
 
-function quarantined(cmdWord, cmd, args, cwd, ctx) {
-  const sub = (args.find(a => !a.startsWith('-')) || '').toLowerCase();
-  const first = (args[0] || '').toLowerCase();
-  if (PM_ALWAYS.has(cmd)) return true;
-  if (cmd === 'docker' || cmd === 'podman') return !!sub && !DOCKER_READONLY.has(sub);
-  if (PACKAGE_MANAGERS.has(cmd)) {
-    if (!args.length) return cmd === 'yarn' || cmd === 'bundle'; // bare "yarn" / "bundle" install
-    if (PM_READONLY.has(first) || PM_READONLY.has(sub)) return false;
-    return true;
+function subcommandOf(args) {
+  for (let i = 0; i < args.length; i++) {
+    if (VALUE_FLAGS.test(args[i])) { i++; continue; }
+    if (!args[i].startsWith('-')) return { sub: args[i].toLowerCase(), rest: args.slice(i + 1) };
   }
+  return { sub: '', rest: [] };
+}
+
+// fromPipe: the stage reads another stage's output ("cat x.py | python").
+function quarantined(cmdWord, cmd0, args, cwd, ctx, fromPipe = false) {
+  const cmd = baseTool(cmd0);
+  if (args.length && args.every(a => FLAGS_ONLY.test(a))) return false; // --version, --help
+  if ((cmd === 'make' || cmd === 'gmake') && args.some(a => MAKE_DRY.test(a))) return false; // make -n prints, runs nothing
+  const { sub, rest } = subcommandOf(args);
+  if (PM_ALWAYS.has(cmd)) return true;
+  if (cmd === 'docker' || cmd === 'podman' || cmd === 'docker-compose') return cmd === 'docker-compose' || (!!sub && !DOCKER_READONLY.has(sub));
+  if (PACKAGE_MANAGERS.has(cmd)) {
+    if (!sub) return cmd === 'yarn' || cmd === 'bundle' || cmd === 'gradle' || cmd === 'mvn'; // bare "yarn" installs
+    if (sub === 'audit' && rest.includes('fix')) return true; // npm audit fix installs
+    return !READONLY_SUBS[cmd].split(' ').includes(sub);
+  }
+  if (cmd === 'java' || cmd === 'kotlin') return args.includes('-jar') || args.some(a => /\.jar$/i.test(a) && insideRepo(a, cwd, ctx));
   if (INTERPRETERS.has(cmd)) {
     if (args.some(a => /^-(m|c|e|-eval|r|-require|-import)$/.test(a))) return true; // python -m/-c, node -e/-r
     const script = args.find(a => !a.startsWith('-'));
-    return !!script && insideRepo(script, cwd, ctx);
+    if (!script) return fromPipe; // "cat x.py | python" runs whatever it is fed
+    return insideRepo(script, cwd, ctx);
   }
   if (SCRIPT_SHELLS.has(cmd) && !args.includes('-c')) {
     const script = args.find(a => !a.startsWith('-'));
@@ -319,6 +348,19 @@ function isSecretName(p) {
 }
 
 // ---------- shell commands ----------
+// The command texts inside $( ... ) and `...` in one word ("$(npm install)" -> "npm install").
+function substitutions(word) {
+  const out = [];
+  const s = String(word);
+  for (let i = s.indexOf('$('); i >= 0; i = s.indexOf('$(', i + 2)) {
+    let depth = 0, j = i + 1;
+    for (; j < s.length; j++) { if (s[j] === '(') depth++; else if (s[j] === ')' && --depth === 0) break; }
+    out.push(s.slice(i + 2, j));
+  }
+  for (const m of s.matchAll(/`([^`]+)`/g)) out.push(m[1]);
+  return out;
+}
+
 // dialect: 'bash' (Bash / Git Bash forms) or 'ps' (PowerShell and cmd forms, v0.1.1). A shell started inside a
 // command (bash -c, powershell -Command, cmd /c) is checked in its own dialect.
 const FETCH = new Set(['curl', 'wget']);
@@ -359,6 +401,24 @@ function shellHits(raw, cwd, ctx, depth = 0, dialect = 'bash') {
       }
       if (SHELLS.has(cmd) && args.some(a => /^<\(\s*(curl|wget)\b/i.test(a))) hits.push(hit('pipe-to-shell', false, raw));
       if (ps && PS_EXEC.has(cmd) && args.some(a => FETCH_TEXT.test(a))) hits.push(hit('pipe-to-shell', false, raw));
+      // Fable code review M7: what iex / Invoke-Expression runs is a command too ("iex 'npm ci'"); running a file's
+      // contents ("iex (gc ./build.ps1 -Raw)") runs the repo's code.
+      if (ps && PS_EXEC.has(cmd) && args.length && !args.some(a => FETCH_TEXT.test(a)) && depth < 3) {
+        if (ctx.quarantine && args.some(a => /(^|[\s(])(gc|get-content|cat|type)\s/i.test(a))) hits.push(hit('guest-quarantine', false, raw));
+        else hits.push(...shellHits(args.join(' '), cwd, ctx, depth + 1, 'ps'));
+      }
+      // Start-Process npm -ArgumentList install: judged as "npm install".
+      if (ps && /^(start-process|saps|start)$/.test(cmd) && ctx.quarantine) {
+        let exe = null; const argList = [];
+        for (let i = 0; i < args.length; i++) {
+          if (/^-(filepath|fi)$/i.test(args[i])) exe = args[++i];
+          else if (/^-(argumentlist|args)$/i.test(args[i])) argList.push(...String(args[++i] || '').split(/[\s,]+/).filter(Boolean));
+          else if (!args[i].startsWith('-')) { if (!exe) exe = args[i]; else argList.push(args[i]); }
+        }
+        if (exe && quarantined(exe, shell.baseName(exe), argList, cwd, ctx)) hits.push(hit('guest-quarantine', false, raw));
+      }
+      // Commands inside $( ... ) and backticks are commands too ("echo $(npm install)", "echo `rm -rf ~`").
+      if (depth < 3) for (const w of stage.words) for (const inner of substitutions(w)) hits.push(...shellHits(inner, cwd, ctx, depth + 1, dialect));
       const inner = innerScript(cmd, args);
       if (inner) {
         if (/^\s*(\$\(|`)\s*(curl|wget)\b/i.test(inner.script)) hits.push(hit('pipe-to-shell', false, raw));
@@ -373,7 +433,7 @@ function shellHits(raw, cwd, ctx, depth = 0, dialect = 'bash') {
         if (level) hits.push(hit('rm-rf-outside', level === 'hard', raw));
       }
       if (cmd === 'icacls' && icaclsWide(args)) hits.push(hit('chmod-wide', false, raw));
-      if (ctx.quarantine && quarantined(c.word, cmd, args, cwd, ctx)) hits.push(hit('guest-quarantine', false, raw));
+      if (ctx.quarantine && quarantined(c.word, cmd, args, cwd, ctx, idx > 0)) hits.push(hit('guest-quarantine', false, raw));
       if (cmd === 'git') { const id = gitCheck(args, cwd, ctx); if (id) hits.push(hit(id, false, raw)); }
       if (cmd === 'chmod' && args.some(a => /^0?777$/.test(a) || a === '--recursive' || /^-[a-zA-Z]*R[a-zA-Z]*$/.test(a))) {
         hits.push(hit('chmod-wide', false, raw));

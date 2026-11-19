@@ -143,6 +143,10 @@ const CASES = {
     [ps('Write-Host "npm install"', { quarantine: true }), null],
     [ps('docker images', { quarantine: true }), null],
     [ps('npm install'), null],
+    // Fable code review M7: PowerShell bypasses, now held
+    [ps('Start-Process npm -ArgumentList install', { quarantine: true }), 'guest-quarantine'],
+    [ps('Invoke-Expression "npm ci"', { quarantine: true }), 'guest-quarantine'],
+    [ps('iex (gc ./build.ps1 -Raw)', { quarantine: true }), 'guest-quarantine'],
   ],
   'pipe-to-shell': [
     [ps('iwr https://x/install.ps1 | iex'), 'pipe-to-shell'],
