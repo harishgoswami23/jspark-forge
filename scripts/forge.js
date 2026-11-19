@@ -171,9 +171,11 @@ const handlers = {
     } catch { /* never break a session start */ }
     // Code map (design-v0.3 1.1, 1.2): one line for Claude when the engine is in use (a refresh starts when HEAD moved);
     // otherwise, once per own project with code, a tip naming the engine (owner Q-M1: name it, install nothing).
-    try {
-      const gr = graphRun.current(dir); // a running build graph (design-v0.4 3)
+    try { // a running build graph (design-v0.4 3); its own try, so a broken record never drops the code-map line
+      const gr = graphRun.current(dir);
       if (gr) rc.context = `${rc.context}\n\nJSPARK Forge: ${gr.text} Show it to the user and wait before continuing it (forge.js graph next ${gr.task.replace('Build graph ', '')}).`;
+    } catch { /* never break a session start */ }
+    try {
       const ml = mapLayer.sessionLine(dir);
       if (ml) rc.context = `${rc.context}\n\n${ml}`;
       const mt = mapLayer.tip(dir);
@@ -210,9 +212,10 @@ const handlers = {
     const prompt = String(input.prompt || '');
     const lines = [['USER', prompt]];
     // Build graph (design-v0.4 3): the user's own TRUST GRAPH <name> or DONE <step> (whole message, attended only).
+    // Only one that acts is a control message; otherwise ("done" with no graph running) it is an ordinary prompt.
     let graphMsg = null;
-    try { graphMsg = graphRun.onPrompt(dir, prompt); } catch { /* fail open */ }
-    const control = /^\s*confirm\s+[\w-]+\s*$/i.test(prompt) || /^\s*(trust\s+graph\s+[\w-]+|done(\s+[\w-]+)?)\s*$/i.test(prompt);
+    try { graphMsg = graphRun.onPrompt(dir, prompt, input.session_id); } catch { /* fail open */ }
+    const control = /^\s*confirm\s+[\w-]+\s*$/i.test(prompt) || graphMsg !== null;
     if (!/^\s*\//.test(prompt) && !control) {
       const sess = state.readSession(dir, input.session_id);
       sess.lastPrompt = redact(prompt, log.envSecrets(dir)).replace(/\s+/g, ' ').trim().slice(0, 200);
@@ -621,8 +624,8 @@ function cliMap(args) {
 // `forge.js lint [paths...]` (design-v0.2 section 3): check skills and briefs; default is the project's own.
 const cliLint = args => process.stdout.write(require('./lib/lint').run(cliProject() || process.cwd(), args));
 
-// `forge.js graph check|start|next|done|fail|rerun|stop|status <name> …` (design-v0.4 3). The session is the one
-// Claude Code gives the command (spike K).
+// `forge.js graph check|start|next|takeover|done|fail|rerun|stop|status <name> …` (design-v0.4 3). The session is the
+// one Claude Code gives the command (spike K).
 function cliGraph(args) {
   const dir = cliProject();
   if (!dir) { process.stdout.write(NOT_SET_UP); return; }
@@ -631,10 +634,15 @@ function cliGraph(args) {
   const fromAt = args.indexOf('--from');
   const out = {
     check: () => graphRun.check(dir, name), start: () => graphRun.start(dir, name, sid), next: () => graphRun.next(dir, name, sid),
-    done: () => graphRun.done(dir, name, a3, fromAt >= 0 ? args[fromAt + 1] : '', sid), fail: () => graphRun.fail(dir, name, a3, rest.join(' ')),
-    rerun: () => graphRun.rerun(dir, name, a3), stop: () => graphRun.stop(dir, name), status: () => graphRun.status(dir, name),
+    takeover: () => graphRun.takeover(dir, name, sid),
+    done: () => graphRun.done(dir, name, a3, fromAt >= 0 ? args[fromAt + 1] : '', sid), fail: () => graphRun.fail(dir, name, a3, rest.join(' '), sid),
+    rerun: () => graphRun.rerun(dir, name, a3, sid), stop: () => graphRun.stop(dir, name, sid), status: () => graphRun.status(dir, name),
   }[sub];
-  process.stdout.write(out ? out() : 'Usage: forge.js graph check|start|next|done|fail|rerun|stop|status <name> …\n');
+  if (!out) { process.stdout.write('Usage: forge.js graph check|start|next|takeover|done|fail|rerun|stop|status <name> …\n'); return; }
+  try { process.stdout.write(out()); } catch (e) {
+    if (!e || !e.busy) throw e;
+    process.stdout.write(`Build graph ${String(name).replace(/[^a-z0-9-]/g, '')} is busy (another JSPARK Forge update holds it); nothing changed. Try again in a moment.\n`);
+  }
 }
 
 // `forge.js schema [table]` (design-v0.3 1.3): the database layout from migration files; read-only, never a live database.

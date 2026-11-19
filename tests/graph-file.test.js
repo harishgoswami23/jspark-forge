@@ -8,7 +8,6 @@ const { parse, validate, order } = require('../scripts/lib/graph');
 
 const GOOD = `# Graph: ship-feature
 - max_parallel: 2
-- min_free_memory_mb: 1500
 
 ## spec (agent)
 - helper: planner
@@ -48,7 +47,6 @@ test('parse: name, settings, steps with kind and fields', () => {
   const g = parse(GOOD);
   assert.equal(g.name, 'ship-feature');
   assert.equal(g.maxParallel, 2);
-  assert.equal(g.minFreeMemoryMb, 1500);
   assert.deepEqual(g.steps.map(s => `${s.id}:${s.kind}`), ['spec:agent', 'plan:agent', 'build-api:agent', 'build-ui:agent', 'build:parallel', 'checks:gate', 'merge:human']);
   const api = g.steps.find(s => s.id === 'build-api');
   assert.equal(api.helper, 'builder');
@@ -90,10 +88,30 @@ test('a need given only by a later step is an error (order, not just presence)',
   assert.ok(e.some(x => /needs "y"/.test(x)) || e.some(x => /cycle/.test(x)), e.join('|'));
 });
 
-test('a helper may be any named agent (plugin:agent) when it is not one of the four', () => {
-  assert.deepEqual(errs('# Graph: x\n\n## a (agent)\n- helper: myplugin:researcher\n'), []);
-  assert.deepEqual(errs('# Graph: x\n\n## a (agent)\n- helper: checker\n- model: haiku\n'), []);
-  assert.match(errs('# Graph: x\n\n## a (agent)\n- helper: checker\n- model: gpt-9\n').join('|'), /unknown model/);
+test('cut from v0.4 (design section 6): plugin:agent helpers, model: and min_free_memory_mb are reported as not supported', () => {
+  assert.match(errs('# Graph: x\n\n## a (agent)\n- helper: myplugin:researcher\n').join('|'), /4:.*"myplugin:researcher" is not supported in v0\.4/);
+  assert.match(errs('# Graph: x\n\n## a (agent)\n- helper: checker\n- model: haiku\n').join('|'), /5:.*"model:" is not supported in v0\.4/);
+  assert.match(errs('# Graph: x\n- min_free_memory_mb: 1500\n\n## a (agent)\n- helper: checker\n').join('|'), /2:.*"min_free_memory_mb" is not supported in v0\.4/);
+});
+
+test('names: step ids start with a letter (at most 40 characters); the title names the file', () => {
+  assert.match(errs('# Graph: x\n\n## 9a (agent)\n- helper: builder\n').join('|'), /3:.*step id "9a"/);
+  assert.match(errs(`# Graph: x\n\n## a${'b'.repeat(40)} (agent)\n- helper: builder\n`).join('|'), /step id/);
+  assert.deepEqual(errs(`# Graph: x\n\n## a${'b'.repeat(39)} (agent)\n- helper: builder\n`), []);
+  const v = (t, n) => validate(parse(t), n).map(e => `${e.line}:${e.message}`).join('|');
+  assert.match(v('# Graph: totally other\n\n## a (agent)\n- helper: builder\n', 'g'), /1:.*"# Graph: g"/);
+  assert.equal(v('# Graph: g\n\n## a (agent)\n- helper: builder\n', 'g'), '');
+  assert.match(errs(`# Graph: x\n\n## a (agent)\n- helper: builder\n- gives: ${'f'.repeat(42)}\n`).join('|'), /field name/);
+});
+
+test('gate commands are printed exactly as written, so a line that cleaning would change is refused (review M2)', () => {
+  const run = r => errs(`# Graph: x\n\n## c (gate)\n- run: ${r}\n`).join('|');
+  assert.equal(run('npm test -- --grep "a b"'), '');
+  assert.equal(run(`npm test ${'x'.repeat(191)}`), '', '200 characters');
+  assert.match(run(`npm test ${'x'.repeat(192)}`), /at most 200 characters/);
+  assert.match(run('npm  test'), /one simple command/);
+  assert.match(run('npm\ttest'), /one simple command/);
+  assert.match(run(`npm test${String.fromCharCode(0x200b)}`), /one simple command/);
 });
 
 test('settings are bounded: max_parallel 1-8, memory a number', () => {
