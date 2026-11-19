@@ -4,8 +4,11 @@
   "private": true,
   "description": "JSPARK Forge: resume after a crash, logout or limit. Rules enforced by hooks.",
   "license": "MIT",
-  "engines": { "node": ">=18" },
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "test:integration": "node --test --test-concurrency=1 \"tests/integration/*.it.js\""
   }
 }
