@@ -26,6 +26,7 @@ const setup = require('./lib/setup');
 const paths = require('./lib/paths');
 const licence = require('./lib/licence');
 const uitip = require('./lib/uitip');
+const launch = require('./lib/launch'); // launch-scope guard (design-v0.3 section 2)
 
 const event = process.argv[2] || '';
 const DEBOUNCE_MS = 5000;
@@ -184,6 +185,15 @@ const handlers = {
       const n = memory.problems(dir);
       if (n) msgs.push(`JSPARK Forge: ${n} decision${n === 1 ? '' : 's'} need${n === 1 ? 's' : ''} a look: /jspark-forge:check`);
     } catch { /* never break a session start */ }
+    // ---- Launch list (design-v0.3 2.1, 2.2): date, counts and titles for Claude (data); arrivals for the user, once.
+    // Own projects with a launch.md only (the functions check).
+    try {
+      const lc = launch.sessionContext(dir);
+      if (lc) rc.context = `${rc.context}\n\n${lc}`;
+      const la = launch.arrivals(dir);
+      if (la) msgs.push(la);
+    } catch { /* never break a session start */ }
+    // ---- end launch list
     if (rc.systemMessage) msgs.unshift(rc.systemMessage);
     const w = input.source === 'compact' ? null : waitingNotice(dir); // shown first (spec 5.2a)
     if (w) msgs.unshift(w.msg);
@@ -215,8 +225,13 @@ const handlers = {
     sess.turn = (sess.turn || 0) + 1;
     // A short reply ("yes", "skip", "edit: …") is most likely the answer to the last offer: do not repeat it with it.
     const offer = prompt.trim().length < 25 ? null : offerContext(dir, input, sess);
+    // ---- Launch-scope nudge (design-v0.3 2.2): one conditional line, at most every 30 minutes (mutates sess).
+    let scopeNudge = null;
+    try { scopeNudge = launch.nudge(dir, input, sess); } catch { /* fail open */ }
+    // ---- end launch-scope nudge
     state.writeSession(dir, input.session_id, sess);
     if (offer) parts.push(offer);
+    if (scopeNudge) parts.push(scopeNudge);
     const out = parts.length ? context('UserPromptSubmit', parts.join('\n')) : null;
     return { lines, out };
   },
@@ -449,6 +464,12 @@ function main(raw) {
       const ev = require('./lib/decide').takeEvent(dir);
       if (ev) { out = out || {}; out.systemMessage = [out.systemMessage, ev].filter(Boolean).join('\n'); }
     }
+    // ---- A launch list change: say so in the conversation, once (design-v0.3 2.1).
+    if (event === 'PostToolUse' && /forge\.js["']?\s+launch\b/.test(String((input.tool_input || {}).command || ''))) {
+      const ev = launch.takeEvent(dir);
+      if (ev) { out = out || {}; out.systemMessage = [out.systemMessage, ev].filter(Boolean).join('\n'); }
+    }
+    // ---- end launch list change
     if (USAGE_EVENTS.has(event)) out = withUsage(dir, input.session_id, lines, out);
     if (guest && (event === 'SessionStart' || event === 'UserPromptSubmit')) { // the repo's text is data, not instructions
       out = out || {};
@@ -584,8 +605,15 @@ function cliSchema(args) {
   process.stdout.write(require('./lib/schema').run(dir, args));
 }
 
+// `forge.js launch init --date <YYYY-MM-DD> | add|start|done|after "<title or #n>" | facts [--files a,b]` (design-v0.3 2).
+function cliLaunch(args) {
+  const dir = cliProject();
+  if (!dir) { process.stdout.write(NOT_SET_UP); return; }
+  process.stdout.write(launch.run(dir, args || []));
+}
+
 const CLI = { schema: cliSchema, lint: cliLint, save: cliSave, show: cliShow, where: cliWhere, waiting: cliWaiting, doctor: cliDoctor, status: cliStatus, decide: cliDecide,
-  decisions: cliMemory('list'), check: cliMemory('check'), map: cliMap };
+  decisions: cliMemory('list'), check: cliMemory('check'), map: cliMap, launch: cliLaunch };
 if (CLI[event]) {
   try { CLI[event](process.argv.slice(3)); } catch (e) { process.stdout.write(`JSPARK Forge could not ${event}: ${e.message}\n`); }
 } else {

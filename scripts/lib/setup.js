@@ -13,7 +13,7 @@ const statusline = require('./statusline-install');
 const paths = require('./paths');
 
 
-const GITIGNORE = '*\n!.gitignore\n!rules.md\n';
+const GITIGNORE = '*\n!.gitignore\n!rules.md\n!launch.md\n'; // launch.md is shared (design-v0.3 2.1)
 const claudeHome = () => process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
 const readJson = f => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return null; } };
 
@@ -94,7 +94,7 @@ function stateMadeHere(dir) {
   if (fs.existsSync(path.join(f, '.git'))) return false;
   const tracked = git(dir, ['-c', 'core.quotePath=false', 'ls-files', '--', `:(icase)${paths.NAME}`]);
   if (!tracked.ok) return false;
-  const allowed = new Set([`${paths.NAME}/rules.md`, `${paths.NAME}/.gitignore`, `${paths.NAME}/decisions.md`]); // the shared files
+  const allowed = new Set([`${paths.NAME}/rules.md`, `${paths.NAME}/.gitignore`, `${paths.NAME}/decisions.md`, `${paths.NAME}/launch.md`]); // the shared files
   return tracked.out.split(/\r?\n/).filter(Boolean).every(p => allowed.has(p));
 }
 
@@ -139,7 +139,7 @@ function touchGuest(dir) {
 }
 
 const ON_MESSAGE = 'JSPARK Forge is on in this project: it saves where you are and blocks dangerous commands. ' +
-  'Its files are in .jspark-forge/ (commit rules.md, decisions.md and .gitignore; the rest stays local).';
+  'Its files are in .jspark-forge/ (commit rules.md, decisions.md, launch.md and .gitignore; the rest stays local).';
 const guestMessage = dir => 'JSPARK Forge: treating this repo as one you are reviewing (it has a remote and none of ' +
   `your commits), so nothing is written into it; its files are in ${paths.guestDir(dir).replace(/\\/g, '/')}. ` +
   "To hold its common install, build and run commands until you type CONFIRM: /jspark-forge:init --guest. " +

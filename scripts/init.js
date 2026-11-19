@@ -13,7 +13,7 @@ const opt = (name, def) => { const i = args.indexOf(name); return i >= 0 ? args[
 const PROJECT = path.resolve(opt('--project', process.env.CLAUDE_PROJECT_DIR || process.cwd()));
 const CLAUDE_HOME = opt('--claude-home', process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude')); // like paths.js
 const FORGE = require('./lib/paths').repoForgeDir(PROJECT);
-const GITIGNORE = '*\n!.gitignore\n!rules.md\n';
+const GITIGNORE = require('./lib/setup').GITIGNORE; // one default (launch.md is shared: design-v0.3 2.1)
 const out = [];
 const readJson = f => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return null; } };
 
