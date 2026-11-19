@@ -986,8 +986,12 @@ function linkNames(dir, f) {
 }
 // The path with its folder resolved through links, and the last part too when it is a link. A network path is
 // never looked up (re-review H1); past the budget the path is returned as written.
+// On Windows a path on another drive than the project is not looked up either: a mapped network drive looks local,
+// and one slow lookup cannot be interrupted; the record lives on the project's drive.
+const driveOf = p => (WIN && /^[a-zA-Z]:/.test(String(p)) ? String(p)[0].toLowerCase() : '');
 function realOf(abs, f) {
   if (NET_PATH.test(abs) || Date.now() > f.deadline) return abs;
+  if (driveOf(abs) && driveOf(f.abs) && driveOf(abs) !== driveOf(f.abs)) return abs;
   const dir = path.dirname(abs);
   if (dir === abs || NET_PATH.test(dir)) return abs;
   const base = path.basename(abs);

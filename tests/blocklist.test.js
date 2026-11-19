@@ -611,6 +611,20 @@ test('a network path never stalls the check: the other rules still answer within
   }
 });
 
+// A mapped network drive (Z:) cannot be told apart from a local one without a lookup, and one slow lookup cannot be
+// interrupted. The record lives on the project's drive, so a target on another drive is never looked up.
+test('a target on another drive letter is never looked up (a mapped network drive cannot stall the check)', { skip: !WIN && 'Windows drive letters' }, () => {
+  const fs = require('node:fs');
+  const real = fs.realpathSync.native;
+  const seen = [];
+  fs.realpathSync.native = p => { seen.push(String(p)); return real(p); };
+  try {
+    check(bash('git push --force origin main; cp a.txt Z:/share/x.txt; echo x > "Q:\\deep\\y.txt"'), ctx());
+    check(edit('Z:\\share\\x.txt', 'Write'), ctx());
+  } finally { fs.realpathSync.native = real; }
+  assert.deepEqual(seen.filter(p => /^[zq]:/i.test(p)), []);
+});
+
 // Re-review M9: thousands of targets in one command, against a real folder (realpath runs).
 test('thousands of targets are checked fast: touch of 20000 files and rm of 3000 deep paths (re-review M9)', () => {
   const fs = require('node:fs');
