@@ -1,3 +1,6 @@
 internal/
 *.html
 *.pdf
+
+# Claude Code helper worktrees
+.claude/worktrees/
