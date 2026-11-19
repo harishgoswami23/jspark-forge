@@ -772,6 +772,30 @@ install line for each. Never installs anything by itself; shown once per project
 commit like superpowers. **Limit** a tip, not a guarantee of good design; the check that matters is Claude looking at
 the running UI (Playwright).
 
+### 5.15 Model map: which model does what, and why (v0.2) [owner 2026-11-20]
+
+**What.** JSPARK Forge ships four helper agents, each pinned to a model **tier** with a one-line reason, so the right
+strength of model does each job without the user choosing every time. Built with the skill and brief templates
+(5.11): a brief is one job for one helper, and the helper decides the model.
+
+| Helper | Tier | Does | Why that tier |
+|---|---|---|---|
+| `planner` | strongest | specs, designs, plans, architecture and data-model choices | a mistake here is expensive and invisible until late |
+| `reviewer` | strongest | design and code reviews, security and permission reviews, migrations, the release go/no-go | its job is to catch what others missed |
+| `builder` | standard | builds from a reviewed plan, small well-tested fixes | the plan carries the judgement; tests catch slips |
+| `checker` | light | runs tests, reads logs, renames, moves, version bumps, formatting | mechanical; a mistake is cheap and visible |
+
+- **Tiers, not names:** the plugin maps each tier to a current model (strongest = the top model of the day) and is
+  updated when Anthropic releases models; briefs and plans never name a model.
+- **Visible and overridable:** each helper's tier and reason show when it is used; the user can name another helper
+  or model for any job. Advice the user can see, not a hidden rule (principle 12).
+- **Soft coupling (principle 7):** works beside superpowers; when superpowers hands a task to a helper, its briefs can
+  name these helpers. Checked before building: if superpowers cannot be pointed at them, they stay available by name.
+- **Source of the reasons:** the model-choice advice of 5.7, made concrete.
+- **Tests:** each helper file declares its tier's model and a description that says when to use it; a lint fails a
+  helper without a tier or reason; the tier map has one entry per tier.
+- **Estimate:** ~1 day, in v0.2 with 5.11.
+
 ---
 
 ## 6. Plugin shape and platforms [builder unless marked]

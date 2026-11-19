@@ -201,3 +201,10 @@ next one starts. Scope "complete" = through v0.3 (decision memory, templates, UI
 map, launch-scope guard); v0.4 is decided after v0.3 is in use. The outside launch (20–50 users) follows v0.3.
 v0.1.1 released the same day.
 **Why [owner, 2026-11-20]:** "I am the first user, so I need a complete product."
+
+### Rev 14: model map in v0.2 (2026-11-20)
+**What:** new spec 5.15. JSPARK Forge ships four helper agents pinned to model tiers with a visible reason: planner and
+reviewer on the strongest model, builder on a standard one, checker on a light one. Tiers, not model names; built with
+the 5.11 templates; works beside superpowers. The model-choice advice of 5.7 made concrete. ~1 day.
+**Why [owner, 2026-11-20]:** "do we have built the decision tree which model will do what and why?" (it was advice
+only, in a later section).
