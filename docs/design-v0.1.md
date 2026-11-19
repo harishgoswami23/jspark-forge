@@ -338,6 +338,10 @@ Treat it as a workaround, because it is one. [owner]
   4. prints the original output unchanged, then Forge's short part (`· Forge saved 3m ago`), which the user can
      switch off. If the original command fails or times out, prints Forge's part only.
 - Spike B decides the exact shell call and whether a `refreshInterval` is needed. [spike]
+- **`refreshInterval` [owner 2026-11-19, spike A]:** when the user's status line has none, the installer sets
+  `refreshInterval: 30` (disclosed in 7.4, removed on undo); a user's own value is kept. Re-test pending.
+- **Added time [owner 2026-11-19, spike B]:** ~100 ms median per refresh on Windows is accepted (status line is off
+  the tool path); the 50 ms target stays for macOS/Linux; revisit only if users notice.
 
 ### 7.2 Hooks reading the figures [owner: thresholds and 2-minute rule]
 - Every Forge hook reads `.jspark-forge/usage/<session_id>.json`. Figures with `ts` older than **2 minutes** are ignored.
@@ -633,5 +637,9 @@ Spike results override review decisions [owner, 2026-11-03 review]. Each entry: 
 
 | # | Reviewed decision | Spike result and evidence | Reason | Decision updated |
 |---|---|---|---|---|
-
-_None recorded yet._
+| 1 | Notes reminder at compaction (5.3): route via `notes_due` → SessionStart `compact` if spike A confirms PreCompact cannot inject | Spike A, 2026-11-19: PreCompact `hookSpecificOutput.additionalContext` fails validation with a **visible error** at `/compact`, and the rejected JSON leaks into the conversation; SessionStart `compact` fired and its context reached Claude | Docs confirmed; any PreCompact stdout is harmful | 5.3: route confirmed. New rule: **the PreCompact hook prints nothing** (state file only) |
+| 2 | Usage figures < 2 min old at ≥ 95 % of hook calls (spike A pass bar) | Spike A, 2026-11-19, Windows, no `refreshInterval`: 14/17 = 82 %; all stale calls were the first hook after an idle gap | Owner 2026-11-19: add a 30 s timer, re-test | 7.1: installer sets `refreshInterval: 30` when none |
+| 3 | Wrapper adds < 50 ms p95 (spike B pass bar) | Spike B, 2026-11-19, Windows: median ~95–108 ms, p95 ~115–240 ms (one Node start + one shell spawn) | Owner 2026-11-19: accept on Windows; off the tool path | 7.1: accepted on Windows |
+| 4 | Context % may be null right after `/compact` (section 2) | Spike A: it was **0**, not null | Treat 0 and null alike right after compaction (both below every band) | 7.2: bands unaffected; note only |
+| 5 | Headless detection undocumented (spike D) | Spike D, Windows CLI: `CLAUDE_CODE_SESSION_ATTENDED` = 1 in an interactive hook, 0 under `claude -p` | Owner 2026-11-19 accepts the undocumented signal, re-checked each release; missing or ≠ 1 → no guard | Section 8: v0.1.1 guard may use it once IDE/desktop/CI/SDK/macOS/Linux rows pass |
+| 6 | Job tracking pairs SubagentStart/SubagentStop (5.1) | Live session: SubagentStop fired 3× with no SubagentStart (internal helpers) | Unpaired stops would corrupt "Still running" | 5.1: ignore a SubagentStop with no matching start; take shells from Stop `background_tasks` |

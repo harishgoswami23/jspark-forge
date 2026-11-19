@@ -100,6 +100,7 @@ hooks.md on 2026-11-03. Re-check each release.
 | `${CLAUDE_PLUGIN_ROOT}` changes per update; `${CLAUDE_PLUGIN_DATA}` survives updates, deleted on uninstall | Machine-level files live in `~/.claude/jspark-forge/` |
 | Exec-form hooks (`command` + `args`) bypass shells | All Forge hooks use exec form with `node` |
 | Rewriting a helper's prompt through the Agent tool input is not documented | Not used |
+| **Spikes 2026-11-19 (Windows, 2.1.328):** hook env has `CLAUDE_CODE_SESSION_ATTENDED` (1 interactive, 0 `-p`) and `CLAUDE_CODE_ENTRYPOINT` (`cli` / `sdk-cli`), both **undocumented**; Stop input has `background_tasks`; PreCompact rejects `hookSpecificOutput`; SubagentStop also fires for internal helpers | Re-check each release. Guard uses ATTENDED = 1 only (owner 2026-11-19); details in spikes.md and design section 16 |
 
 ---
 
