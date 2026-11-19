@@ -132,3 +132,26 @@ test('forge.js lint also checks build graphs in .jspark-forge/graphs/', () => {
   assert.match(out, /bad\.md:2: unknown kind "robot"/);
   assert.match(out, /ok .*good\.md/);
 });
+
+test('the ui template: design direction, the user approves the look, build, a screenshot check, review, final approval', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const g = parse(fs.readFileSync(path.join(__dirname, '..', 'templates', 'graphs', 'ui.md'), 'utf8'));
+  assert.deepEqual(validate(g), []);
+  const kinds = order(g).map(id => g.steps.find(s => s.id === id).kind);
+  const at = k => kinds.indexOf(k);
+  assert.ok(at('human') > -1 && at('human') < kinds.indexOf('gate'), 'the user approves the look before the build is checked');
+  const gate = g.steps.find(s => s.kind === 'gate');
+  assert.ok(gate.run.some(r => /playwright/.test(r)), 'the visual check is a Playwright run');
+  assert.ok(g.steps.some(s => s.kind === 'agent' && s.helper === 'reviewer'), 'a design review');
+  assert.equal(g.steps.filter(s => s.kind === 'human').length, 2, 'approve the look, then the final approval');
+});
+
+test('the brand skill template passes the skill lint and names colours, type, spacing, components and voice', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const t = fs.readFileSync(path.join(__dirname, '..', 'templates', 'brand-skill.md'), 'utf8');
+  const { lintSkill } = require('../scripts/lib/lint');
+  assert.deepEqual(lintSkill(t, 'brand-skill.md'), []);
+  for (const w of ['Colours', 'Typography', 'Spacing', 'Components', 'Voice', 'Pre-ship check']) assert.match(t, new RegExp(w), w);
+});

@@ -5,7 +5,7 @@ description: Use when the user runs /jspark-forge:build or asks to run, continue
 Run a build graph step by step. JSPARK Forge keeps the record and checks it; you do the work it hands out.
 
 1. If the user named no graph, list `.jspark-forge/graphs/*.md`. To start from a template, copy one of
-   `${CLAUDE_PLUGIN_ROOT}/templates/graphs/` (software, documents, spike) to `.jspark-forge/graphs/<name>.md` with the
+   `${CLAUDE_PLUGIN_ROOT}/templates/graphs/` (software, documents, spike, ui) to `.jspark-forge/graphs/<name>.md` with the
    Write tool, never over an existing file, and help the user fill in its briefs. Then run
    `node "${CLAUDE_PLUGIN_ROOT}/scripts/forge.js" graph check <name>` and fix what it reports.
 2. Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/forge.js" graph start <name>` (or `graph status <name>` to see a run in

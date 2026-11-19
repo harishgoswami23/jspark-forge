@@ -82,6 +82,15 @@ never installs anything. For top-quality UI work:
 - **Playwright MCP**, so Claude can check its own screens: `claude mcp add playwright npx @playwright/mcp@0.0.86`
 - **shadcn MCP** (React projects): `npx shadcn@4.23.0 mcp init --client claude`
 
+Then give the product its own brand rules and build screens through a checked path:
+- **Brand skill:** copy `templates/brand-skill.md` to `skills/brand/SKILL.md` in your project and fill in colours,
+  type, spacing, components and voice. Claude follows it for anything a user sees and ends with a screenshot check.
+- **The `ui` build graph:** `/jspark-forge:build` with the `ui` template runs design direction (strongest model) →
+  **you approve the look** → build → a Playwright screenshot check that must pass → a design review → **your final
+  approval**.
+
+This makes good UI the default path, not luck. The look is still only as good as the direction you approve.
+
 ## Launch list
 
 Keeps scope creep in sight before a launch. `/jspark-forge:launch` creates `.jspark-forge/launch.md` (commit it): a

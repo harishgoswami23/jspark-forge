@@ -133,3 +133,14 @@ template end to end on a tiny repo (checker helper, a human step completed by a 
 | A graph view in the dashboard | Not in v0.4 | The dashboard (5.8) is "later, only if asked" |
 | `save` as a node kind | Automatic after every change | The spec calls it automatic anyway |
 | Added | `TRUST GRAPH`, `DONE <step>`, protected state, `graph stop` | A graph's commands run on the user's machine; runs must be stoppable |
+
+## 9. UI path (spec 5.14 completed, owner 2026-11-20)
+
+The owner asked whether JSPARK Forge delivers world-class UI. Spec 5.14's brand-skill template was missing; added with
+a fifth graph template:
+- `templates/brand-skill.md`: a fill-in brand skill (colours, typography, spacing, components, voice, and a pre-ship
+  check against the running screen); passes the skill lint.
+- `templates/graphs/ui.md`: design direction (planner) → the user approves the look (human) → build (builder) → a
+  Playwright screenshot gate (`npx playwright test tests/ui`) → design review (reviewer) → final approval (human).
+Honest limit, said in the README: this makes a checked path the default; the look is only as good as the approved
+direction.
