@@ -19,6 +19,10 @@ Status: **revision 2, 2026-11-20**, after the Fable 5.2 design review (findings 
 - **Spike G, a detached refresh from a hook.** A hook starts a background process (`stdio: 'ignore'`,
   `windowsHide`, `detached`, `unref()`) and exits at once: the process must survive the hook, never delay the next
   tool call, and never hold the hook open. Windows here; macOS and Linux in CI.
+  **Result, Windows, 2026-11-20: passes.** A throwaway plugin's SessionStart hook started an 8-second child and
+  returned at once (spawn 35 ms; through a pipe the hook process ended in 0.44 s, not after the child). In a real
+  `claude -p` session the child kept running after the hook **and after Claude Code exited**, and finished its work.
+  macOS and Linux: a unit test of the same spawn runs in CI.
 
 ## 1. The code map: an engine plus three JSPARK Forge layers (spec 5.4)
 
