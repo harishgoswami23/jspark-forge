@@ -35,11 +35,12 @@ function build(root) {
   if (fs.existsSync(tiersFile)) {
     const j = JSON.parse(read(root, 'rules', 'model-tiers.json'));
     const tiers = j.tiers && typeof j.tiers === 'object' ? j.tiers : j;
-    const rows = Object.entries(tiers).filter(([, v]) => typeof v === 'string');
+    // A tier is "model" or { model, why }.
+    const rows = Object.entries(tiers).map(([k, v]) => [k, typeof v === 'string' ? { model: v } : v]).filter(([, v]) => v && v.model);
     out.push('## Model map', '',
       'Pick the model by the kind of job. Planning and review: strongest. Building from a reviewed plan: standard.',
       'Mechanical checks: light.', '');
-    for (const [k, v] of rows) out.push(`- ${k}: ${v}`);
+    for (const [k, v] of rows) out.push(`- ${k}: ${v.model}${v.why ? `. Why: ${v.why}` : ''}`);
     out.push('');
   }
   return out.join('\n').replace(/\n+$/, '\n');

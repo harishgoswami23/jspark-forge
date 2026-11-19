@@ -88,3 +88,12 @@ Tie-break: simpler wins
 Stop: after 3 kept attempts or 90 minutes; hand back and wait
 Outputs: commit, test_totals, leftovers
 ````
+
+## Model map
+
+Pick the model by the kind of job. Planning and review: strongest. Building from a reviewed plan: standard.
+Mechanical checks: light.
+
+- strongest: fable. Why: a mistake here is expensive or invisible until late: specs, designs, plans, architecture and data-model choices, reviews, security, migrations, the release go/no-go
+- standard: sonnet. Why: building from a reviewed plan: the plan carries the judgement and the tests catch slips
+- light: haiku. Why: mechanical work where a mistake is cheap and visible: running tests, reading logs, renames, moves, version bumps, formatting
