@@ -77,7 +77,10 @@ function load(dir, n) {
   const g = G.parse(text);
   const errs = G.validate(g, n);
   const runs = g.steps.filter(s => s.kind === 'gate').flatMap(s => s.run);
-  return { text, g, errs, hash: sha(text), runs, runHash: sha(runs.join('\n')) };
+  // What TRUST GRAPH covers (re-review M6): the gate commands and which steps are gates and human steps, so dropping
+  // a gate or a human step is a change the user is asked about.
+  const guard = { gates: g.steps.filter(s => s.kind === 'gate').map(s => [s.id, s.run]), human: g.steps.filter(s => s.kind === 'human').map(s => s.id) };
+  return { text, g, errs, hash: sha(text), runs, guard, runHash: sha(JSON.stringify(guard)) };
 }
 // The part of the graph a run depends on, copied into the run state at start.
 function snapshot(g) {
@@ -85,10 +88,20 @@ function snapshot(g) {
     needs: s.needs.slice(), gives: s.gives.slice(), after: s.after.slice(), steps: s.steps.slice(), run: s.run.slice(), say: s.say || '',
     estimate: s.estimate || '' })) };
 }
-// Trust (design-v0.4 2, review M1): { asked: { name: hash of the commands `start` showed }, trusted: { name: hash } }.
-// TRUST GRAPH <name> trusts only the commands that were shown.
+// Trust (design-v0.4 2, review M1): { asked: { name: hash of what `start` showed }, trusted: { name: hash } }.
+// TRUST GRAPH <name> trusts only what was shown. A graph without commands needs no trust the first time, and its
+// first start records its hash; from then on (and for any graph once trusted) a different hash asks again, even with
+// no gate left (re-review M6).
 const trustOf = dir => { const t = readJson(trustFile(dir)) || {}; return { asked: t.asked || {}, trusted: t.trusted || {} }; };
-const trusted = (dir, n, L) => !L.runs.length || trustOf(dir).trusted[n] === L.runHash;
+const trusted = (dir, n, L) => { const t = trustOf(dir).trusted[n]; return t === undefined ? !L.runs.length : t === L.runHash; };
+// Another session that was active in the last 30 minutes owns the run: a command from here changes nothing.
+function notOwner(s, n, sid) {
+  if (s.owner === sid) return null;
+  const idle = Date.now() - (s.lastSeen || s.startedAt || 0);
+  if (idle >= OWNER_IDLE_MS) return null;
+  return `Build graph ${n} is being run by another session (active ${Math.round(idle / 60000)} min ago); continue it there. ` +
+    `If that session has ended, take the run over: node "${FORGE_JS}" graph takeover ${n}\n`;
+}
 const active = dir => readJson(activeFile(dir));
 const setActive = (dir, v) => { if (v) writeJson(activeFile(dir), v); else { try { fs.unlinkSync(activeFile(dir)); } catch { /* none */ } } };
 const OLD_RECORD = n => `Build graph ${n} was started by an older JSPARK Forge; stop it (node "${FORGE_JS}" graph stop ${n}) and start it again.\n`;
@@ -106,13 +119,19 @@ function start(dir, n, sid) {
   if (L.error) return `${L.error}\n`;
   if (L.errs.length) return `Build graph ${n} cannot start:\n${check(dir, n)}`;
   if (!trusted(dir, n, L)) {
+    const before = trustOf(dir).trusted[n] !== undefined;
     withLock(trustFile(dir), () => { const t = trustOf(dir); t.asked[n] = L.runHash; writeJson(trustFile(dir), t); });
-    return `Build graph ${n} runs these commands on your machine:\n${L.runs.map(r => `- ${r}`).join('\n')}\n` +
-      `To allow them, the user types: TRUST GRAPH ${n} (the whole message). Asked again whenever these commands change.\n`;
+    const names = list => list.join(', ') || 'none';
+    return `${L.runs.length ? `Build graph ${n} runs these commands on your machine:\n${L.runs.map(r => `- ${r}`).join('\n')}\n` : `Build graph ${n} runs no commands.\n`}` +
+      `${before ? `Its gates or human steps changed since it was last trusted; now gates: ${names(L.guard.gates.map(x => x[0]))}; human steps: ${names(L.guard.human)}.\n` : ''}` +
+      `To allow it, the user types: TRUST GRAPH ${n} (the whole message). Asked again whenever its commands, gates or human steps change.\n`;
   }
   const a = active(dir);
   if (a && a.name !== n) { const s = readJson(stateFile(dir, a.name)); if (s && !s.stopped && !s.finished) return `Another build graph is already running: ${a.name}. Stop it first: node "${FORGE_JS}" graph stop ${a.name}\n`; }
   if (a && a.name === n) { const s = readJson(stateFile(dir, n)); if (s && !s.stopped && !s.finished) return `Build graph ${n} is already running; continue with: node "${FORGE_JS}" graph next ${n}\n`; }
+  if (trustOf(dir).trusted[n] === undefined) { // the first start of a graph without commands: what later edits are compared with
+    withLock(trustFile(dir), () => { const t = trustOf(dir); if (t.trusted[n] === undefined) { t.trusted[n] = L.runHash; writeJson(trustFile(dir), t); } });
+  }
   const steps = {};
   for (const s of L.g.steps) steps[s.id] = { state: 'waiting', retries: 0 };
   const now = Date.now();
@@ -277,6 +296,8 @@ function fail(dir, n, id, reason, sid) {
   if (!STEP.test(String(id || ''))) return `No running step "${clean(id, 40)}" in ${n}.\n`;
   return update(dir, n, s => {
     if (!s || !s.steps[id]) return `No running step "${clean(id, 40)}" in ${n}.\n`;
+    const other = notOwner(s, n, sid); // re-review low: like done, only the run's own session
+    if (other) return other;
     seen(s, sid);
     const st = s.steps[id];
     if (st.state !== 'running') return `${id} is not running.\n`;
@@ -290,16 +311,25 @@ function rerun(dir, n, id, sid) {
   if (!STEP.test(String(id || ''))) return `No step "${clean(id, 40)}" in ${n}.\n`;
   return update(dir, n, s => {
     if (!s || !s.steps[id]) return `No step "${clean(id, 40)}" in ${n}.\n`;
+    // re-review M8: a stopped run has no active record, so its steps could never be reported again
+    if (s.stopped) return `Build graph ${n} is stopped (${s.stopped}), so no step can run again in it. Start it again: node "${FORGE_JS}" graph start ${n}\n`;
+    const other = notOwner(s, n, sid);
+    if (other) return other;
     seen(s, sid);
     const st = s.steps[id];
     if (!['interrupted', 'failed'].includes(st.state)) return `${id} is ${st.state}; only an interrupted or failed step can run again.\n`;
-    st.state = 'waiting'; delete st.reason; delete s.stopped;
+    st.state = 'waiting'; delete st.reason;
     return `${id} will run again (the retry is not used up). Continue: node "${FORGE_JS}" graph next ${n}\n`;
   });
 }
 function stop(dir, n, sid) {
   if (!NAME.test(String(n || ''))) return BAD_NAME;
-  const r = update(dir, n, s => { if (!s) return null; seen(s, sid); s.stopped = 'stopped by request'; return true; });
+  const r = update(dir, n, s => {
+    if (!s) return null;
+    if (!s.stopped && !s.finished) { const other = notOwner(s, n, sid); if (other) return other; }
+    seen(s, sid); s.stopped = 'stopped by request'; return true;
+  });
+  if (typeof r === 'string') return r;
   const a = active(dir);
   if (a && a.name === n) setActive(dir, null);
   return r ? `Build graph ${n} stopped (its record is kept).\n` : `Build graph ${n} has not started.\n`;

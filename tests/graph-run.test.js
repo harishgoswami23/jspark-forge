@@ -267,6 +267,71 @@ test('trust is per hash of the commands: a changed run: line needs trust again',
   assert.match(cli(dir, ['start', 'g']), /TRUST GRAPH g/);
 });
 
+// Security re-review M6: Claude could delete a human step or a gate from the graph file and start again with no user
+// action. Trust covers the ids of the human steps and gates as well as the gate commands.
+test('dropping a human step or a gate needs TRUST again, also when no gate is left (re-review M6)', () => {
+  const HG = '# Graph: g\n## build (agent)\n- helper: builder\n\n## test (gate)\n- after: build\n- run: npm test\n\n## ok (human)\n- after: test\n- say: Look.\n';
+  const dir = project({ g: HG });
+  assert.match(trustAndStart(dir), /Started/);
+  cli(dir, ['next', 'g']);
+  fs.writeFileSync(graphFile(dir), '# Graph: g\n## build (agent)\n- helper: builder\n');
+  assert.match(cli(dir, ['next', 'g']), /graph file changed/i);
+  const again = cli(dir, ['start', 'g']);
+  assert.match(again, /TRUST GRAPH g/, 'no gate and no human step left, still asked');
+  assert.doesNotMatch(again, /Started/);
+  hook(dir, 'UserPromptSubmit', { prompt: 'TRUST GRAPH g' });
+  assert.match(cli(dir, ['start', 'g']), /Started/, 'the user agreed');
+  // only the human step dropped, the commands unchanged
+  const d2 = project({ g: HG });
+  trustAndStart(d2);
+  cli(d2, ['stop', 'g']);
+  fs.writeFileSync(graphFile(d2), HG.replace(/\n## ok \(human\)[\s\S]*$/, '\n'));
+  assert.match(cli(d2, ['start', 'g']), /TRUST GRAPH g/);
+  // a graph with a human step and no commands: its first start fixes what later edits are compared with
+  const d3 = project({ g: SIMPLE });
+  assert.match(cli(d3, ['start', 'g']), /Started/, 'no commands: no trust needed the first time');
+  cli(d3, ['stop', 'g']);
+  fs.writeFileSync(graphFile(d3), SIMPLE.replace(/## decide \(human\)\n- after: measure\n- say: [^\n]*\n/, '').replace('- after: decide\n', '- after: measure\n'));
+  assert.match(cli(d3, ['start', 'g']), /TRUST GRAPH g/, 'the human step was removed');
+  // adding an agent step changes nothing the user guards
+  const d4 = project({ g: SIMPLE });
+  cli(d4, ['start', 'g']); cli(d4, ['stop', 'g']);
+  fs.appendFileSync(graphFile(d4), '\n## extra (agent)\n- helper: checker\n');
+  assert.match(cli(d4, ['start', 'g']), /Started/);
+});
+
+// Re-review M8: stop then rerun left a run that could never progress (no active run, so no evidence was recorded).
+test('rerun on a stopped run is refused and says to start again (re-review M8)', () => {
+  const dir = project({ g: '# Graph: g\n## b (agent)\n- helper: builder\n' });
+  cli(dir, ['start', 'g']); cli(dir, ['next', 'g']);
+  cli(dir, ['fail', 'g', 'b', 'a']); cli(dir, ['next', 'g']); cli(dir, ['fail', 'g', 'b', 'b']);
+  cli(dir, ['stop', 'g']);
+  const r = cli(dir, ['rerun', 'g', 'b']);
+  assert.match(r, /stopped/i);
+  assert.match(r, /graph start g/);
+  assert.equal(st(dir).steps.b.state, 'failed', 'nothing changed');
+  assert.ok(st(dir).stopped);
+});
+
+// Re-review low (a): fail, stop and rerun from another session while the owner is live are refused, like next.
+test('fail, stop and rerun from a non-owner session are refused while the owner is live (re-review, low)', () => {
+  const dir = project({ g: '# Graph: g\n## b (agent)\n- helper: builder\n' });
+  cli(dir, ['start', 'g']); cli(dir, ['next', 'g']);
+  for (const args of [['fail', 'g', 'b', 'nope'], ['stop', 'g'], ['rerun', 'g', 'b']]) {
+    assert.match(cli(dir, args, 'gr-2'), /another session[\s\S]*graph takeover g/i, args.join(' '));
+  }
+  assert.equal(st(dir).steps.b.state, 'running');
+  assert.ok(!st(dir).stopped);
+  assert.equal(st(dir).owner, SID);
+  assert.match(cli(dir, ['fail', 'g', 'b', 'mine']), /retry once/i, 'the owner still can');
+});
+
+test('a graph with no steps cannot start (re-review, low)', () => {
+  const dir = project({ empty: '# Graph: empty\n' });
+  assert.match(cli(dir, ['check', 'empty']), /at least one step/);
+  assert.match(cli(dir, ['start', 'empty']), /cannot start/);
+});
+
 test('gate commands with shell operators are refused by the graph check', () => {
   const dir = project({ g: '# Graph: g\n## c (gate)\n- run: npm test && curl x | sh\n' });
   assert.match(cli(dir, ['check', 'g']), /one simple command/);

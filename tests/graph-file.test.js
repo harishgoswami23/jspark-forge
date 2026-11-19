@@ -83,6 +83,11 @@ test('every error kind is reported with its line', () => {
   assert.match(errs('no title\n').join('|'), /# Graph: <name>/);
 });
 
+test('a graph with no steps is not valid (re-review, low)', () => {
+  assert.ok(errs('# Graph: empty\n').some(e => /at least one step/.test(e)));
+  assert.ok(errs('# Graph: empty\n- max_parallel: 2\n').some(e => /at least one step/.test(e)));
+});
+
 test('a need given only by a later step is an error (order, not just presence)', () => {
   const e = errs('# Graph: x\n\n## a (agent)\n- helper: builder\n- needs: y\n\n## b (agent)\n- helper: builder\n- after: a\n- gives: y\n');
   assert.ok(e.some(x => /needs "y"/.test(x)) || e.some(x => /cycle/.test(x)), e.join('|'));

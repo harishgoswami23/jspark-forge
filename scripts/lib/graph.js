@@ -51,6 +51,7 @@ function validate(g, fileName) {
   else if (fileName && g.name !== fileName) err(g.nameLine, `the title must name the file: "# Graph: ${fileName}"`);
   if (g.maxParallelRaw !== null && !(Number.isInteger(g.maxParallel) && g.maxParallel >= 1 && g.maxParallel <= 8)) err(g.maxParallelLine, 'max_parallel must be a whole number from 1 to 8');
   if (g.memLine) err(g.memLine, '"min_free_memory_mb" is not supported in v0.4 (max_parallel and the plan-usage cap remain)');
+  if (!g.steps.length) err(g.nameLine || 1, 'a graph needs at least one step ("## <id> (<kind>)")');
   const byId = new Map();
   for (const s of g.steps) {
     if (!ID.test(s.id)) err(s.line, `step id "${s.id}" must start with a letter, then lower-case letters, digits and dashes (at most 40)`);
