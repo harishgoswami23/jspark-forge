@@ -44,6 +44,11 @@ const SESSION_LONG = new Set(['guest-quarantine']);
 const SESSION_MS = 12 * 3600 * 1000;
 const live = (t, now) => typeof t.expires === 'number' && t.expires >= now; // a token without an expiry is not valid
 
+// Whether a live token exists, without spending it.
+function has(dir, session, id, now = Date.now()) {
+  return (read(dir) || []).some(t => t.id === id && t.session === session && live(t, now));
+}
+
 function consume(dir, session, id, now = Date.now()) {
   const tokens = read(dir);
   if (!tokens) return false;
@@ -55,4 +60,4 @@ function consume(dir, session, id, now = Date.now()) {
   return true;
 }
 
-module.exports = { grantFromPrompt, consume, TTL_MS, SESSION_LONG };
+module.exports = { grantFromPrompt, has, consume, TTL_MS, SESSION_LONG };

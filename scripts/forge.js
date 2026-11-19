@@ -9,7 +9,7 @@ const os = require('os');
 const path = require('path');
 const log = require('./lib/log');
 const { redact } = require('./lib/redact');
-const { check, BUILTINS, isGitCommit, writeTargets, toFs } = require('./lib/blocklist');
+const { check, BUILTINS, STOP, isGitCommit, writeTargets, toFs } = require('./lib/blocklist');
 const dialectOf = tool => (tool === 'PowerShell' ? 'ps' : 'bash');
 const { loadRules } = require('./lib/rules');
 const confirm = require('./lib/confirm');
@@ -75,7 +75,8 @@ const branchOf = dir => git.headBranch(dir) || ''; // read from .git/HEAD, no gi
 // quarantine: only in a guest repo after /jspark-forge:init --guest (one small file read, no git).
 const blockCtx = (dir, rules) => ({ projectDir: dir, home: os.homedir(), rules, branchOf,
   quarantine: paths.isGuest(dir) && !!(paths.guestMeta(dir) || {}).quarantine, repoRoot: paths.repoRoot(dir) });
-const confirmableIds = rules => Object.keys(BUILTINS).concat(rules.confirm.map(r => r.id));
+// A Never rule's id is confirmable only for its "took too long to check" hold; a real Never match is hard and never spends a token.
+const confirmableIds = rules => Object.keys(BUILTINS).concat(rules.confirm.map(r => r.id), rules.never.map(r => r.id));
 const preTool = (decision, reason) => ({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: decision, permissionDecisionReason: reason } });
 const context = (ev, text) => ({ hookSpecificOutput: { hookEventName: ev, additionalContext: text } });
 const notesOn = dir => loadRules(dir).settings.notes !== 'off';
@@ -143,11 +144,18 @@ const handlers = {
     const r = hits[0]; // hard hits first
     if (r) {
       const what = String(r.matched || '');
-      if (!r.hard && hits.every(h => !h.hard && h.id === r.id) && confirm.consume(dir, input.session_id, r.id)) {
-        return { lines: lines.concat([['CONFIRM', `${r.id} used :: ${what}`]]),
-          out: preTool('ask', `JSPARK Forge: you typed CONFIRM ${r.id}, so this is allowed once: ${r.plain}.`) };
+      // Every different block in the command needs its own CONFIRM; tokens are spent only when all are there
+      // (Fable verification N6: "git reset --hard && git push --force origin main").
+      const ids = [...new Set(hits.map(h => h.id))];
+      const plains = ids.map(id => hits.find(h => h.id === id).plain);
+      if (!r.hard && ids.every(id => confirm.has(dir, input.session_id, id))) {
+        for (const id of ids) confirm.consume(dir, input.session_id, id);
+        return { lines: lines.concat(ids.map(id => ['CONFIRM', `${id} used :: ${what}`])),
+          out: preTool('ask', `JSPARK Forge: you typed ${ids.map(id => `CONFIRM ${id}`).join(' and ')}, so this is allowed once: ${plains.join('; and ')}.`) };
       }
-      return { lines: lines.concat([['BLOCK', `${r.id} :: ${what}`]]), out: preTool('deny', r.reason) };
+      const reason = r.hard || ids.length === 1 ? r.reason
+        : `JSPARK Forge blocked: ${plains.join('; and ')}. ${STOP} To allow it once, the user types: ${ids.map(id => `CONFIRM ${id}`).join(' and ')}`;
+      return { lines: lines.concat([['BLOCK', `${ids.join(',')} :: ${what}`]]), out: preTool('deny', reason) };
     }
     if (lines.length) return { lines, out: null }; // allowed for the session: Claude Code's normal permission flow decides
     const t = input.tool_name;

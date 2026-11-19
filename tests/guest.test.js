@@ -167,6 +167,20 @@ test('M5: changing only the remote URL (https to ssh, a fork) keeps the handoff 
   assert.equal(pre(dir, home, 'make'), 'deny', 'hold kept');
 });
 
+test('N5: checking out an orphan branch (a new first commit, same repo) keeps the handoff and the hold', () => {
+  const dir = repo(); const home = cfg();
+  hook(dir, home, 'SessionStart');
+  hook(dir, home, 'PostToolUse', { tool_name: 'Edit', tool_input: { file_path: path.join(dir, 'a.js') } });
+  init(dir, home, '--guest');
+  const g = (...a) => execFileSync('git', a, { cwd: dir, stdio: 'ignore' });
+  g('checkout', '-q', '--orphan', 'pages');
+  g('-c', 'user.email=someone@example.com', '-c', 'user.name=x', 'commit', '-qm', 'pages');
+  hook(dir, home, 'SessionStart');
+  const [id] = guestDirs(home);
+  assert.ok(fs.existsSync(path.join(guests(home), id, 'handoff.md')), 'handoff kept');
+  assert.equal(pre(dir, home, 'npm install'), 'deny', 'hold kept');
+});
+
 // ---- status line ----
 test('the status-line wrapper writes guest usage to the guest folder, never into the repo', () => {
   const dir = repo(); const home = cfg();

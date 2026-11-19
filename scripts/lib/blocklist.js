@@ -450,25 +450,33 @@ function mcpText(v) {
   return String(v);
 }
 
-// Built-in hits are found first; when one exists, regular-expression rules are not run at all, so a slow pattern in a
-// cloned repo's rules.md cannot time the hook out (a timed-out hook lets the command through). Plain-text rules are
-// cheap and always checked, so a Never line can still harden a built-in Confirm.
-// Order (Fable review H3, M4): the user's own rules (plain and regex) and the project's plain-text rules always run.
-// The project's regular expressions (a cloned repo can ship a deliberately slow one) run last, only when nothing has
-// matched at all, and on at most 2,000 characters: a slow pattern can then only delay a command nothing else blocks.
-const REPO_REGEX_MAX = 2000;
-function userHits(text, rules, { anyHit = false } = {}) {
+// Every rule always runs, on the whole command (Fable review H3, M4; verification N4). The user's own rules and all
+// plain-text rules run directly. The project's regular expressions (a repo's rules.md is committed, and a pattern can
+// backtrack for minutes) run in a sandbox with a shared time limit: a pattern that is still running when the limit is
+// reached counts as a match to confirm, never as a pass, so the hook always answers inside its 3 s.
+const REPO_REGEX_MS = 250;
+function slowSafeTest(re, text, deadline) {
+  const left = deadline - Date.now();
+  if (left <= 0) return 'timeout';
+  try {
+    return require('vm').runInNewContext('re.test(text)', { re, text }, { timeout: Math.max(10, left) }) ? 'match' : 'no';
+  } catch { return 'timeout'; }
+}
+function userHits(text, rules) {
   const hits = [];
   if (!rules) return hits;
   const lower = text.toLowerCase();
   const say = r => r.reason || `this matches your rule "${r.source}"`;
-  const firstPass = r => (r.re ? !r.fromRepo && r.re.test(text) : lower.includes(r.text.toLowerCase()));
-  for (const r of rules.never || []) if (firstPass(r)) hits.push(hit(r.id, true, text, say(r)));
-  for (const r of rules.confirm || []) if (firstPass(r)) hits.push(hit(r.id, false, text, say(r)));
-  if (anyHit || hits.length) return hits;
-  const short = text.slice(0, REPO_REGEX_MAX);
-  for (const r of rules.never || []) if (r.re && r.fromRepo && r.re.test(short)) hits.push(hit(r.id, true, text, say(r)));
-  for (const r of rules.confirm || []) if (r.re && r.fromRepo && r.re.test(short)) hits.push(hit(r.id, false, text, say(r)));
+  const deadline = Date.now() + REPO_REGEX_MS;
+  const judge = (r, hard) => {
+    if (!r.re) { if (lower.includes(r.text.toLowerCase())) hits.push(hit(r.id, hard, text, say(r))); return; }
+    if (!r.fromRepo) { if (r.re.test(text)) hits.push(hit(r.id, hard, text, say(r))); return; }
+    const v = slowSafeTest(r.re, text, deadline);
+    if (v === 'match') hits.push(hit(r.id, hard, text, say(r)));
+    else if (v === 'timeout') hits.push(hit(r.id, false, text, `your rule "${r.source}" took too long to check, so it is held`));
+  };
+  for (const r of rules.never || []) judge(r, true);
+  for (const r of rules.confirm || []) judge(r, false);
   return hits;
 }
 
@@ -489,11 +497,11 @@ function check(input, ctx, opts = {}) {
     } else if (tool === 'Bash' || tool === 'PowerShell') {
       const raw = String(ti.command || '');
       hits = shellHits(raw, cwd, ctx, 0, tool === 'PowerShell' ? 'ps' : 'bash');
-      hits = hits.concat(userHits(raw, ctx.rules, { anyHit: hits.length > 0 }));
+      hits = hits.concat(userHits(raw, ctx.rules));
     } else if (tool.startsWith('mcp__')) {
       const text = mcpText(ti);
       if (sqlDestructive(text)) hits.push(hit('sql-destroy', false, text));
-      hits = hits.concat(userHits(text, ctx.rules, { anyHit: hits.length > 0 }));
+      hits = hits.concat(userHits(text, ctx.rules));
     }
     // disable: turns a built-in off, but never its hard-deny part (home folder, whole disk, drive).
     hits = hits.filter(h => !disabled.has(h.id) || (h.hard && BUILTINS[h.id]));

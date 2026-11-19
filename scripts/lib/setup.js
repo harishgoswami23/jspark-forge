@@ -117,8 +117,12 @@ function touchGuest(dir) {
   if (!meta) return;
   // Same folder, different repo (re-cloned: a different first commit) -> start fresh. A changed URL alone (https to
   // ssh, a fork) is the same repo: keep the handoff and the hold, update the origin (Fable review M5).
+  // An orphan branch (gh-pages) or a deepened shallow clone also shows a new first commit, but the recorded one is
+  // still in the repo: same repo, keep everything (Fable verification N5). Only a repo without it is a different one.
   const root = rootOf(dir);
-  if (root && meta.root && root !== meta.root) fs.rmSync(paths.guestDir(dir), { recursive: true, force: true });
+  if (root && meta.root && root !== meta.root && !git(dir, ['cat-file', '-e', `${meta.root}^{commit}`], 1500).ok) {
+    fs.rmSync(paths.guestDir(dir), { recursive: true, force: true });
+  }
   writeMeta(dir, originOf(dir) || meta.origin);
 }
 

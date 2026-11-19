@@ -65,7 +65,7 @@ test("the user's rules and the repo's rules both apply; a user Never line wins",
   assert.equal(hook(s, 'PreToolUse', bash('deploy --prod')).hookSpecificOutput.permissionDecision, 'deny');
 });
 
-test("a built-in block is decided without running the repo's regular expressions (no time-out bypass)", () => {
+test("a slow repo regular expression cannot time out a built-in block (it runs under a time limit)", () => {
   const rules = parseRules('## Confirm\n- `re:(a+)+$` : slow on purpose (catastrophic backtracking)\n');
   rules.confirm = rules.confirm.map(r => Object.assign({}, r, { fromRepo: true })); // a project (repo) rule, as loadRules tags it
   const evil = `git reset --hard; echo ${'a'.repeat(26)}!`;
@@ -83,6 +83,50 @@ test("H3: a user's own regex Never rule still wins when a built-in also matches"
   assert.equal(o.hookSpecificOutput.permissionDecision, 'deny');
   assert.match(o.hookSpecificOutput.permissionDecisionReason, /never from a laptop/);
   assert.ok(!/CONFIRM/.test(o.hookSpecificOutput.permissionDecisionReason), 'a hard Never, not a confirm');
+});
+
+// Fable verification N4 (2026-11-20): a project's regex rules always run, on the whole command, under a time limit.
+const decision = o => (o && o.hookSpecificOutput && o.hookSpecificOutput.permissionDecision) || null;
+test('N4: a project regex Never rule still denies after a CONFIRM for a built-in in the same command', () => {
+  const s = setup({ repoRules: '## Never\n- `re:deploy-prod` : never ship from here\n' });
+  hook(s, 'UserPromptSubmit', { prompt: 'CONFIRM git-reset-hard' });
+  assert.equal(decision(hook(s, 'PreToolUse', bash('git reset --hard && deploy-prod'))), 'deny');
+});
+
+test('N4: a project regex rule runs even when a disabled built-in also matched', () => {
+  const s = setup({ repoRules: '## Never\n- `re:deploy-prod` : never ship from here\n', userRules: '## Settings\n- disable: secret-files\n' });
+  assert.equal(decision(hook(s, 'PreToolUse', bash('echo x > .env && deploy-prod'))), 'deny');
+});
+
+test('N4: a project regex rule sees the end of a long command', () => {
+  const s = setup({ repoRules: '## Never\n- `re:deploy-prod` : never ship from here\n' });
+  assert.equal(decision(hook(s, 'PreToolUse', bash(`echo ${'a'.repeat(2100)} && deploy-prod`))), 'deny');
+});
+
+test('N4: a slow project regex is stopped in time and counts as a match to confirm, never a silent pass', () => {
+  const rules = parseRules('## Never\n- `re:(a+)+$` : slow on purpose\n');
+  rules.never = rules.never.map(r => Object.assign({}, r, { fromRepo: true }));
+  const t = Date.now();
+  const r = check({ tool_name: 'Bash', tool_input: { command: `echo ${'a'.repeat(40)}!` }, cwd: os.tmpdir() },
+    { projectDir: os.tmpdir(), home: os.homedir(), rules, branchOf: () => 'x' });
+  assert.ok(Date.now() - t < 1000, `${Date.now() - t} ms`);
+  assert.ok(r && !r.hard, 'held for a CONFIRM');
+  assert.match(r.plain, /too long to check/);
+});
+
+// Fable verification N6: two different confirmable blocks in one command are allowed once both are confirmed.
+test('N6: two different blocks in one command: the message names both; both CONFIRMs allow it once', () => {
+  const s = setup();
+  const cmd = bash('git reset --hard && git push --force origin main');
+  const first = hook(s, 'PreToolUse', cmd);
+  assert.equal(decision(first), 'deny');
+  assert.match(first.hookSpecificOutput.permissionDecisionReason, /CONFIRM git-reset-hard/);
+  assert.match(first.hookSpecificOutput.permissionDecisionReason, /CONFIRM git-force-push-main/);
+  hook(s, 'UserPromptSubmit', { prompt: 'CONFIRM git-reset-hard' });
+  assert.equal(decision(hook(s, 'PreToolUse', cmd)), 'deny', 'one of two is not enough');
+  hook(s, 'UserPromptSubmit', { prompt: 'CONFIRM git-force-push-main' });
+  assert.equal(decision(hook(s, 'PreToolUse', cmd)), 'ask', 'the first CONFIRM was kept, not spent');
+  assert.equal(decision(hook(s, 'PreToolUse', cmd)), 'deny', 'once only');
 });
 
 // M4 (review): a repo's slow regex must not hide the user's own rules when no built-in matches.
