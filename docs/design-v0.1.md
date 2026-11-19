@@ -443,7 +443,7 @@ section 13).
 |---|---|---|
 | `rm-rf-outside` | `rm -rf` / `rm -r -f` whose target resolves outside the project, or is home, root or a drive root, or uses `~`, `$HOME`, `*` at top level, or an unresolved variable; **also inside the project when the target is the project root, `.` or `.git`** [owner, 2026-11-03 review] | **hard deny** for home/root/drive root; typed confirm for other outside paths and for project root / `.` / `.git` |
 | `git-force-push-main` | `git push --force` / `-f` / `--force-with-lease` / `+main` refspec to `main` or `master` (also when pushing the current branch and it is main/master) | typed confirm |
-| `git-reset-hard` | `git reset --hard`; also `git checkout -- .`, `git restore .`, `git restore --staged .` run at the project root (whole-tree discards) [owner, 2026-11-03 review] | typed confirm |
+| `git-reset-hard` | `git reset --hard`; also `git checkout -- .`, `git restore .`, `git restore --staged .` run at the project root (whole-tree discards) [owner, 2026-11-03 review]; also `git checkout .` and the top-level pathspec `:/` from any folder [builder 2026-11-19: same whole-tree discard] | typed confirm |
 | `git-clean-fdx` | `git clean` with `-f` and `-d` and `-x` in any order | typed confirm |
 | `git-stash-drop` | `git stash drop`, `git stash clear` | typed confirm |
 | `sql-destroy` | `DROP` (TABLE/DATABASE/SCHEMA), `TRUNCATE`, `DELETE FROM … ` with no `WHERE`, in shell commands (psql/mysql/sqlite3/any `-c`/`-e` text) and in MCP tool inputs | typed confirm |
@@ -498,7 +498,10 @@ Text in backticks is matched as written; start it with re: for a regular express
 - disable: chmod-wide
 ```
 Parsed on each PreToolUse (cached by file mtime). A malformed line is skipped and reported once at SessionStart.
-`disable:` turns off a built-in entry (logged at SessionStart: "you switched off chmod-wide").
+`disable:` turns off a built-in entry (logged at SessionStart: "you switched off chmod-wide"); it never turns off a
+hard deny (`rm -rf` on home, root or a drive) [builder 2026-11-19]. Ids users type after CONFIRM: a plain line gets
+its text as an id (`terraform destroy` → `terraform-destroy`), a `re:` line gets `re-1`, `re-2`, … in file order;
+the deny reason always names the id [builder 2026-11-19].
 
 ---
 

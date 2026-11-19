@@ -133,3 +133,77 @@ test('SessionStart rotates old day files', () => {
   assert.ok(!fs.existsSync(path.join(logDir, '2020-01-01.log')));
   assert.match(fs.readFileSync(path.join(logDir, 'summary.md'), 'utf8'), /## 2020-01-01/);
 });
+
+// ---- Step 2: block list through the dispatcher (design 9.2) ----
+const STOP = 'Do not try an equivalent command; tell the user and stop.';
+const decision = r => { assert.equal(r.status, 0); return r.stdout ? JSON.parse(r.stdout).hookSpecificOutput : null; };
+const preBash = (dir, command, extra = {}) => run(dir, 'PreToolUse', Object.assign({ tool_name: 'Bash', tool_input: { command } }, extra));
+
+test('PreToolUse denies a listed command with the stop sentence and logs BLOCK', () => {
+  const dir = project();
+  const h = decision(preBash(dir, 'git reset --hard HEAD~2'));
+  assert.equal(h.hookEventName, 'PreToolUse');
+  assert.equal(h.permissionDecision, 'deny');
+  assert.ok(h.permissionDecisionReason.includes(STOP));
+  assert.match(h.permissionDecisionReason, /CONFIRM git-reset-hard/);
+  assert.match(logText(dir), /BLOCK git-reset-hard :: git reset --hard HEAD~2/);
+});
+
+test('PreToolUse prints nothing for an allowed command', () => {
+  const dir = project();
+  assert.equal(preBash(dir, 'npm test').stdout, '');
+});
+
+test('typed CONFIRM turns the next matching call into ask, once', () => {
+  const dir = project();
+  const p = run(dir, 'UserPromptSubmit', { prompt: 'CONFIRM git-reset-hard' });
+  assert.match(JSON.parse(p.stdout).hookSpecificOutput.additionalContext, /git-reset-hard/);
+  const first = decision(preBash(dir, 'git reset --hard'));
+  assert.equal(first.permissionDecision, 'ask');
+  assert.match(first.permissionDecisionReason, /git reset --hard|uncommitted/);
+  assert.equal(decision(preBash(dir, 'git reset --hard')).permissionDecision, 'deny');
+  const t = logText(dir);
+  assert.match(t, /CONFIRM git-reset-hard granted/);
+  assert.match(t, /CONFIRM git-reset-hard used/);
+});
+
+test('a token from another session does not apply', () => {
+  const dir = project();
+  run(dir, 'UserPromptSubmit', { prompt: 'CONFIRM chmod-wide', session_id: 'other-session' });
+  assert.equal(decision(preBash(dir, 'chmod 777 x')).permissionDecision, 'deny');
+});
+
+test('a hard deny ignores tokens', () => {
+  const dir = project();
+  run(dir, 'UserPromptSubmit', { prompt: 'CONFIRM rm-rf-outside' });
+  const h = decision(preBash(dir, 'rm -rf ~'));
+  assert.equal(h.permissionDecision, 'deny');
+  assert.ok(!/CONFIRM/.test(h.permissionDecisionReason));
+});
+
+test('editing .env is denied; .env.example is allowed', () => {
+  const dir = project();
+  const deny = decision(run(dir, 'PreToolUse', { tool_name: 'Edit', tool_input: { file_path: path.join(dir, '.env') } }));
+  assert.equal(deny.permissionDecision, 'deny');
+  assert.equal(run(dir, 'PreToolUse', { tool_name: 'Edit', tool_input: { file_path: path.join(dir, '.env.example') } }).stdout, '');
+});
+
+test('blocks fire inside helpers too (agent_id present)', () => {
+  const dir = project();
+  const h = decision(preBash(dir, 'git stash clear', { agent_id: '9f8e7d6c' }));
+  assert.equal(h.permissionDecision, 'deny');
+  assert.match(logText(dir), /\[a1b2c3d4\/9f8e7d6c\] BLOCK git-stash-drop/);
+});
+
+test('rules.md Never and Confirm lines apply; SessionStart reports malformed lines and disabled built-ins', () => {
+  const dir = project();
+  fs.writeFileSync(path.join(dir, '.jspark-forge', 'rules.md'),
+    '## Confirm\n- `terraform destroy` : destroys infra\n- broken line\n## Never\n- `drop database prod` : prod\n## Settings\n- disable: chmod-wide\n');
+  assert.equal(decision(preBash(dir, 'terraform destroy')).permissionDecision, 'deny');
+  assert.match(decision(preBash(dir, 'terraform destroy')).permissionDecisionReason, /CONFIRM terraform-destroy/);
+  assert.equal(decision(preBash(dir, 'psql -c "drop database prod"')).permissionDecision, 'deny');
+  assert.equal(preBash(dir, 'chmod 777 x').stdout, '');
+  const s = JSON.parse(run(dir, 'SessionStart', { source: 'startup' }).stdout);
+  assert.match(s.systemMessage, /rules\.md line 3/);
+  assert.match(s.systemMessage, /chmod-wide/);
+});

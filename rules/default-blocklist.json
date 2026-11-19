@@ -1,0 +1,30 @@
+{
+  "rm-rf-outside": {
+    "plain": "this deletes a folder outside the project, or the project itself or its history",
+    "hardPlain": "this would delete your home folder, the whole disk or a whole drive"
+  },
+  "git-force-push-main": {
+    "plain": "this force-pushes to main or master and can erase commits on the shared branch"
+  },
+  "git-reset-hard": {
+    "plain": "this throws away your uncommitted work"
+  },
+  "git-clean-fdx": {
+    "plain": "this deletes every untracked and ignored file, including local settings and .env files"
+  },
+  "git-stash-drop": {
+    "plain": "this permanently deletes saved stashes"
+  },
+  "sql-destroy": {
+    "plain": "this deletes database tables or every row of a table (DROP, TRUNCATE, or DELETE without WHERE)"
+  },
+  "secret-files": {
+    "plain": "this changes a secrets or key file (.env, keys, credentials)"
+  },
+  "chmod-wide": {
+    "plain": "this opens file permissions to everyone or changes a whole folder tree"
+  },
+  "pipe-to-shell": {
+    "plain": "this runs a script straight from the internet without showing it first"
+  }
+}
