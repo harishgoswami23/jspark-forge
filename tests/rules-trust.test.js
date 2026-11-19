@@ -67,10 +67,29 @@ test("the user's rules and the repo's rules both apply; a user Never line wins",
 
 test("a built-in block is decided without running the repo's regular expressions (no time-out bypass)", () => {
   const rules = parseRules('## Confirm\n- `re:(a+)+$` : slow on purpose (catastrophic backtracking)\n');
+  rules.confirm = rules.confirm.map(r => Object.assign({}, r, { fromRepo: true })); // a project (repo) rule, as loadRules tags it
   const evil = `git reset --hard; echo ${'a'.repeat(26)}!`;
   const t = Date.now();
   const r = check({ tool_name: 'Bash', tool_input: { command: evil }, cwd: os.tmpdir() },
     { projectDir: os.tmpdir(), home: os.homedir(), rules, branchOf: () => 'x' });
   assert.equal(r.id, 'git-reset-hard');
   assert.ok(Date.now() - t < 500, `${Date.now() - t} ms`);
+});
+
+// H3 (review): the user's own regular expressions always run, even when a built-in matched.
+test("H3: a user's own regex Never rule still wins when a built-in also matches", () => {
+  const s = setup({ userRules: '## Never\n- `re:deploy-?prod` : never from a laptop\n' });
+  const o = hook(s, 'PreToolUse', bash('git reset --hard && ./deploy-prod.sh'));
+  assert.equal(o.hookSpecificOutput.permissionDecision, 'deny');
+  assert.match(o.hookSpecificOutput.permissionDecisionReason, /never from a laptop/);
+  assert.ok(!/CONFIRM/.test(o.hookSpecificOutput.permissionDecisionReason), 'a hard Never, not a confirm');
+});
+
+// M4 (review): a repo's slow regex must not hide the user's own rules when no built-in matches.
+test("M4: a repo's slow regex cannot time out the user's own rule", () => {
+  const s = setup({ repoRules: '## Never\n- `re:(a+)+$` : slow on purpose\n', userRules: '## Confirm\n- `terraform destroy` : infra\n' });
+  const t = Date.now();
+  const o = hook(s, 'PreToolUse', bash(`terraform destroy ${'a'.repeat(28)}!`));
+  assert.match(o.hookSpecificOutput.permissionDecisionReason, /CONFIRM terraform-destroy/);
+  assert.ok(Date.now() - t < 2500, `${Date.now() - t} ms (the hook limit is 3 s)`);
 });

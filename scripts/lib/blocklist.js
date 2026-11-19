@@ -394,17 +394,27 @@ function mcpText(v) {
 // Built-in hits are found first; when one exists, regular-expression rules are not run at all, so a slow pattern in a
 // cloned repo's rules.md cannot time the hook out (a timed-out hook lets the command through). Plain-text rules are
 // cheap and always checked, so a Never line can still harden a built-in Confirm.
-function userHits(text, rules, { plainOnly = false } = {}) {
+// Order (Fable review H3, M4): the user's own rules (plain and regex) and the project's plain-text rules always run.
+// The project's regular expressions (a cloned repo can ship a deliberately slow one) run last, only when nothing has
+// matched at all, and on at most 2,000 characters: a slow pattern can then only delay a command nothing else blocks.
+const REPO_REGEX_MAX = 2000;
+function userHits(text, rules, { anyHit = false } = {}) {
   const hits = [];
   if (!rules) return hits;
   const lower = text.toLowerCase();
-  const matches = r => (r.re ? !plainOnly && r.re.test(text) : lower.includes(r.text.toLowerCase()));
-  for (const r of rules.never || []) if (matches(r)) hits.push(hit(r.id, true, text, r.reason || `this matches your rule "${r.source}"`));
-  for (const r of rules.confirm || []) if (matches(r)) hits.push(hit(r.id, false, text, r.reason || `this matches your rule "${r.source}"`));
+  const say = r => r.reason || `this matches your rule "${r.source}"`;
+  const firstPass = r => (r.re ? !r.fromRepo && r.re.test(text) : lower.includes(r.text.toLowerCase()));
+  for (const r of rules.never || []) if (firstPass(r)) hits.push(hit(r.id, true, text, say(r)));
+  for (const r of rules.confirm || []) if (firstPass(r)) hits.push(hit(r.id, false, text, say(r)));
+  if (anyHit || hits.length) return hits;
+  const short = text.slice(0, REPO_REGEX_MAX);
+  for (const r of rules.never || []) if (r.re && r.fromRepo && r.re.test(short)) hits.push(hit(r.id, true, text, say(r)));
+  for (const r of rules.confirm || []) if (r.re && r.fromRepo && r.re.test(short)) hits.push(hit(r.id, false, text, say(r)));
   return hits;
 }
 
-function check(input, ctx) {
+// opts.all: return every hit (hard ones first) instead of the one to report.
+function check(input, ctx, opts = {}) {
   try {
     const tool = input.tool_name || '';
     const ti = input.tool_input || {};
@@ -420,14 +430,15 @@ function check(input, ctx) {
     } else if (tool === 'Bash' || tool === 'PowerShell') {
       const raw = String(ti.command || '');
       hits = shellHits(raw, cwd, ctx, 0, tool === 'PowerShell' ? 'ps' : 'bash');
-      hits = hits.concat(userHits(raw, ctx.rules, { plainOnly: hits.length > 0 }));
+      hits = hits.concat(userHits(raw, ctx.rules, { anyHit: hits.length > 0 }));
     } else if (tool.startsWith('mcp__')) {
       const text = mcpText(ti);
       if (sqlDestructive(text)) hits.push(hit('sql-destroy', false, text));
-      hits = hits.concat(userHits(text, ctx.rules, { plainOnly: hits.length > 0 }));
+      hits = hits.concat(userHits(text, ctx.rules, { anyHit: hits.length > 0 }));
     }
     // disable: turns a built-in off, but never its hard-deny part (home folder, whole disk, drive).
     hits = hits.filter(h => !disabled.has(h.id) || (h.hard && BUILTINS[h.id]));
+    if (opts.all) return hits.filter(h => h.hard).concat(hits.filter(h => !h.hard));
     if (!hits.length) return null;
     return hits.find(h => h.hard) || hits[0];
   } catch {

@@ -130,18 +130,26 @@ const handlers = {
 
   PreToolUse(dir, input) {
     const rules = loadRules(dir);
-    const r = check(input, blockCtx(dir, rules));
+    let hits = check(input, blockCtx(dir, rules), { all: true });
+    // A session-long CONFIRM (guest-quarantine) removes only its own hit: every other block in the same command is
+    // still judged (Fable review H2: "npm test && git push --force origin main").
+    const lines = [];
+    for (const id of confirm.SESSION_LONG) {
+      if (hits.some(h => h.id === id) && confirm.consume(dir, input.session_id, id)) {
+        hits = hits.filter(h => h.id !== id);
+        lines.push(['CONFIRM', `${id} used :: ${String((input.tool_input || {}).command || '')}`]);
+      }
+    }
+    const r = hits[0]; // hard hits first
     if (r) {
       const what = String(r.matched || '');
-      if (!r.hard && confirm.consume(dir, input.session_id, r.id)) {
-        if (confirm.SESSION_LONG.has(r.id)) { // allowed for the session: Claude Code's normal permission flow decides
-          return { lines: [['CONFIRM', `${r.id} used :: ${what}`]], out: null };
-        }
-        return { lines: [['CONFIRM', `${r.id} used :: ${what}`]],
+      if (!r.hard && hits.every(h => !h.hard && h.id === r.id) && confirm.consume(dir, input.session_id, r.id)) {
+        return { lines: lines.concat([['CONFIRM', `${r.id} used :: ${what}`]]),
           out: preTool('ask', `JSPARK Forge: you typed CONFIRM ${r.id}, so this is allowed once: ${r.plain}.`) };
       }
-      return { lines: [['BLOCK', `${r.id} :: ${what}`]], out: preTool('deny', r.reason) };
+      return { lines: lines.concat([['BLOCK', `${r.id} :: ${what}`]]), out: preTool('deny', r.reason) };
     }
+    if (lines.length) return { lines, out: null }; // allowed for the session: Claude Code's normal permission flow decides
     const t = input.tool_name;
     if ((t === 'Bash' || t === 'PowerShell') && rules.settings.notes !== 'off' &&
         isGitCommit((input.tool_input || {}).command || '', input.cwd || dir, dialectOf(t))) {

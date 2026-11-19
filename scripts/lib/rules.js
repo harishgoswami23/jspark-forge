@@ -81,7 +81,8 @@ function loadRules(projectDir, { claudeHome } = {}) {
   const repoDisable = repoText.split(/\r?\n/)
     .map((l, i) => ({ l, n: i + 1 })).filter(x => /^\s*[-*]\s+disable\s*:/i.test(x.l));
   const ids = new Set(user.confirm.concat(user.never).map(r => r.id));
-  const fresh = r => (ids.has(r.id) ? Object.assign({}, r, { id: `${r.id}-repo` }) : r);
+  // fromRepo: the project's rules.md may come from a clone; its regular expressions run last (blocklist userHits).
+  const fresh = r => Object.assign({}, r, { fromRepo: true }, ids.has(r.id) ? { id: `${r.id}-repo` } : {});
   return {
     confirm: user.confirm.concat(repo.confirm.map(fresh)),
     never: user.never.concat(repo.never.map(fresh)),
