@@ -106,16 +106,15 @@ function decisionNotes(dir, input) {
   const cwd = input.cwd || dir;
   let files = [];
   if (t === 'Edit' || t === 'Write' || t === 'NotebookEdit') files = [ti.file_path || ti.notebook_path];
-  else if (t === 'Bash' || t === 'PowerShell') files = changeTargets(ti.command || '', dialectOf(t), cwd).map(toFs);
-  files = files.filter(p => p && !/[$`]/.test(p));
+  // A shell word with $ or ` is not a real path yet; a tool's file path can contain $ (Remix routes: review M3).
+  else if (t === 'Bash' || t === 'PowerShell') files = changeTargets(ti.command || '', dialectOf(t), cwd).map(toFs).filter(p => !/[$`]/.test(p));
+  files = files.filter(Boolean);
   if (!files.length || !memory.load(dir).length) return null;
-  const sess = state.readSession(dir, input.session_id);
+  // "Already shown" lives in its own merged file, not the session file (review M1: parallel hooks lost ids).
   const key = input.agent_id || 'main';
-  const shownAll = sess.decisionsShown || {};
-  const n = memory.notesFor(dir, toFs(cwd), files, shownAll[key] || []);
+  const n = memory.notesFor(dir, toFs(cwd), files, memory.readShown(dir, input.session_id)[key] || []);
   if (!n) return null;
-  sess.decisionsShown = Object.assign({}, shownAll, { [key]: (shownAll[key] || []).concat(n.ids) });
-  state.writeSession(dir, input.session_id, sess);
+  memory.addShown(dir, input.session_id, key, n.ids);
   return n;
 }
 
@@ -154,7 +153,7 @@ const handlers = {
     let offerAfterCompact = null;
     if (input.source === 'compact') { // the summary dropped the decisions Claude was shown: show them again when relevant
       const sess = state.readSession(dir, input.session_id);
-      sess.decisionsShown = {};
+      memory.clearShown(dir, input.session_id);
       sess.offerTurn = null; // and pending offers to record come back once (design-v0.2 1.4)
       offerAfterCompact = offerContext(dir, input, sess);
       state.writeSession(dir, input.session_id, sess);
@@ -205,7 +204,8 @@ const handlers = {
     // A new user turn: pending offers to record are delivered again (design-v0.2 1.4).
     const sess = state.readSession(dir, input.session_id);
     sess.turn = (sess.turn || 0) + 1;
-    const offer = offerContext(dir, input, sess);
+    // A short reply ("yes", "skip", "edit: …") is most likely the answer to the last offer: do not repeat it with it.
+    const offer = prompt.trim().length < 25 ? null : offerContext(dir, input, sess);
     state.writeSession(dir, input.session_id, sess);
     if (offer) parts.push(offer);
     const out = parts.length ? context('UserPromptSubmit', parts.join('\n')) : null;

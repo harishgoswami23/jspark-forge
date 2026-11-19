@@ -4,7 +4,7 @@
 // they are asked to and keep every other byte (line endings included).
 const WIN_OR_MAC = process.platform === 'win32' || process.platform === 'darwin';
 const KINDS = new Set(['decision', 'rule', 'lesson', 'reference']);
-const HEAD = /^##\s+(D-\d{3,})\s+(\S.*?)\s*$/;
+const HEAD = /^##\s+(D-\d{3,9})\s+(\S.*?)\s*$/; // more than 9 digits: not an id (review M5)
 const ANY_HEAD = /^##\s/;
 const FIELD = /^-\s+([A-Za-z][A-Za-z ]{0,30}?):\s*(.*)$/;
 const SUBFIELD = /^([A-Za-z][A-Za-z ]{0,30}?):\s+(.*)$/;
@@ -69,13 +69,16 @@ function parse(text) {
   return { entries, errors };
 }
 
+// Ids of more than 9 digits are ignored, so one absurd heading cannot push the next id to "D-1e+23" (review M5).
 function nextId(text) {
   let max = 0;
-  for (const m of String(text || '').matchAll(/^##\s+D-(\d+)/gm)) max = Math.max(max, Number(m[1]));
+  for (const m of String(text || '').replace(BOM, '').matchAll(/^##\s+D-(\d{1,9})(?!\d)/gm)) max = Math.max(max, Number(m[1]));
   return `D-${String(max + 1).padStart(3, '0')}`;
 }
 
-const today = () => new Date().toISOString().slice(0, 10);
+// The local calendar date (review, low: a decision made on the 20th must not say the 19th).
+const pad2 = n => String(n).padStart(2, '0');
+const today = () => { const d = new Date(); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; };
 
 // -> { text, id }
 function addEntry(text, { id: wantId, title, kind = 'decision', why = '', see = '', by = '', source = '', touches = [], date = today() }) {
@@ -95,10 +98,24 @@ function addEntry(text, { id: wantId, title, kind = 'decision', why = '', see = 
   return { text: `${head}${eol}${eol}${L.join(eol)}${eol}`, id };
 }
 
+// The lines of a text with each one's own ending, so a rewrite keeps mixed endings as they were (review M6).
+function linesOf(text) {
+  const parts = String(text).split(/(\r?\n)/);
+  return { lines: parts.filter((_, i) => i % 2 === 0), eols: parts.filter((_, i) => i % 2 === 1) };
+}
+function joinLines({ lines, eols }) { return lines.map((l, i) => l + (eols[i] || '')).join(''); }
+// Inserts a line after line k, with the ending that line k has (or the file's, after a last line without one).
+function insertAfter(t, k, line, fallbackEol) {
+  if (t.eols[k] === undefined) { t.eols[k] = fallbackEol; t.lines.splice(k + 1, 0, line); return; }
+  t.lines.splice(k + 1, 0, line);
+  t.eols.splice(k + 1, 0, t.eols[k]);
+}
+
 // Sets one field of one entry; adds "- Key: value" after the entry's last field line when the field is missing.
 function setField(text, id, key, value) {
   const eol = eolOf(text);
-  const lines = String(text).split(/\r?\n/);
+  const t = linesOf(text);
+  const lines = t.lines;
   const start = lines.findIndex(l => { const m = l.replace(BOM, '').match(HEAD); return m && m[1] === id; });
   if (start < 0) throw new Error(`no entry ${id} in decisions.md`);
   let end = lines.length;
@@ -113,54 +130,73 @@ function setField(text, id, key, value) {
     // Rewrite only the value of this key inside the line, keeping the other parts as they are.
     const keyRe = new RegExp(`((?:^-\\s+|\\s[·|]\\s)${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:\\s*)(.*?)(?=\\s[·|]\\s[A-Za-z][A-Za-z ]{0,30}?:\\s|$)`, 'i');
     lines[i] = lines[i].replace(keyRe, (all, pre) => `${pre}${value}`);
-    return lines.join(eol);
+    return joinLines(t);
   }
-  lines.splice(lastField + 1, 0, `- ${key}: ${value}`);
-  return lines.join(eol);
+  insertAfter(t, lastField, `- ${key}: ${value}`, eol);
+  return joinLines(t);
 }
 
 // Replaces the title on an entry's heading line; nothing else changes.
 function setTitle(text, id, title) {
-  const eol = eolOf(text);
-  const lines = String(text).split(/\r?\n/);
+  const t = linesOf(text);
+  const lines = t.lines;
   const i = lines.findIndex(l => { const m = l.replace(BOM, '').match(HEAD); return m && m[1] === id; });
   if (i < 0) throw new Error(`no entry ${id} in decisions.md`);
   const bom = lines[i].startsWith(String.fromCharCode(0xfeff)) ? String.fromCharCode(0xfeff) : '';
   lines[i] = `${bom}## ${id} ${String(title).replace(/\s+/g, ' ').trim()}`;
-  return lines.join(eol);
+  return joinLines(t);
 }
 
-// How many times each id appears (two branches merged can both add D-007).
+// How many times each id appears (two branches merged can both add D-007). A byte-order mark is not a heading's
+// problem (review M4).
 function idCounts(text) {
   const n = {};
-  for (const m of String(text || '').matchAll(/^\S?##\s+(D-\d+)\s/gm)) n[m[1]] = (n[m[1]] || 0) + 1;
+  for (const m of String(text || '').replace(BOM, '').matchAll(/^##\s+(D-\d{1,9})\s/gm)) n[m[1]] = (n[m[1]] || 0) + 1;
   return n;
 }
 
 const words = e =>`${e.title || ''} ${e.why || ''}`.split(/\s+/).filter(Boolean).length;
 
 // ---------- Touches: matching (design 1.2) ----------
+// A linear-time matcher (Fable code review H4: a regex built from "**/**/…" or "*a*a*…" backtracked for 20+ s, and this
+// runs in PreToolUse with a 3 s limit). Folder by folder: "**" spans any number of folders; "*" and "?" stay inside one
+// name. Each step is a table over the remaining input, so the cost is at most pattern size x path size. Patterns over
+// 300 characters or with more than 30 wildcards match nothing.
+const MAX_PATTERN = 300;
+const MAX_WILD = 30;
 const normRel = p => String(p || '').trim().replace(/\\/g, '/').replace(/^(\.\/)+/, '');
-function globRe(pattern) {
-  let re = '';
-  for (let i = 0; i < pattern.length; i++) {
-    const c = pattern[i];
-    if (c === '*' && pattern[i + 1] === '*') {
-      if (pattern[i + 2] === '/') { re += '(?:.*/)?'; i += 2; } else { re += '.*'; i += 1; }
-    } else if (c === '*') re += '[^/]*';
-    else if (c === '?') re += '[^/]';
-    else re += c.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+function nameMatch(p, s) {
+  let prev = new Uint8Array(s.length + 1);
+  prev[0] = 1;
+  for (let i = 0; i < p.length; i++) {
+    const cur = new Uint8Array(s.length + 1);
+    const c = p[i];
+    if (c === '*') { let any = 0; for (let j = 0; j <= s.length; j++) { any = any || prev[j]; cur[j] = any; } }
+    else for (let j = 1; j <= s.length; j++) cur[j] = prev[j - 1] && (c === '?' || c === s[j - 1]) ? 1 : 0;
+    prev = cur;
   }
-  return new RegExp(`^${re}$`, WIN_OR_MAC ? 'i' : '');
+  return prev[s.length] === 1;
+}
+function pathMatch(ps, fsegs) {
+  let prev = new Uint8Array(fsegs.length + 1);
+  prev[0] = 1;
+  for (const seg of ps) {
+    const cur = new Uint8Array(fsegs.length + 1);
+    if (seg === '**') { let any = 0; for (let j = 0; j <= fsegs.length; j++) { any = any || prev[j]; cur[j] = any; } }
+    else for (let j = 1; j <= fsegs.length; j++) cur[j] = prev[j - 1] && nameMatch(seg, fsegs[j - 1]) ? 1 : 0;
+    prev = cur;
+  }
+  return prev[fsegs.length] === 1;
 }
 function matches(pattern, file) {
-  const p = normRel(pattern).replace(/\/+$/, '');
-  const f = normRel(file);
-  if (!p || !f) return false;
-  const same = (a, b) => (WIN_OR_MAC ? a.toLowerCase() === b.toLowerCase() : a === b);
-  if (!/[*?]/.test(p)) return same(p, f) || same(f.slice(0, p.length + 1), `${p}/`); // a path or a whole folder
-  if (p.endsWith('/**') && same(f, p.slice(0, -3))) return true; // "src/billing/**" covers the folder itself
-  return globRe(p).test(f);
+  let p = normRel(pattern).replace(/\/+$/, '');
+  let f = normRel(file);
+  if (!p || !f || p.length > MAX_PATTERN || (p.match(/[*?]/g) || []).length > MAX_WILD) return false;
+  if (WIN_OR_MAC) { p = p.toLowerCase(); f = f.toLowerCase(); }
+  if (!/[*?]/.test(p)) return p === f || f.startsWith(`${p}/`); // a path or a whole folder
+  // "a/**/**/b" is "a/**/b"; "***" inside a name is "*".
+  const ps = p.split('/').map(s => (s === '**' ? s : s.replace(/\*+/g, '*'))).filter((s, i, a) => !(s === '**' && a[i - 1] === '**'));
+  return pathMatch(ps, f.split('/'));
 }
 
-module.exports = { parse, nextId, addEntry, setField, setTitle, idCounts, matches, words, KINDS };
+module.exports = { parse, nextId, addEntry, setField, setTitle, idCounts, matches, words, today, KINDS };

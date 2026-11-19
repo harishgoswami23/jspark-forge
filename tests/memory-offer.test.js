@@ -49,8 +49,8 @@ test('delivered again at the next message, then dropped (at most twice)', () => 
   const dir = project();
   commit(dir, { 'src/a.ts': '1' }, 'Use signed cookies for sessions');
   assert.match(ctxOf(committed(dir)), /signed cookies/);
-  assert.match(ctxOf(hook(dir, 'UserPromptSubmit', { prompt: 'go on' })), /signed cookies/);
-  assert.ok(!/signed cookies/.test(ctxOf(hook(dir, 'UserPromptSubmit', { prompt: 'and then?' }))), 'dropped after two');
+  assert.match(ctxOf(hook(dir, 'UserPromptSubmit', { prompt: 'now add the export button to the report page' })), /signed cookies/);
+  assert.ok(!/signed cookies/.test(ctxOf(hook(dir, 'UserPromptSubmit', { prompt: 'and then write the tests for the export' }))), 'dropped after two');
 });
 
 test('filtered mechanically: docs-only, lockfiles, chore/docs/bump/merge subjects get no offer', () => {
@@ -82,8 +82,8 @@ test('a superpowers plan or design doc written: one offer per file', () => {
   fs.mkdirSync(path.dirname(plan), { recursive: true }); fs.writeFileSync(plan, '# Plan\n');
   const w = () => ctxOf(hook(dir, 'PostToolUse', { tool_name: 'Write', tool_input: { file_path: plan } }));
   assert.match(w(), /plan docs\/superpowers\/plans\/2026-11-20-billing\.md/);
-  hook(dir, 'UserPromptSubmit', { prompt: 'next' });
-  hook(dir, 'UserPromptSubmit', { prompt: 'next' });
+  hook(dir, 'UserPromptSubmit', { prompt: 'now add the export button to the report page' });
+  hook(dir, 'UserPromptSubmit', { prompt: 'now add the export button to the report page' });
   assert.ok(!/2026-11-20-billing/.test(w()), 'the same plan file is offered once');
 });
 
@@ -98,7 +98,7 @@ test('stale flag: a commit changing a touched file flags an entry verified over 
   assert.ok(!flagged.includes('D-004'), 'recently verified: not flagged');
   assert.match(c, /still valid\? \(yes \/ update \/ retire\)/);
   commit(dir, { 'src/billing/total.ts': '3' }, 'chore: again');
-  hook(dir, 'UserPromptSubmit', { prompt: 'x' }); hook(dir, 'UserPromptSubmit', { prompt: 'y' });
+  hook(dir, 'UserPromptSubmit', { prompt: 'now add the export button to the report page' }); hook(dir, 'UserPromptSubmit', { prompt: 'then make the totals round the same way' });
   const again = ctxOf(committed(dir));
   for (const id of flagged) assert.ok(!new RegExp(`${id} may be stale`).test(again), `${id} not flagged twice in a day`);
 });
@@ -111,5 +111,12 @@ test('recording a decision drops its offer', () => {
   fs.writeFileSync(path.join(dir, '.jspark-forge', 'state', 'decide.json'), JSON.stringify({ title: 'Use UTC everywhere', touches: ['src/**'], source: `commit ${sha}` }));
   spawnSync(process.execPath, [FORGE, 'decide', '--from', '.jspark-forge/state/decide.json'], { cwd: dir, encoding: 'utf8',
     env: Object.assign({}, process.env, { CLAUDE_PROJECT_DIR: dir, CLAUDE_CODE_SESSION_ID: 'off-1' }) });
-  assert.ok(!/Use UTC everywhere/.test(ctxOf(hook(dir, 'UserPromptSubmit', { prompt: 'next' }))));
+  assert.ok(!/Use UTC everywhere/.test(ctxOf(hook(dir, 'UserPromptSubmit', { prompt: 'now add the export button to the report page' }))));
+});
+
+test('review (low): a short answer ("yes", "skip") does not bring the offer back with it', () => {
+  const dir = project();
+  commit(dir, { 'src/a.ts': '1' }, 'Keep sessions for 30 days');
+  assert.match(ctxOf(committed(dir)), /30 days/);
+  assert.ok(!/30 days/.test(ctxOf(hook(dir, 'UserPromptSubmit', { prompt: 'yes' }))));
 });

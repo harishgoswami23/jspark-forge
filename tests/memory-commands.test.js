@@ -27,7 +27,7 @@ const start = (dir, source = 'startup') => {
 };
 const cli = (dir, ...args) => spawnSync(process.execPath, [FORGE, ...args], { cwd: dir, encoding: 'utf8', env: env(dir) }).stdout;
 const E = (id, title, more = '') => `## ${id} ${title}\n- Kind: decision\n${more}- Status: active\n\n`;
-const today = new Date().toISOString().slice(0, 10);
+const today = require('../scripts/lib/decisions').today(); // local calendar date, as JSPARK Forge writes it
 
 test('session start: an index of titles, framed as data, at most 150 words; retired entries left out', () => {
   const dir = project(E('D-001', 'Prices are stored in cents', '- Touches: src/billing/**\n') + '## D-002 Old\n- Kind: rule\n- Status: retired\n\n');

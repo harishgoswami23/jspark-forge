@@ -13,7 +13,8 @@ const { spawnSync } = require('child_process');
 
 const LONG_WORDS = 80;
 const fileOf = dir => path.join(paths.repoForgeDir(dir), 'decisions.md');
-const today = () => new Date().toISOString().slice(0, 10);
+const today = D.today; // the local calendar date (review, low)
+const ID = /^D-\d{1,9}$/;
 const one = (s, n) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
 
 function badPath(p) {
@@ -37,7 +38,8 @@ function shareFile(dir) {
   const g = path.join(paths.repoForgeDir(dir), '.gitignore');
   try {
     const t = fs.readFileSync(g, 'utf8');
-    if (!/^!decisions\.md\s*$/m.test(t)) fs.writeFileSync(g, `${t.replace(/\s*$/, '\n')}!decisions.md\n`);
+    const eol = /\r\n/.test(t) ? '\r\n' : '\n'; // in the file's own line ending (review, low)
+    if (!/^!decisions\.md\s*$/m.test(t)) fs.writeFileSync(g, `${t.replace(/\s*$/, eol)}!decisions.md${eol}`);
   } catch { /* no .gitignore: nothing hides the file */ }
 }
 
@@ -47,7 +49,9 @@ function run(dir, args, sid) {
   const o = opts(args);
   let j = {};
   if (o.from) {
-    try { j = JSON.parse(fs.readFileSync(path.resolve(o.from), 'utf8')); } catch (e) { return `JSPARK Forge could not read ${o.from}: ${e.message}\n`; }
+    // Never echo the file: --from could be pointed at a secret (review, low).
+    try { j = JSON.parse(fs.readFileSync(path.resolve(o.from), 'utf8')); } catch { return `JSPARK Forge could not read ${path.basename(String(o.from))} as a JSON entry; nothing was changed.\n`; }
+    if (!j || typeof j !== 'object') return 'JSPARK Forge: the entry file holds no JSON object; nothing was changed.\n';
   }
   const verify = o.verify || j.verify;
   const retire = o.retire || j.retire;
@@ -70,6 +74,8 @@ function run(dir, args, sid) {
 
   const target = verify || retire || update;
   if (target) {
+    const by0 = o.by || j.by;
+    if (!ID.test(String(target)) || (by0 && !ID.test(String(by0)))) return 'Not changed: an id must look like D-012.\n';
     const counts = D.idCounts(text);
     if (!counts[target]) return `There is no ${target} in decisions.md.\n`;
     if (counts[target] > 1) return `There are two entries with the id ${target} (probably from two branches); rename one in decisions.md, then try again.\n`;
@@ -149,9 +155,9 @@ function list(dir, args) {
   const all = D.parse(text).entries;
   const active = all.filter(e => e.active);
   const show = args.includes('--all') ? all : active;
-  const line = e => `${e.id} ${clean(e.title, 100)} (${[e.active ? null : e.status,
-    e.kind === 'reference' && e.see ? `reference: ${e.see}` : null,
-    e.touches.length ? `touches ${e.touches.join(', ')}` : e.active ? 'no Touches' : null].filter(Boolean).join('; ')})`;
+  const line = e => `${e.id} ${clean(e.title, 100)} (${[e.active ? null : clean(e.status, 40),
+    e.kind === 'reference' && e.see ? `reference: ${clean(e.see, 120)}` : null,
+    e.touches.length ? `touches ${clean(e.touches.join(', '), 160)}` : e.active ? 'no Touches' : null].filter(Boolean).join('; ')})`;
   const refs = active.filter(e => e.kind === 'reference').length;
   const long = active.filter(e => D.words(e) > LONG_WORDS).length;
   const kb = (st.declined || []).length;
@@ -168,6 +174,17 @@ function gitOut(dir, args) {
   const r = spawnSync('git', ['-c', 'core.quotePath=false', ...args], { cwd: dir, encoding: 'utf8', timeout: 5000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
   return r.status === 0 ? String(r.stdout) : null;
 }
+// Every commit since the oldest Last verified date, with its local date and files (paths relative to the project), in
+// one git call for all entries (review: one call per entry took 7.9 s for 150 entries).
+function commitsSince(dir, entries) {
+  const dates = entries.map(e => e.lastVerified || e.date).filter(d => /^\d{4}-\d\d-\d\d$/.test(d)).sort();
+  if (!dates.length) return [];
+  const log = gitOut(dir, ['log', '--relative', `--since=${dates[0]} 00:00:00`, '--name-only', '--format=%x01%cs']) || '';
+  return log.split(String.fromCharCode(1)).slice(1).map(block => {
+    const [date, ...rest] = block.split(/\r?\n/);
+    return { date: date.trim(), files: rest.map(x => x.trim()).filter(Boolean) };
+  });
+}
 function check(dir) {
   if (!paths.isOwn(dir)) return 'Decision memory is off in a repo you are reviewing.\n';
   let text = '';
@@ -177,24 +194,24 @@ function check(dir) {
   for (const [id, n] of Object.entries(D.idCounts(text))) if (n > 1) out.push(`${id}: ${n === 2 ? 'two' : n} entries share this id (two branches merged?); rename one`);
   const files = (gitOut(dir, ['ls-files', '-co', '--exclude-standard']) || '').split(/\r?\n/).filter(Boolean);
   const now = Date.now();
-  for (const e of entries.filter(x => x.active)) {
+  const active = entries.filter(x => x.active);
+  const history = commitsSince(dir, active);
+  for (const e of active) {
     const name = `${e.id} "${clean(e.title, 60)}"`;
     for (const t of e.touches) {
-      if (isGlob(t)) { if (files.length && !files.some(f => D.matches(t, f))) out.push(`${name}: ${t} matches no file`); }
-      else if (!fs.existsSync(path.join(dir, t.replace(/\/+$/, '')))) out.push(`${name}: ${t} does not exist (renamed or deleted?)`);
+      if (isGlob(t)) { if (files.length && !files.some(f => D.matches(t, f))) out.push(`${name}: ${clean(t, 80)} matches no file`); }
+      else if (!fs.existsSync(path.join(dir, t.replace(/\/+$/, '')))) out.push(`${name}: ${clean(t, 80)} does not exist (renamed or deleted?)`);
     }
-    if (e.kind === 'reference' && e.see && !fs.existsSync(path.join(dir, e.see))) out.push(`${name}: its reference ${e.see} does not exist`);
+    if (e.kind === 'reference' && e.see && !safeSee(dir, e.see)) out.push(`${name}: its reference is not a plain file inside the project, so it is never shown`);
+    else if (e.kind === 'reference' && e.see && !fs.existsSync(path.join(dir, e.see))) out.push(`${name}: its reference ${clean(e.see, 80)} does not exist`);
     const since = e.lastVerified || e.date;
     if (e.touches.length && /^\d{4}-\d\d-\d\d$/.test(since)) {
-      const specs = e.touches.map(t => (isGlob(t) ? `:(glob)${t}` : t));
-      // A verification date has no time: count commits after that day, not the ones made on it. Dates are written
-      // in UTC, so the end of the day is given in UTC too (git would read a bare time as local).
-      const log = gitOut(dir, ['log', `--since=${since}T23:59:59Z`, '--format=%h', '--', ...specs]);
-      const n = log ? log.split(/\r?\n/).filter(Boolean).length : 0;
+      // A verification date has no time: count commits made after that day (local dates on both sides).
+      const n = history.filter(c => c.date > since && c.files.some(fl => e.touches.some(t => D.matches(t, fl)))).length;
       if (n) out.push(`${name}: its files changed in ${plural(n, 'commit', 'commits')} since ${since} (last verified)`);
     }
     if (!e.touches.length && e.kind !== 'reference' && now - (Date.parse(since) || now) > 30 * 86400000) {
-      out.push(`${name}: no Touches, so it is never shown before an edit; last verified ${since}`);
+      out.push(`${name}: no Touches, so it is never shown before an edit; last verified ${clean(since, 20)}`);
     }
   }
   if (!out.length) return `All ${plural(entries.filter(x => x.active).length, 'decision looks', 'decisions look')} fine.\n`;
