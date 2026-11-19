@@ -95,7 +95,7 @@ const handlers = {
     log.rotate(dir, new Date());
     handoff.pruneArchive(dir);
     const rules = loadRules(dir);
-    const msgs = rules.errors.map(e => `JSPARK Forge: .jspark-forge/rules.md line ${e.line} skipped (${e.message}).`);
+    const msgs = rules.errors.map(e => `JSPARK Forge: ${e.file || '.jspark-forge/rules.md'} line ${e.line} skipped (${e.message}).`);
     if (rules.disabled.length) msgs.push(`JSPARK Forge: you switched off ${rules.disabled.join(', ')} in rules.md.`);
     const rc = handoff.resumeContext(dir, input.session_id, input.source || 'startup');
     if (rc.systemMessage) msgs.unshift(rc.systemMessage);

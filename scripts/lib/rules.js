@@ -54,10 +54,33 @@ function parseRules(text) {
   return out;
 }
 
-function loadRules(projectDir) {
-  let text = '';
-  try { text = fs.readFileSync(path.join(projectDir, '.jspark-forge', 'rules.md'), 'utf8'); } catch { /* defaults */ }
-  return parseRules(text);
+// Two files (v0.1.1 security fix, owner 2026-11-19):
+// - the project's .jspark-forge/rules.md: committed, so it may come from a cloned repo. It may ADD Confirm / Never
+//   rules and set preferences, but its "disable:" lines are ignored and reported: a repo cannot switch a block off.
+// - the user's own <CLAUDE_CONFIG_DIR or ~/.claude>/jspark-forge/rules.md: same syntax, applies to every project,
+//   and is the only place where "disable:" works.
+const REPO_LABEL = '.jspark-forge/rules.md';
+const USER_LABEL = '~/.claude/jspark-forge/rules.md';
+const readText = f => { try { return fs.readFileSync(f, 'utf8'); } catch { return ''; } };
+
+function loadRules(projectDir, { claudeHome } = {}) {
+  const home = claudeHome || process.env.CLAUDE_CONFIG_DIR || path.join(require('os').homedir(), '.claude');
+  const user = parseRules(readText(path.join(home, 'jspark-forge', 'rules.md')));
+  const repo = parseRules(readText(path.join(projectDir, '.jspark-forge', 'rules.md')));
+  const repoDisable = readText(path.join(projectDir, '.jspark-forge', 'rules.md')).split(/\r?\n/)
+    .map((l, i) => ({ l, n: i + 1 })).filter(x => /^\s*[-*]\s+disable\s*:/i.test(x.l));
+  const ids = new Set(user.confirm.concat(user.never).map(r => r.id));
+  const fresh = r => (ids.has(r.id) ? Object.assign({}, r, { id: `${r.id}-repo` }) : r);
+  return {
+    confirm: user.confirm.concat(repo.confirm.map(fresh)),
+    never: user.never.concat(repo.never.map(fresh)),
+    disabled: user.disabled,
+    settings: Object.assign({}, user.settings, repo.settings),
+    errors: user.errors.map(e => Object.assign({ file: USER_LABEL }, e))
+      .concat(repo.errors.map(e => Object.assign({ file: REPO_LABEL }, e)))
+      .concat(repoDisable.map(x => ({ file: REPO_LABEL, line: x.n,
+        message: `a project's rules.md cannot switch off built-in blocks; put "disable:" in ${USER_LABEL}` }))),
+  };
 }
 
 module.exports = { parseRules, loadRules };

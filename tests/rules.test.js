@@ -58,9 +58,12 @@ test('loads .jspark-forge/rules.md and CRLF line endings', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-rules-'));
   fs.mkdirSync(path.join(dir, '.jspark-forge'));
   fs.writeFileSync(path.join(dir, '.jspark-forge', 'rules.md'), EXAMPLE.replace(/\n/g, '\r\n'));
-  const r = loadRules(dir);
+  const r = loadRules(dir, { claudeHome: fs.mkdtempSync(path.join(os.tmpdir(), 'forge-rules-home-')) });
   assert.equal(r.confirm.length, 2);
-  assert.equal(r.errors.length, 0);
+  // The example's "disable: chmod-wide" is the one error: a project's rules.md cannot switch blocks off (v0.1.1).
+  assert.deepEqual(r.disabled, []);
+  assert.equal(r.errors.length, 1);
+  assert.match(r.errors[0].message, /cannot switch off built-in blocks/);
 });
 
 const PROJECT = process.platform === 'win32' ? 'C:\\work\\proj' : '/work/proj';

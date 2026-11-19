@@ -97,7 +97,10 @@ Bash, Git Bash, PowerShell and cmd forms are all matched (PowerShell from v0.1.1
 old system you are migrating from, always refused) and `guest-quarantine` (no installing or running a repo you are
 only reviewing without `CONFIRM`).
 
-Add your own in `.jspark-forge/rules.md` ("Confirm" or "Never" lines). Blocks also fire inside helper agents.
+Add your own in `.jspark-forge/rules.md` ("Confirm" or "Never" lines; commit it to share them with your team), or in
+`~/.claude/jspark-forge/rules.md` for every project. Switching a built-in block off (`- disable: chmod-wide`) works
+only in that personal file: a project's `rules.md` may come from a repo you cloned, so it can add rules but never
+remove one. Blocks also fire inside helper agents.
 This is a seatbelt, not a sandbox: a deliberately disguised command can get past pattern matching.
 
 ## Install

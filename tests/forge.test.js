@@ -195,15 +195,16 @@ test('blocks fire inside helpers too (agent_id present)', () => {
   assert.match(logText(dir), /\[a1b2c3d4\/9f8e7d6c\] BLOCK git-stash-drop/);
 });
 
-test('rules.md Never and Confirm lines apply; SessionStart reports malformed lines and disabled built-ins', () => {
+test('rules.md Never and Confirm lines apply; SessionStart reports malformed lines and an ignored disable:', () => {
   const dir = project();
   fs.writeFileSync(path.join(dir, '.jspark-forge', 'rules.md'),
     '## Confirm\n- `terraform destroy` : destroys infra\n- broken line\n## Never\n- `drop database prod` : prod\n## Settings\n- disable: chmod-wide\n');
   assert.equal(decision(preBash(dir, 'terraform destroy')).permissionDecision, 'deny');
   assert.match(decision(preBash(dir, 'terraform destroy')).permissionDecisionReason, /CONFIRM terraform-destroy/);
   assert.equal(decision(preBash(dir, 'psql -c "drop database prod"')).permissionDecision, 'deny');
-  assert.equal(preBash(dir, 'chmod 777 x').stdout, '');
+  // v0.1.1: a project's rules.md cannot switch a built-in off (it may come from a cloned repo).
+  assert.equal(decision(preBash(dir, 'chmod 777 x')).permissionDecision, 'deny');
   const s = JSON.parse(run(dir, 'SessionStart', { source: 'startup' }).stdout);
   assert.match(s.systemMessage, /rules\.md line 3/);
-  assert.match(s.systemMessage, /chmod-wide/);
+  assert.match(s.systemMessage, /line 7 skipped \(a project's rules\.md cannot switch off built-in blocks/);
 });
