@@ -1,0 +1,11 @@
+{
+  "name": "jspark-forge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "JSPARK Forge: resume after a crash, logout or limit. Rules enforced by hooks.",
+  "license": "MIT",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "test": "node --test"
+  }
+}
