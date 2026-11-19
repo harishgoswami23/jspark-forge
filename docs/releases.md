@@ -154,7 +154,13 @@ before continuing".
 
 ---
 
-## Real users (gate) [owner 2026-11-20]
+## First user (gate) [owner 2026-11-20, revised the same day]
+
+**Revised [owner]:** "I am the first user, so I need a complete product." The owner uses each release on real
+work before the next starts; build continues to v0.3; v0.4 is decided after v0.3 is in use; the outside launch below
+follows v0.3.
+
+**Outside launch (after v0.3):**
 
 **What.** After v0.1.1 ships and before v0.2 starts, JSPARK Forge goes in front of 20–50 real users: the official
 Claude Code plugin directory, the superpowers community, a short demo. What they hit is fixed first; the order of
