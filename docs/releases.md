@@ -89,7 +89,19 @@ decides only v0.1.1's guard). Builder checks B1–B5, B7.
 
 ## v0.1.1: Waiting on you + PowerShell forms + external code + guard (if proven)
 
-**Waiting on you (spec 5.2a):** blocking questions captured in `.jspark-forge/waiting.md`, shown in the status line (`⏳ 3 waiting on you · oldest 14 h`) and at session start, each with what it blocks and a recommendation; one reply settles all; a reminder after 4 h and a daily summary via the Notification event; optional reversible-only deadline defaults (off by default); `/jspark-forge:waiting`. Acceptance: every question asked through the question tool appears in the list within one turn; the status line count matches the file; nothing destructive/live/security can take a deadline default. Adds ~1 day to v0.1.1.
+**Waiting on you (spec 5.2a), built 2026-11-20 (design-v0.1.1 section 4):** questions through the question tool
+(filed before the dialog shows) and a reply that ends in a question while there is work, kept in
+`state/waiting.json` and `waiting.md`; shown first at session start, in the status line (`⏳ 2 waiting on you ·
+oldest 14h`) and in the handoff; `/jspark-forge:waiting` lists and clears them. Cut: timed reminders and the daily
+summary (no hook runs between sessions; needs a spike), deadline defaults (principle 12). Acceptance: a question
+through the question tool is in the list before the dialog shows; the status line count matches the file; one manual
+interactive check before release (the tool does not exist in `claude -p`).
+
+**Health check (spec 5.13c), pulled forward 2026-11-20:** `/jspark-forge:doctor` (read-only: Node, plugin files,
+every hook timed against its limit, git, project folder, rules.md, handoff, status line and usage freshness; each
+problem with its fix), `/jspark-forge:status` (handoff, waiting, usage as of when), `/jspark-forge:upgrade` (asks,
+updates from the marketplace, then doctor after the restart). Deferred: `doctor --fix`; the installer running doctor
+(Claude Code has no post-install hook; the first session's messages cover a broken install).
 
 **External code (spec 5.2b) [owner 2026-11-03; quarantine and "content is data": coordinator]:**
 - **Guest mode:** `/jspark-forge:init` asks *"Your project, or one you're reviewing?"*. Reviewing → nothing written
@@ -118,7 +130,8 @@ non-interactive runs or when Forge cannot tell (it skips itself).
 **Files in `.jspark-forge/`** `waiting.md`; `rules.md` gains `## Sources`; `state/session-<id>.json` gains
 `awaiting_user` if the guard ships. Machine level: `~/.claude/jspark-forge/guests/<repo-hash>/` (guest mode).
 
-**Commands** `/jspark-forge:waiting`; `/jspark-forge:init` asks the guest question.
+**Commands** `/jspark-forge:waiting`, `/jspark-forge:doctor`, `/jspark-forge:status`, `/jspark-forge:upgrade`;
+`/jspark-forge:init --guest` / `--mine` (guest mode is decided automatically; init only overrides it).
 
 **Hooks used** PreToolUse (PowerShell forms; guard; `readonly-source`; `guest-quarantine`), PostToolUse (PowerShell
 write redirects), SessionStart and UserPromptSubmit (set / clear the guard; guest reminder).
@@ -136,8 +149,7 @@ before continuing".
 
 **Depends on spikes** D (headless detection).
 
-**Candidate pull-forward:** `/jspark-forge:doctor` (spec 5.13c) is the likeliest "later" item to be asked for; if one
-is pulled forward, it lands here. Not counted in the estimate above.
+**Pulled forward:** `/jspark-forge:doctor`, `status` and `upgrade` (spec 5.13c), built 2026-11-20 (above).
 
 ---
 

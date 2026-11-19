@@ -210,6 +210,9 @@ can pass; README says so. False positives are overridable per action. Matching e
 
 ### 5.2a Waiting on you (v0.1.1) [owner 2026-11-03]
 
+**Built 2026-11-20** as design-v0.1.1 section 4: capture, status line, session start, handoff and
+`/jspark-forge:waiting`. The timed reminders and deadline defaults below are cut there, with reasons.
+
 Solves two problems: questions to the user get buried in long replies (visibility), and answers get put off (procrastination).
 
 - **Capture:** every question Claude asks that blocks work is logged in `.jspark-forge/waiting.md` (id, question, options,
@@ -737,7 +740,8 @@ their next option, instead of the session dying mid-task.
 - **Limit:** the usage figures exist only on plans that report them (section 4); elsewhere this piece stays silent.
 
 **c. Health check.** One command, `/jspark-forge:doctor`, that says in plain words whether the kit is working, plus
-`status` and `upgrade` beside it.
+`status` and `upgrade` beside it. **Pulled into v0.1.1 [owner 2026-11-20]**, without `--fix` and without the installer
+step (Claude Code has no post-install hook); see `releases.md`.
 - `doctor` checks, read-only: Node version; plugin files present and valid; every hook registered and answering
   inside its timeout; the status-line wrapper in place and `usage.json` fresh; `.jspark-forge/` writable; the last
   handoff readable; the block list parsing; (when 5.13a exists) the keychain reachable. Each line is pass or fail with

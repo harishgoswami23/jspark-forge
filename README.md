@@ -33,6 +33,9 @@ A Claude Code plugin for technical solo founders. Built for Claude Code, by JSPA
 4. **Keeps a short action log** for the step that was cut off (7 days, then a one-paragraph summary per day).
 5. **Keeps Claude grounded.** A short rule at every session start: cite the file and line, say "not found"
    otherwise, never describe code it has not read.
+6. **Keeps open questions in sight.** A question Claude asks you that holds up work stays on a "waiting on you" list
+   until you answer it: in the status line (`⏳ 2 waiting on you · oldest 14h`), first thing at the next session
+   start, and in the handoff, so a cutoff cannot bury it.
 
 Everything stays on your machine. No network calls, no telemetry.
 
@@ -50,7 +53,8 @@ enough to pick up the work, not a map of your system. Later releases add decisio
 decisions shown to Claude just before it edits the files they touch) and a codebase map (the "what and where"); they
 will join this table when they ship. The codebase map is the hardest part, so its date stays open until its engine
 is tested. v0.1.1 adds **guest mode** (review someone else's repo without writing anything into it) and **readonly
-sources** (keep an old system next to the new one, never edited).
+sources** (keep an old system next to the new one, never edited), the **waiting on you** list and a health check
+(`/jspark-forge:doctor`).
 
 ## Works best with superpowers
 
@@ -91,11 +95,13 @@ blocks something, Claude is told: *"Do not try an equivalent command; tell the u
 | `secret-files` | Editing `.env*`, key, secret and credential files, also via `>`, `tee`, `Set-Content`, `Out-File` (templates such as `.env.example` and `.env.sample` are allowed) |
 | `chmod-wide` | `chmod 777`, `chmod -R`, `icacls … /grant Everyone:F` |
 | `pipe-to-shell` | `curl … \| sh`, `iwr … \| iex`, `iex (irm …)` and similar |
+| `readonly-source` | Any change to an old system listed under `## Sources` in `rules.md` (below). **Always refused** |
+| `guest-quarantine` | In a repo you are reviewing, after `/jspark-forge:init --guest`: its install, build, test and run commands (see guest mode). One CONFIRM covers the rest of that session |
 
 Bash, Git Bash, PowerShell and cmd forms are all matched (PowerShell from v0.1.1), also when one shell starts another
-(`powershell -Command "…"`, `bash -c "…"`, `cmd /c "…"`). Coming next in v0.1.1: `readonly-source` (no edits to an
-old system you are migrating from, always refused) and `guest-quarantine` (no installing or running a repo you are
-only reviewing without `CONFIRM`).
+(`powershell -Command "…"`, `bash -c "…"`, `cmd /c "…"`). Commands inside `$( )`, backticks, `if` / `for` blocks,
+`eval`, `find -exec` and PowerShell script blocks are checked too; a commit message is text, not a command. A command
+with two different blocks needs both CONFIRMs.
 
 Add your own in `.jspark-forge/rules.md` ("Confirm" or "Never" lines; commit it to share them with your team), or in
 `~/.claude/jspark-forge/rules.md` for every project. Switching a built-in block off (`- disable: chmod-wide`) works
@@ -150,6 +156,10 @@ sandbox.
 |---|---|
 | `/jspark-forge:resume` | Show where you were again, on demand, and wait |
 | `/jspark-forge:handoff` | Save the handoff now (`done` closes the task and archives it) |
+| `/jspark-forge:waiting` | The questions waiting on you, with Claude's recommendations; answer, accept the recommendations, or drop them |
+| `/jspark-forge:status` | What is saved now: the handoff, what is waiting on you, usage as of when |
+| `/jspark-forge:doctor` | Is JSPARK Forge working here? One line per check, each problem with its fix. Changes nothing |
+| `/jspark-forge:upgrade` | Update JSPARK Forge (asks first); run the doctor after the restart |
 | `/jspark-forge:init` | Optional. Wrap your own status line (asks first); `--undo-statusline` restores it exactly; `--guest` / `--mine` for someone else's repo or your own |
 
 ## Uninstall

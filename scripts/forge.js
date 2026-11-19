@@ -430,7 +430,11 @@ function cliWaiting(args) {
     `${n + 1}. [${x.id}] ${waiting.line(x)}${x.about ? ` (about: ${x.about})` : ''}${x.options.length ? `; options: ${x.options.join(' / ')}` : ''}; asked ${waiting.ago(now - x.askedAt)} ago`).join('\n')}\n`);
 }
 
-const CLI = { save: cliSave, show: cliShow, where: cliWhere, waiting: cliWaiting };
+// `forge.js doctor` / `forge.js status` (spec 5.13c): read-only health check; what is saved now.
+const cliDoctor = () => process.stdout.write(require('./lib/doctor').doctor(cliProject(), setup.claudeHome()));
+const cliStatus = () => process.stdout.write(require('./lib/doctor').status(cliProject()));
+
+const CLI = { save: cliSave, show: cliShow, where: cliWhere, waiting: cliWaiting, doctor: cliDoctor, status: cliStatus };
 if (CLI[event]) {
   try { CLI[event](process.argv.slice(3)); } catch (e) { process.stdout.write(`JSPARK Forge could not ${event}: ${e.message}\n`); }
 } else {
