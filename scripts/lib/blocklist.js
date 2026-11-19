@@ -10,7 +10,7 @@ const BUILTINS = require('../../rules/default-blocklist.json');
 const STOP = 'Do not try an equivalent command; tell the user and stop.';
 const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish']);
 const SQL_CLIENTS = new Set(['psql', 'mysql', 'mariadb', 'mysqlsh', 'sqlite3', 'sqlite', 'sqlcmd', 'clickhouse-client',
-  'clickhouse', 'duckdb', 'cockroach']);
+  'clickhouse', 'duckdb', 'cockroach', 'invoke-sqlcmd']);
 const TEMPLATE_WORDS = new Set(['example', 'sample', 'template', 'dist']);
 const WIN = process.platform === 'win32';
 
@@ -57,14 +57,23 @@ function rmCheck(args, cwd, ctx) {
     targets.push(a);
   }
   if (!recursive || !force || !targets.length) return null;
+  return classifyTargets(targets, cwd, ctx);
+}
+
+// Where a recursive delete points: 'hard' (home, root, a drive root), 'confirm' (outside the project, the project
+// itself, its .git, or an unresolved variable), or null (inside the project). Bash and PowerShell spellings of home.
+const HOME_VAR = /^(?:\$\{?HOME\}?|\$env:(?:USERPROFILE|HOME)|%USERPROFILE%)(?=[\\/]|$)/i;
+const DRIVE_VAR = /^(?:\$env:SystemDrive|%SystemDrive%)(?=[\\/]|$)/i;
+function classifyTargets(targets, cwd, ctx) {
   const home = norm(ctx.home), project = norm(ctx.projectDir);
   let level = null; // null | 'confirm' | 'hard'
   for (let t of targets) {
-    if (t === '~' || t.startsWith('~/')) t = ctx.home + t.slice(1);
-    else if (/^\$\{?HOME\}?(\/|$)/.test(t)) t = ctx.home + t.replace(/^\$\{?HOME\}?/, '');
-    else if (/[$`]/.test(t)) { level = level || 'confirm'; continue; } // unresolved variable
+    if (t === '~' || /^~[\\/]/.test(t)) t = ctx.home + t.slice(1);
+    else if (HOME_VAR.test(t)) t = ctx.home + t.replace(HOME_VAR, '');
+    else if (DRIVE_VAR.test(t)) { if (t.replace(DRIVE_VAR, '').replace(/[\\/]/g, '') === '') return 'hard'; level = 'confirm'; continue; }
+    else if (/[$`%]/.test(t)) { level = level || 'confirm'; continue; } // unresolved variable
     if (t === '*') t = '.';
-    else if (/\/\*$/.test(t)) t = t.slice(0, -2) || '/';
+    else if (/[\\/]\*$/.test(t)) t = t.slice(0, -2) || '/';
     else if (t.includes('*')) t = path.dirname(t);
     const r = norm(path.resolve(toFs(cwd), toFs(t)));
     if (r === home || isRoot(r)) return 'hard';
@@ -73,6 +82,68 @@ function rmCheck(args, cwd, ctx) {
     level = 'confirm';
   }
   return level;
+}
+
+// ---------- PowerShell / cmd recursive delete (v0.1.1) ----------
+// Remove-Item and its aliases (ri, rm, del, erase, rd, rmdir) with -Recurse (any unique prefix: -r, -rec, ...), and
+// cmd's rd / rmdir / del / erase with /s. PowerShell does not prompt for a non-empty folder once -Recurse is given,
+// so -Recurse alone counts (no -Force needed). Paths: -Path / -LiteralPath or positional; commas separate items.
+const PS_REMOVE = new Set(['remove-item', 'ri', 'rm', 'del', 'erase', 'rd', 'rmdir']);
+const PS_VALUE_PARAMS = /^-(include|exclude|filter|credential|stream)$/i;
+function psRemoveCheck(args, cwd, ctx) {
+  let recursive = false;
+  const targets = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (/^-r(e(c(u(r(se?)?)?)?)?)?$/i.test(a) || /^-[a-z]*r[a-z]*f[a-z]*$/i.test(a) || /^\/s$/i.test(a)) { recursive = true; continue; }
+    if (/^-(path|literalpath|lp|pspath)$/i.test(a)) { if (args[i + 1] !== undefined) targets.push(args[++i]); continue; }
+    if (PS_VALUE_PARAMS.test(a)) { i++; continue; }
+    if (/^-/.test(a) || /^\/[a-z]$/i.test(a)) continue; // other switches: -Force, -fo, -WhatIf, /q
+    targets.push(a);
+  }
+  if (!recursive || !targets.length) return null;
+  return classifyTargets(targets, cwd, ctx);
+}
+
+// ---------- files a command writes (secret-files; save trigger a) ----------
+// Bash: redirects and tee. PowerShell: redirects, Set-Content / Add-Content / Out-File / Tee-Object / New-Item and
+// their aliases (sc, ac, ni), by -Path / -FilePath / -LiteralPath / -Destination or the first positional argument.
+const PS_WRITERS = new Set(['set-content', 'sc', 'add-content', 'ac', 'out-file', 'tee-object', 'tee', 'new-item', 'ni', 'copy-item', 'cp', 'copy', 'move-item', 'mv', 'move']);
+const PS_PATH_PARAM = /^-(path|filepath|literalpath|lp|destination)$/i;
+function stageWrites(stage, dialect) {
+  const out = stage.redirects.filter(r => !/^\$null$/i.test(r));
+  const c = shell.command(stage.words);
+  if (!c) return out;
+  if (c.cmd === 'tee' && dialect !== 'ps') { out.push(...c.args.filter(a => !a.startsWith('-'))); return out; }
+  if (dialect === 'ps' && PS_WRITERS.has(c.cmd)) {
+    const copyLike = /^(copy-item|cp|copy|move-item|mv|move)$/.test(c.cmd);
+    let named = null;
+    const positional = [];
+    for (let i = 0; i < c.args.length; i++) {
+      const a = c.args[i];
+      if (PS_PATH_PARAM.test(a)) { const v = c.args[++i]; if (!copyLike || /^-destination$/i.test(a)) named = v; continue; }
+      if (/^-/.test(a)) { if (/^-(value|itemtype|type|encoding|inputobject)$/i.test(a)) i++; continue; }
+      positional.push(a);
+    }
+    const target = named || (copyLike ? positional[1] : positional[0]);
+    if (target) out.push(target);
+  }
+  return out;
+}
+
+// ---------- icacls: the Windows form of chmod 777 (v0.1.1) ----------
+const WIDE_PRINCIPALS = /^(everyone|\*s-1-1-0|users|builtin\\users|\*s-1-5-32-545|authenticated users|\*s-1-5-11)$/i;
+function icaclsWide(args) {
+  for (let i = 0; i < args.length; i++) {
+    if (!/^\/grant(:r)?$/i.test(args[i])) continue;
+    for (let j = i + 1; j < args.length && !/^\/[a-z]/i.test(args[j]); j++) {
+      const k = args[j].lastIndexOf(':');
+      if (k < 0) continue;
+      const who = args[j].slice(0, k), rights = args[j].slice(k + 1);
+      if (WIDE_PRINCIPALS.test(who) && /(^|[(,])(F|M)([),]|$)/i.test(rights.replace(/\((OI|CI|IO|NP|I)\)/gi, ''))) return true;
+    }
+  }
+  return false;
 }
 
 // ---------- git ----------
@@ -149,34 +220,57 @@ function isSecretName(p) {
 }
 
 // ---------- shell commands ----------
-function shellHits(raw, cwd, ctx, depth = 0) {
+// dialect: 'bash' (Bash / Git Bash forms) or 'ps' (PowerShell and cmd forms, v0.1.1). A shell started inside a
+// command (bash -c, powershell -Command, cmd /c) is checked in its own dialect.
+const FETCH = new Set(['curl', 'wget']);
+const PS_FETCH = new Set(['curl', 'wget', 'iwr', 'irm', 'invoke-webrequest', 'invoke-restmethod']);
+const PS_EXEC = new Set(['iex', 'invoke-expression']);
+const PS_SHELLS = new Set(['powershell', 'pwsh']);
+const FETCH_TEXT = /(^|[\s(])(iwr|irm|invoke-webrequest|invoke-restmethod|curl|wget)\b|downloadstring|downloadfile/i;
+
+function innerScript(cmd, args) {
+  if (SHELLS.has(cmd)) { const i = args.indexOf('-c'); return i >= 0 && args[i + 1] !== undefined ? { script: args[i + 1], dialect: 'bash' } : null; }
+  if (PS_SHELLS.has(cmd)) {
+    const i = args.findIndex(a => /^-(c|command|com|comm|comma|comman)$/i.test(a));
+    return i >= 0 && i + 1 < args.length ? { script: args.slice(i + 1).join(' '), dialect: 'ps' } : null;
+  }
+  if (cmd === 'cmd') { const i = args.findIndex(a => /^\/[ck]$/i.test(a)); return i >= 0 && i + 1 < args.length ? { script: args.slice(i + 1).join(' '), dialect: 'ps' } : null; }
+  return null;
+}
+
+function shellHits(raw, cwd, ctx, depth = 0, dialect = 'bash') {
   const hits = [];
-  const pipelines = shell.parse(raw);
+  const ps = dialect === 'ps';
+  const pipelines = shell.parse(raw, { dialect });
   let sqlClient = false;
   for (const pl of pipelines) {
     let fetchAt = -1;
     pl.forEach((stage, idx) => {
-      for (const target of stage.redirects) if (isSecretName(target)) hits.push(hit('secret-files', false, raw));
+      for (const target of stageWrites(stage, dialect)) if (isSecretName(target)) hits.push(hit('secret-files', false, raw));
       const c = shell.command(stage.words);
       if (!c) return;
       const { cmd, args } = c;
       if (SQL_CLIENTS.has(cmd)) sqlClient = true;
-      if (cmd === 'curl' || cmd === 'wget') fetchAt = fetchAt < 0 ? idx : fetchAt;
-      if (SHELLS.has(cmd)) {
+      if ((ps ? PS_FETCH : FETCH).has(cmd)) fetchAt = fetchAt < 0 ? idx : fetchAt;
+      if (SHELLS.has(cmd) || (ps && PS_EXEC.has(cmd)) || PS_SHELLS.has(cmd)) {
         if (fetchAt >= 0 && idx > fetchAt) hits.push(hit('pipe-to-shell', false, raw));
-        if (args.some(a => /^<\(\s*(curl|wget)\b/i.test(a))) hits.push(hit('pipe-to-shell', false, raw));
-        const ci = args.indexOf('-c');
-        if (ci >= 0 && args[ci + 1] !== undefined) {
-          const script = args[ci + 1];
-          if (/^\s*(\$\(|`)\s*(curl|wget)\b/i.test(script)) hits.push(hit('pipe-to-shell', false, raw));
-          else if (depth < 3) hits.push(...shellHits(script, cwd, ctx, depth + 1));
-        }
       }
-      if (cmd === 'tee') for (const a of args) if (!a.startsWith('-') && isSecretName(a)) hits.push(hit('secret-files', false, raw));
-      if (cmd === 'rm') {
+      if (SHELLS.has(cmd) && args.some(a => /^<\(\s*(curl|wget)\b/i.test(a))) hits.push(hit('pipe-to-shell', false, raw));
+      if (ps && PS_EXEC.has(cmd) && args.some(a => FETCH_TEXT.test(a))) hits.push(hit('pipe-to-shell', false, raw));
+      const inner = innerScript(cmd, args);
+      if (inner) {
+        if (/^\s*(\$\(|`)\s*(curl|wget)\b/i.test(inner.script)) hits.push(hit('pipe-to-shell', false, raw));
+        else if (depth < 3) hits.push(...shellHits(inner.script, cwd, ctx, depth + 1, inner.dialect));
+      }
+      if (cmd === 'rm' && !ps) {
         const level = rmCheck(args, cwd, ctx);
         if (level) hits.push(hit('rm-rf-outside', level === 'hard', raw));
       }
+      if (PS_REMOVE.has(cmd) && (ps || cmd !== 'rm')) {
+        const level = psRemoveCheck(args, cwd, ctx);
+        if (level) hits.push(hit('rm-rf-outside', level === 'hard', raw));
+      }
+      if (cmd === 'icacls' && icaclsWide(args)) hits.push(hit('chmod-wide', false, raw));
       if (cmd === 'git') { const id = gitCheck(args, cwd, ctx); if (id) hits.push(hit(id, false, raw)); }
       if (cmd === 'chmod' && args.some(a => /^0?777$/.test(a) || a === '--recursive' || /^-[a-zA-Z]*R[a-zA-Z]*$/.test(a))) {
         hits.push(hit('chmod-wide', false, raw));
@@ -216,7 +310,7 @@ function check(input, ctx) {
       if (isSecretName(p)) hits.push(hit('secret-files', false, p));
     } else if (tool === 'Bash' || tool === 'PowerShell') {
       const raw = String(ti.command || '');
-      hits = shellHits(raw, cwd, ctx).concat(userHits(raw, ctx.rules));
+      hits = shellHits(raw, cwd, ctx, 0, tool === 'PowerShell' ? 'ps' : 'bash').concat(userHits(raw, ctx.rules));
     } else if (tool.startsWith('mcp__')) {
       const text = mcpText(ti);
       if (sqlDestructive(text)) hits.push(hit('sql-destroy', false, text));
@@ -232,13 +326,18 @@ function check(input, ctx) {
 }
 
 // True when a shell command line runs `git commit` anywhere (any -C, env prefix or chained position).
-function isGitCommit(raw, cwd) {
+function isGitCommit(raw, cwd, dialect = 'bash') {
   try {
-    return shell.parse(raw).some(pl => pl.some(st => {
+    return shell.parse(raw, { dialect }).some(pl => pl.some(st => {
       const c = shell.command(st.words);
       return c && c.cmd === 'git' && parseGit(c.args, cwd || '.').sub === 'commit';
     }));
   } catch { return false; }
 }
 
-module.exports = { check, BUILTINS, STOP, isSecretName, isGitCommit, toFs };
+// Every file path a shell command line writes to (redirects, tee, PowerShell write cmdlets).
+function writeTargets(raw, dialect = 'bash') {
+  try { return shell.parse(raw, { dialect }).flatMap(pl => pl.flatMap(st => stageWrites(st, dialect))); } catch { return []; }
+}
+
+module.exports = { check, BUILTINS, STOP, isSecretName, isGitCommit, writeTargets, toFs };

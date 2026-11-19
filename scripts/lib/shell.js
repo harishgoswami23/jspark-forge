@@ -16,7 +16,82 @@ function captureBalanced(s, i, open, close) {
   return s.length;
 }
 
-function parse(raw) {
+// PowerShell (v0.1.1). Differences from Bash that matter for matching: backslash is a path character, the
+// backtick is the escape (backtick + newline continues the line); 'single' quotes are literal ('' is a quote);
+// "double" quotes take backtick escapes and $(...); (...), $(...), @(...) and {...} are kept as one word;
+// & at the start of a command is the call operator; commas separate array items; # starts a comment;
+// <# ... #> is a block comment. Separators: ; newline | && ||.
+function parsePs(raw) {
+  const s = String(raw || '');
+  const pipelines = [];
+  let pipeline = [];
+  let stage = { words: [], redirects: [] };
+  let buf = '';
+  let started = false;
+  let pendingRedirect = false;
+  const endWord = () => {
+    if (!started) return;
+    if (pendingRedirect) { stage.redirects.push(buf); pendingRedirect = false; } else stage.words.push(buf);
+    buf = ''; started = false;
+  };
+  const endStage = () => { endWord(); pendingRedirect = false; if (stage.words.length || stage.redirects.length) pipeline.push(cleanStage(stage)); stage = { words: [], redirects: [] }; };
+  const endPipeline = () => { endStage(); if (pipeline.length) pipelines.push(pipeline); pipeline = []; };
+  const capture = (i, open, close) => { const e = captureBalanced(s, i, open, close); buf += s.slice(i, e); started = true; return e; };
+
+  let i = 0;
+  while (i < s.length) {
+    const c = s[i];
+    const n = s[i + 1];
+    if (c === '`') {
+      if (n === '\n' || (n === '\r' && s[i + 2] === '\n')) { endWord(); i += n === '\r' ? 3 : 2; continue; } // continuation
+      if (n !== undefined) { buf += n; started = true; }
+      i += 2; continue;
+    }
+    if (c === "'") {
+      i++; started = true;
+      while (i < s.length) { if (s[i] === "'") { if (s[i + 1] === "'") { buf += "'"; i += 2; continue; } break; } buf += s[i++]; }
+      i++; continue;
+    }
+    if (c === '"') {
+      i++; started = true;
+      while (i < s.length) {
+        if (s[i] === '`' && i + 1 < s.length) { buf += s[i + 1]; i += 2; continue; }
+        if (s[i] === '"') { if (s[i + 1] === '"') { buf += '"'; i += 2; continue; } break; }
+        if (s[i] === '$' && s[i + 1] === '(') { buf += '$'; i = capture(i + 1, '(', ')'); continue; }
+        buf += s[i++];
+      }
+      i++; continue;
+    }
+    if (c === '<' && n === '#') { const k = s.indexOf('#>', i + 2); i = k < 0 ? s.length : k + 2; continue; }
+    if (c === '#' && !started) { const k = s.indexOf('\n', i); i = k < 0 ? s.length : k; continue; }
+    if ((c === '$' || c === '@') && n === '(') { buf += c; i = capture(i + 1, '(', ')'); continue; }
+    if (c === '(' && !started) { i = capture(i, '(', ')'); continue; }
+    if (c === '{' && !started) { i = capture(i, '{', '}'); continue; }
+    if (c === '\r') { i++; continue; }
+    if (c === '\n' || c === ';') { endPipeline(); i++; continue; }
+    if (c === '&') {
+      if (n === '&') { endPipeline(); i += 2; continue; }
+      if (!started && !stage.words.length) { i++; continue; } // call operator: & 'C:\x\git.exe' ...
+      endPipeline(); i++; continue;
+    }
+    if (c === '|') { if (n === '|') { endPipeline(); i += 2; continue; } endStage(); i++; continue; }
+    if (c === '>' || ((c === '2' || c === '*' || c === '1' || c === '3') && n === '>' && !started)) {
+      if (c !== '>') i++;
+      endWord();
+      i += s[i + 1] === '>' ? 2 : 1;
+      if (s[i] === '&') { i++; while (i < s.length && /\d/.test(s[i])) i++; continue; } // 2>&1
+      pendingRedirect = true; continue;
+    }
+    if (c === ',') { endWord(); i++; continue; }
+    if (/\s/.test(c)) { endWord(); i++; continue; }
+    buf += c; started = true; i++;
+  }
+  endPipeline();
+  return pipelines;
+}
+
+function parse(raw, opts = {}) {
+  if (opts.dialect === 'ps') return parsePs(raw);
   const s = String(raw || '');
   const pipelines = [];
   let pipeline = [];

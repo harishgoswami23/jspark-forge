@@ -9,7 +9,8 @@ const os = require('os');
 const path = require('path');
 const log = require('./lib/log');
 const { redact } = require('./lib/redact');
-const { check, BUILTINS, isGitCommit, toFs } = require('./lib/blocklist');
+const { check, BUILTINS, isGitCommit, writeTargets, toFs } = require('./lib/blocklist');
+const dialectOf = tool => (tool === 'PowerShell' ? 'ps' : 'bash');
 const { loadRules } = require('./lib/rules');
 const confirm = require('./lib/confirm');
 const shell = require('./lib/shell');
@@ -63,13 +64,7 @@ function writtenFiles(dir, input) {
   const cwd = input.cwd || dir;
   let paths = [];
   if (t === 'Edit' || t === 'Write' || t === 'NotebookEdit') paths = [ti.file_path || ti.notebook_path];
-  else if (t === 'Bash' || t === 'PowerShell') {
-    for (const pl of shell.parse(ti.command || '')) for (const st of pl) {
-      paths.push(...st.redirects);
-      const c = shell.command(st.words);
-      if (c && c.cmd === 'tee') paths.push(...c.args.filter(a => !a.startsWith('-')));
-    }
-  }
+  else if (t === 'Bash' || t === 'PowerShell') paths = writeTargets(ti.command || '', dialectOf(t));
   return paths.filter(p => p && !/^\/dev\//.test(p) && !/^nul$/i.test(p) && !/[$`]/.test(p))
     .map(p => path.resolve(toFs(cwd), toFs(p)))
     .filter(abs => insideProject(dir, abs));
@@ -138,7 +133,7 @@ const handlers = {
     }
     const t = input.tool_name;
     if ((t === 'Bash' || t === 'PowerShell') && rules.settings.notes !== 'off' &&
-        isGitCommit((input.tool_input || {}).command || '', input.cwd || dir)) {
+        isGitCommit((input.tool_input || {}).command || '', input.cwd || dir, dialectOf(t))) {
       return { lines: [], out: context('PreToolUse', handoff.NOTES_LINE) }; // design 5.3
     }
     return null;
@@ -174,7 +169,7 @@ const handlers = {
       taskDirty = true;
     }
     let reason = null;
-    if ((t === 'Bash' || t === 'PowerShell') && isGitCommit(ti.command || '', input.cwd || dir)) {
+    if ((t === 'Bash' || t === 'PowerShell') && isGitCommit(ti.command || '', input.cwd || dir, dialectOf(t))) {
       const gi = git.gitInfo(dir);
       if (gi && gi.head && gi.head !== (sess.git && sess.git.head)) {
         const lc = git.lastCommit(dir);

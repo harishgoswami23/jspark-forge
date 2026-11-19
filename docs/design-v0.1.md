@@ -455,7 +455,10 @@ section 13).
 **Command forms [owner, 2026-11-03 review]:** v0.1 matches **Bash / Git Bash forms only**, whichever tool (Bash or
 PowerShell) runs them; for git and `curl` commands the text is the same in both shells. PowerShell forms
 (`Remove-Item -Recurse -Force`, `rmdir /s`, `iwr … | iex`, `Set-Content .env`, `icacls … /grant Everyone:F`) move to
-v0.1.1.
+v0.1.1. **Built in v0.1.1 (2026-11-19):** a PowerShell parser mode (`scripts/lib/shell.js`) for the PowerShell tool;
+nested `powershell -Command`, `bash -c` and `cmd /c` are checked in their own dialect; `tests/blocklist-ps.test.js` has
+>= 5 positive / >= 5 negative cases per entry. [builder] `Remove-Item -Recurse` counts without `-Force`: PowerShell
+does not prompt once `-Recurse` is given, so it is the `rm -rf` equivalent.
 
 Matching is case-insensitive, on each sub-command (split on `;`, `&&`, `\|\|`, `\|`, newlines), command words only at
 command position (text inside quotes does not match). [builder]

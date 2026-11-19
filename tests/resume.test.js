@@ -351,3 +351,39 @@ test('a manual save always writes, even with no work yet', () => {
   cli(dir, ['save']);
   assert.ok(hasHandoff(dir));
 });
+
+// ---- v0.1.1: PowerShell forms of save trigger a (file writes) and b (commits) ----
+const psRun = (dir, command) => run(dir, 'PostToolUse', { tool_name: 'PowerShell', tool_input: { command } });
+
+test('PowerShell writes into the project save the handoff: Set-Content, Out-File, > redirect', () => {
+  for (const cmd of ["Set-Content -Path notes.txt -Value 'hi'", "'x' | Out-File -FilePath out.txt", "'x' > redirected.txt"]) {
+    const dir = repo();
+    psRun(dir, cmd);
+    const name = cmd.match(/(\w+\.txt)/)[1];
+    const files = handoffText(dir).match(/\*\*Files touched in this task:\*\* (.*)$/m);
+    assert.ok(files && files[1].split(', ').includes(name), `${cmd}: ${files && files[1]}`);
+  }
+});
+
+test('PowerShell reads, $null redirects and backslash paths outside the project do not count as writes', () => {
+  const dir = repo();
+  psRun(dir, 'Get-Content a.txt');
+  psRun(dir, "'x' > $null");
+  psRun(dir, "Set-Content -Path ..\elsewhere.txt -Value 'x'");
+  assert.ok(!fs.existsSync(path.join(dir, '.jspark-forge', 'handoff.md')));
+});
+
+test('a git commit run from PowerShell saves with the new HEAD and logs COMMIT', () => {
+  const dir = repo();
+  fs.writeFileSync(path.join(dir, 'c.txt'), 'c\n');
+  execFileSync('git', ['add', 'c.txt'], { cwd: dir }); execFileSync('git', ['commit', '-qm', 'from powershell'], { cwd: dir });
+  const sha = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: dir, encoding: 'utf8' }).trim();
+  psRun(dir, "git add c.txt; git commit -m 'from powershell'");
+  assert.match(logText(dir), new RegExp(`COMMIT ${sha} from powershell`));
+});
+
+test('the notes reminder also rides on a git commit run from PowerShell', () => {
+  const dir = repo();
+  const c = ctxOf(run(dir, 'PreToolUse', { tool_name: 'PowerShell', tool_input: { command: "git commit -m 'x'" } }));
+  assert.match(c, /update your notes now/);
+});
