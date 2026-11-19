@@ -291,6 +291,9 @@ test).
 
 ## v0.3: Codebase map (the "what and where") + launch-scope guard
 
+**Status (2026-11-20): built, reviewed (Fable 5.2 design and code reviews), every finding fixed; ready to release**
+on `dev/v0.3` (version 0.3.0, notes in `release-notes/v0.3.0.md`).
+
 **Integrate, don't build [owner 2026-11-20].** JSPARK Forge builds no map engine. It detects an installed MCP map
 engine and adds three layers: freshness ("as of <commit>" on every answer), the database schema from migration and
 schema files, and links to the v0.2 decisions that touch each file. No engine → map features off with a one-time
@@ -342,6 +345,10 @@ spec 5.4).
 ---
 
 ## v0.4: Build graph (spec 5.10) [owner 2026-11-05]
+
+**Status (2026-11-20): built** on `dev/v0.4` (graph file, runner, protected state, gates through Claude's tools,
+`DONE` / `TRUST GRAPH`, five templates including `ui`, `/jspark-forge:build`, a real-Claude end-to-end run); design
+and code reviews done, review fixes being merged.
 
 **Only if users ask [owner 2026-11-20].** Multi-agent runs are the feature most likely to be absorbed by Claude Code;
 built only on user demand after v0.3.

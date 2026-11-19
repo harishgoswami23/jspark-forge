@@ -375,6 +375,9 @@ nothing → flagged at SessionStart; superpowers files unreadable → skipped si
 
 ### 5.4 Codebase map (v0.3): the "what and where" [owner: post-commit refresh; builder: engine]
 
+**Built 2026-11-20 (v0.3)** on codebase-memory-mcp after a Windows trial and spikes F and G; design and review record in
+[`design-v0.3.md`](design-v0.3.md); deviations listed there (section 3).
+
 **Integrate, don't build [owner 2026-11-20].** JSPARK Forge does **not** build its own map engine. Code mapping is
 crowded (several open-source MCP engines exist), expensive to build, and likely to improve inside Claude Code itself.
 JSPARK Forge detects an installed map engine (principle 7, soft coupling) and adds only the three layers others
@@ -427,6 +430,8 @@ NotebookEdit file refresh, commit), SessionStart. **Commands** `/jspark-forge:ch
 runs async and the map says "as of <commit>".
 
 ### 5.5 Launch-scope guard (v0.3) [owner]
+
+**Built 2026-11-20 (v0.3):** `/jspark-forge:launch`, `/jspark-forge:scope`, `forge.js launch`; design-v0.3 section 2.
 
 **Behaviour**
 - `/jspark-forge:init` creates `.jspark-forge/launch.md` with **5 blank slots** and a launch date. The guard prompts to fill
@@ -568,6 +573,10 @@ Hidden command (never in the README top section).
 
 
 ### 5.10 Build graph (v0.4, only if users ask [owner 2026-11-20]) [owner 2026-11-05: add; builder: runner]
+
+**Built 2026-11-20 (v0.4)** at the owner's request to keep building; Claude runs the graph through `/jspark-forge:build`,
+JSPARK Forge keeps the record. What is enforced, evidenced, guarded or only instructed is stated in
+[`design-v0.4.md`](design-v0.4.md) section 1 (revision 3, after the code review); deviations in its section 8.
 
 **What.** A build is written down once as a graph: which steps exist, what each hands to the next, which steps can
 run side by side, and where a person must act. Forge runs the graph, saves where it is after every step, and resumes
@@ -758,6 +767,10 @@ step (Claude Code has no post-install hook); see `releases.md`.
 
 ### 5.14 UI/UX companions (v0.2) [owner 2026-11-20]
 
+**Built 2026-11-20:** the tip (v0.2, now also naming Chrome DevTools MCP), the brand-skill template, the `ui` build
+graph with screenshot, accessibility (axe) and Lighthouse gates, and ready-to-copy check files (v0.4). Sources and
+choices: [`ui-research.md`](ui-research.md).
+
 **Integrate, don't build** (principles 4 and 7). JSPARK Forge builds no UI tooling; it points to the best existing
 pieces so products built with it get first-class UI/UX:
 - **frontend-design** (Anthropic's official skill, claude-plugins-official): a clear visual direction before UI code.
@@ -777,6 +790,9 @@ commit like superpowers. **Limit** a tip, not a guarantee of good design; the ch
 the running UI (Playwright).
 
 ### 5.15 Model map: which model does what, and why (v0.2) [owner 2026-11-20]
+
+**Built 2026-11-20 (v0.2):** `agents/planner.md`, `reviewer.md`, `builder.md`, `checker.md`, `rules/model-tiers.json`;
+verified with real Claude Code (the checker was dispatched and ran).
 
 **What.** JSPARK Forge ships four helper agents, each pinned to a model **tier** with a one-line reason, so the right
 strength of model does each job without the user choosing every time. Built with the skill and brief templates

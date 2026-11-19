@@ -208,3 +208,17 @@ reviewer on the strongest model, builder on a standard one, checker on a light o
 the 5.11 templates; works beside superpowers. The model-choice advice of 5.7 made concrete. ~1 day.
 **Why [owner, 2026-11-20]:** "do we have built the decision tree which model will do what and why?" (it was advice
 only, in a later section).
+
+### Rev 15: v0.2, v0.3 and v0.4 built in one day; the UI path from research (2026-11-20)
+**What:** the owner asked to keep building past "complete" and to defer every manual check to the end of the roadmap.
+- **v0.2** built and reviewed: decision memory, database guard, model map, templates and lint, licence check, UI tip.
+- **v0.3** built and reviewed: the code map on codebase-memory-mcp (Windows trial; spikes F and G), the SQL schema
+  reader, the launch-scope guard.
+- **v0.4** built and reviewed: the build graph (spikes I, J, K); enforcement stated honestly as enforced / evidence /
+  guarded / instructed after the code review showed what a shell-controlling AI can reach around.
+- **UI path completed** after open-source research (`ui-research.md`): brand-skill template, `ui` build graph with
+  screenshot, accessibility and Lighthouse gates, Chrome DevTools MCP in the tip.
+- Every release went through a Fable 5.2 design review and code review before its fixes; CI on macOS and Linux caught
+  two more (git's index lock, a test that misread zombie processes).
+**Why [owner, 2026-11-20]:** "I am the first user, so I need a complete product"; "keep building, all the checks will
+be done at the end of our roadmap"; "at least do some research for best in class open-source git repo for UI UX".
