@@ -143,6 +143,11 @@ test('the ui template: design direction, the user approves the look, build, a sc
   assert.ok(at('human') > -1 && at('human') < kinds.indexOf('gate'), 'the user approves the look before the build is checked');
   const gate = g.steps.find(s => s.kind === 'gate');
   assert.ok(gate.run.some(r => /playwright/.test(r)), 'the visual check is a Playwright run');
+  const runs = g.steps.filter(s => s.kind === 'gate').flatMap(s => s.run);
+  assert.ok(runs.some(r => r.includes('playwright test tests/a11y')), 'an accessibility gate (axe through Playwright)');
+  assert.ok(runs.some(r => r.includes('@lhci/cli autorun')), 'a Lighthouse CI gate');
+  const tpl = require('node:path').join(__dirname, '..', 'templates', 'ui');
+  for (const t of ['a11y.spec.ts', 'visual.spec.ts', 'lighthouserc.json']) assert.ok(fs.existsSync(require('node:path').join(tpl, t)), t);
   assert.ok(g.steps.some(s => s.kind === 'agent' && s.helper === 'reviewer'), 'a design review');
   assert.equal(g.steps.filter(s => s.kind === 'human').length, 2, 'approve the look, then the final approval');
 });
@@ -153,5 +158,5 @@ test('the brand skill template passes the skill lint and names colours, type, sp
   const t = fs.readFileSync(path.join(__dirname, '..', 'templates', 'brand-skill.md'), 'utf8');
   const { lintSkill } = require('../scripts/lib/lint');
   assert.deepEqual(lintSkill(t, 'brand-skill.md'), []);
-  for (const w of ['Colours', 'Typography', 'Spacing', 'Components', 'Voice', 'Pre-ship check']) assert.match(t, new RegExp(w), w);
+  for (const w of ['Colours', 'Typography', 'Spacing', 'Components', 'Voice', 'Tokens', 'Accessibility', 'States', 'Avoid', 'Pre-ship check']) assert.match(t, new RegExp(w), w);
 });

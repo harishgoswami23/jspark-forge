@@ -5,8 +5,12 @@
 A screen or feature with a user interface, built so it is designed, approved, built, checked in a browser and reviewed.
 Before running it, install the companions JSPARK Forge names in projects with a front end (frontend-design, Playwright
 MCP, and shadcn for React), and fill in the product's brand skill (templates/brand-skill.md).
-The screenshot check needs a Playwright test at tests/ui/<name>.spec.ts that opens the screen and compares it with the
-approved look (toHaveScreenshot), plus `npx playwright install` once.
+The three checks come ready to copy from JSPARK Forge's templates/ui/ (research 2026-11-20, docs/ui-research.md):
+- tests/ui/*.spec.ts (visual.spec.ts): Playwright compares each screen with the approved look (toHaveScreenshot);
+- tests/a11y/*.spec.ts (a11y.spec.ts): axe checks WCAG 2.1 A/AA at phone and desktop width, light and dark;
+- lighthouserc.json: Lighthouse CI scores (accessibility 0.95, best practices 0.9, layout shift 0.1; performance warns).
+Once: npm i -D @playwright/test @axe-core/playwright @lhci/cli, then npx playwright install.
+After approve-look, record the reference screenshots once: npx playwright test tests/ui --update-snapshots.
 -->
 
 ## direction (agent)
@@ -28,6 +32,8 @@ approved look (toHaveScreenshot), plus `npx playwright install` once.
 ## screens (gate)
 - after: build
 - run: npx playwright test tests/ui
+- run: npx playwright test tests/a11y
+- run: npx @lhci/cli autorun
 
 ## design-review (agent)
 - helper: reviewer

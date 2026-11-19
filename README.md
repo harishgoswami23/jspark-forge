@@ -81,13 +81,15 @@ never installs anything. For top-quality UI work:
 - **frontend-design** (Anthropic's plugin): `/plugin install frontend-design@claude-plugins-official`
 - **Playwright MCP**, so Claude can check its own screens: `claude mcp add playwright npx @playwright/mcp@0.0.86`
 - **shadcn MCP** (React projects): `npx shadcn@4.23.0 mcp init --client claude`
+- **Chrome DevTools MCP**, so Claude sees console errors, performance and layout shift: `/plugin install chrome-devtools-mcp@claude-plugins-official`
 
 Then give the product its own brand rules and build screens through a checked path:
 - **Brand skill:** copy `templates/brand-skill.md` to `skills/brand/SKILL.md` in your project and fill in colours,
   type, spacing, components and voice. Claude follows it for anything a user sees and ends with a screenshot check.
 - **The `ui` build graph:** `/jspark-forge:build` with the `ui` template runs design direction (strongest model) →
-  **you approve the look** → build → a Playwright screenshot check that must pass → a design review → **your final
-  approval**.
+  **you approve the look** → build → three checks that must pass (screens match the approved look; no accessibility
+  violations axe can find, at phone and desktop width, light and dark; Lighthouse scores) → a design review → **your
+  final approval**. The check files are ready to copy from `templates/ui/`. Choices and sources: `docs/ui-research.md`.
 
 This makes good UI the default path, not luck. The look is still only as good as the direction you approve.
 
