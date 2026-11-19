@@ -102,8 +102,11 @@ function psRemoveCheck(args, cwd, ctx) {
     targets.push(a);
   }
   if (!recursive || !targets.length) return null;
-  return classifyTargets(targets, cwd, ctx);
+  return classifyTargets(targets.map(psPath), cwd, ctx);
 }
+
+// PowerShell splits paths on a backslash on every system; Node on macOS/Linux does not, so normalise there.
+function psPath(p) { return WIN ? p : String(p).split(String.fromCharCode(92)).join('/'); }
 
 // ---------- files a command writes (secret-files; save trigger a) ----------
 // Bash: redirects and tee. PowerShell: redirects, Set-Content / Add-Content / Out-File / Tee-Object / New-Item and
@@ -111,7 +114,7 @@ function psRemoveCheck(args, cwd, ctx) {
 const PS_WRITERS = new Set(['set-content', 'sc', 'add-content', 'ac', 'out-file', 'tee-object', 'tee', 'new-item', 'ni', 'copy-item', 'cp', 'copy', 'move-item', 'mv', 'move']);
 const PS_PATH_PARAM = /^-(path|filepath|literalpath|lp|destination)$/i;
 function stageWrites(stage, dialect) {
-  const out = stage.redirects.filter(r => !/^\$null$/i.test(r));
+  const out = stage.redirects.filter(r => !/^\$null$/i.test(r)).map(r => (dialect === 'ps' ? psPath(r) : r));
   const c = shell.command(stage.words);
   if (!c) return out;
   if (c.cmd === 'tee' && dialect !== 'ps') { out.push(...c.args.filter(a => !a.startsWith('-'))); return out; }
@@ -126,7 +129,7 @@ function stageWrites(stage, dialect) {
       positional.push(a);
     }
     const target = named || (copyLike ? positional[1] : positional[0]);
-    if (target) out.push(target);
+    if (target) out.push(psPath(target));
   }
   return out;
 }

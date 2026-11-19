@@ -182,3 +182,12 @@ test('the PowerShell parser keeps backslash paths and treats the backtick as the
   const [[st]] = parse("Remove-Item C:\\work\\proj -Recurse; Write-Host `\"hi`\"", { dialect: 'ps' });
   assert.deepEqual(st.words, ['Remove-Item', 'C:\\work\\proj', '-Recurse']);
 });
+
+test('backslash paths mean the same on every system (pwsh on macOS/Linux also splits on a backslash)', () => {
+  const BS = String.fromCharCode(92); // a backslash, spelled out so no tool or shell can swallow it
+  const up = ['sub', '..', '..', 'other'].join(BS);
+  assert.equal(expectOf(check(ps(`Remove-Item -Recurse -Force ${up}`), ctx())), 'rm-rf-outside', `${up} leaves the project`);
+  const { writeTargets } = require('../scripts/lib/blocklist');
+  const [target] = writeTargets(`Set-Content -Path ${['sub', '..', '..', 'x.txt'].join(BS)} -Value 'x'`, 'ps');
+  assert.equal(path.resolve(PROJECT, target).startsWith(PROJECT), false, `${target} is outside the project`);
+});
