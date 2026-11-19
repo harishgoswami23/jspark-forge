@@ -6,8 +6,10 @@
 const fs = require('fs');
 const path = require('path');
 const { writeAtomic } = require('./fsx');
+const paths = require('./paths');
 
-const stateDir = dir => path.join(dir, '.jspark-forge', 'state');
+
+const stateDir = dir => path.join(paths.forgeDir(dir), 'state');
 
 function readJson(file, fallback) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return fallback; }

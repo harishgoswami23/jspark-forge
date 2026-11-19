@@ -5,6 +5,8 @@
 const fs = require('fs');
 const path = require('path');
 const BUILTINS = require('../../rules/default-blocklist.json');
+const paths = require('./paths');
+
 
 const SETTINGS = { notes: ['on', 'off'], 'statusline-segment': ['on', 'off'] };
 
@@ -66,8 +68,8 @@ const readText = f => { try { return fs.readFileSync(f, 'utf8'); } catch { retur
 function loadRules(projectDir, { claudeHome } = {}) {
   const home = claudeHome || process.env.CLAUDE_CONFIG_DIR || path.join(require('os').homedir(), '.claude');
   const user = parseRules(readText(path.join(home, 'jspark-forge', 'rules.md')));
-  const repo = parseRules(readText(path.join(projectDir, '.jspark-forge', 'rules.md')));
-  const repoDisable = readText(path.join(projectDir, '.jspark-forge', 'rules.md')).split(/\r?\n/)
+  const repo = parseRules(readText(path.join(paths.repoForgeDir(projectDir), 'rules.md')));
+  const repoDisable = readText(path.join(paths.repoForgeDir(projectDir), 'rules.md')).split(/\r?\n/)
     .map((l, i) => ({ l, n: i + 1 })).filter(x => /^\s*[-*]\s+disable\s*:/i.test(x.l));
   const ids = new Set(user.confirm.concat(user.never).map(r => r.id));
   const fresh = r => (ids.has(r.id) ? Object.assign({}, r, { id: `${r.id}-repo` }) : r);

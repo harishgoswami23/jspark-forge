@@ -5,9 +5,11 @@
 const fs = require('fs');
 const path = require('path');
 const { writeAtomic } = require('./fsx');
+const paths = require('./paths');
+
 
 const TTL_MS = 5 * 60 * 1000;
-const fileOf = dir => path.join(dir, '.jspark-forge', 'state', 'confirm.json');
+const fileOf = dir => path.join(paths.forgeDir(dir), 'state', 'confirm.json');
 
 function read(dir) {
   try {

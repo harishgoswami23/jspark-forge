@@ -18,14 +18,14 @@ for (const name of ['resume', 'handoff']) {
 
 test('resume reads only the handoff, never the log, and waits', () => {
   const t = read('resume');
-  assert.match(t, /\.jspark-forge\/handoff\.md/);
+  assert.match(t, /node "\$\{CLAUDE_PLUGIN_ROOT\}\/scripts\/forge\.js" show/, 'asks the script (guest mode moves the file)');
   assert.match(t, /Do not read the log/);
   assert.match(t, /Continue\?/);
 });
 
 test('handoff updates the notes, then runs the save script from the plugin root; done closes the task', () => {
   const t = read('handoff');
-  assert.match(t, /\.jspark-forge\/state\/notes\.md/);
+  assert.match(t, /node "\$\{CLAUDE_PLUGIN_ROOT\}\/scripts\/forge\.js" where/, 'asks where the notes file is');
   assert.match(t, /node "\$\{CLAUDE_PLUGIN_ROOT\}\/scripts\/forge\.js" save/);
   assert.match(t, /--done/);
   assert.match(t, /\$ARGUMENTS/);

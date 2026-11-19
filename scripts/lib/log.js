@@ -5,6 +5,8 @@ const fs = require('fs');
 const path = require('path');
 const { redact } = require('./redact');
 const { writeAtomic } = require('./fsx');
+const paths = require('./paths');
+
 
 const CAP_BYTES = 2 * 1024 * 1024;
 const KEEP_AFTER_CAP = new Set(['SAVE', 'BLOCK', 'CONFIRM', 'COMMIT']);
@@ -14,7 +16,7 @@ const LINE_RE = /^(\d\d:\d\d:\d\d) \[([^\]]*)\]\s+(\S+)\s*(.*)$/;
 const pad2 = n => String(n).padStart(2, '0');
 const dayStamp = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 const clock = d => `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
-const logDir = projectDir => path.join(projectDir, '.jspark-forge', 'log');
+const logDir = projectDir => path.join(paths.forgeDir(projectDir), 'log');
 
 function idField(session, agent) {
   const s = String(session || '').slice(0, 8);

@@ -6,13 +6,15 @@
 const fs = require('fs');
 const path = require('path');
 const state = require('./state');
+const paths = require('./paths');
+
 
 const STALE_MS = 2 * 60 * 1000;
 const bandOf = p => (p >= 95 ? 95 : p >= 80 ? 80 : 0);
 
 function highest(dir, sid, now = Date.now()) {
   try {
-    const u = JSON.parse(fs.readFileSync(path.join(dir, '.jspark-forge', 'usage', `${String(sid).replace(/[^A-Za-z0-9-]/g, '')}.json`), 'utf8'));
+    const u = JSON.parse(fs.readFileSync(path.join(paths.forgeDir(dir), 'usage', `${String(sid).replace(/[^A-Za-z0-9-]/g, '')}.json`), 'utf8'));
     if (!u || typeof u.ts !== 'number' || now - u.ts > STALE_MS) return null;
     const figs = [u.context_pct, u.five_hour_pct, u.seven_day_pct].filter(v => typeof v === 'number' && Number.isFinite(v));
     return figs.length ? Math.max(...figs) : null;

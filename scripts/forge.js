@@ -20,12 +20,13 @@ const git = require('./lib/git');
 const { parsePlan } = require('./lib/plan');
 const usageLib = require('./lib/usage');
 const setup = require('./lib/setup');
+const paths = require('./lib/paths');
 
 const event = process.argv[2] || '';
 const DEBOUNCE_MS = 5000;
 
 // ---------- helpers ----------
-const isInitialised = dir => { try { return fs.statSync(path.join(dir, '.jspark-forge')).isDirectory(); } catch { return false; } };
+const isInitialised = dir => paths.isActive(dir);
 function findProject(start) {
   let d = path.resolve(start);
   for (;;) { if (isInitialised(d)) return d; const up = path.dirname(d); if (up === d) return null; d = up; }
@@ -134,7 +135,7 @@ const handlers = {
     const t = input.tool_name;
     if ((t === 'Bash' || t === 'PowerShell') && rules.settings.notes !== 'off' &&
         isGitCommit((input.tool_input || {}).command || '', input.cwd || dir, dialectOf(t))) {
-      return { lines: [], out: context('PreToolUse', handoff.NOTES_LINE) }; // design 5.3
+      return { lines: [], out: context('PreToolUse', handoff.notesLine(dir)) }; // design 5.3
     }
     return null;
   },
@@ -247,8 +248,8 @@ const handlers = {
 // Checked on the events that can show output; PreCompact cannot, PreToolUse stays lean.
 const USAGE_EVENTS = new Set(['UserPromptSubmit', 'PostToolUse', 'Stop']);
 const MSG95 = 'Usage at 95 %. Handoff saved. Next session, JSPARK Forge shows where you were.';
-const CTX95 = 'JSPARK Forge: usage is at 95 %. The handoff is saved. Please finish the current small step, update your ' +
-  'notes in .jspark-forge/state/notes.md, and do not start new work.';
+const ctx95 = dir => 'JSPARK Forge: usage is at 95 %. The handoff is saved. Please finish the current small step, update your ' +
+  `notes in ${paths.display(dir, path.join(paths.forgeDir(dir), 'state', 'notes.md'))}, and do not start new work.`;
 
 function withUsage(dir, sid, lines, out) {
   const band = usageLib.crossed(dir, sid);
@@ -257,7 +258,7 @@ function withUsage(dir, sid, lines, out) {
   doSave(dir, sid, `usage ${band} %`, lines);
   if (lines.length === before) return out; // no work to save: "Handoff saved" would not be true, so say nothing
   const msg = band === 95 ? MSG95 : null;
-  const ctx = band === 95 ? CTX95 : (notesOn(dir) ? handoff.NOTES_LINE : null);
+  const ctx = band === 95 ? ctx95(dir) : (notesOn(dir) ? handoff.notesLine(dir) : null);
   if (!msg && !ctx) return out;
   const o = out || {};
   if (msg) o.systemMessage = o.systemMessage ? `${o.systemMessage}\n${msg}` : msg;
@@ -312,10 +313,31 @@ function main(raw) {
 }
 
 // ---------- `forge.js save [--done]` (the /jspark-forge:handoff skill) ----------
-function cliSave(args) {
-  const dir = process.env.CLAUDE_PROJECT_DIR && isInitialised(process.env.CLAUDE_PROJECT_DIR)
+function cliProject() {
+  return process.env.CLAUDE_PROJECT_DIR && isInitialised(process.env.CLAUDE_PROJECT_DIR)
     ? process.env.CLAUDE_PROJECT_DIR : findProject(process.cwd());
-  if (!dir) { process.stdout.write('JSPARK Forge is not set up in this project yet (run /jspark-forge:init).\n'); return; }
+}
+const NOT_SET_UP = 'JSPARK Forge is not set up in this project yet (it switches on by itself in a git project).\n';
+
+// `forge.js show`: print the handoff (the resume skill reads it this way: in guest mode the file is not in the repo).
+function cliShow() {
+  const dir = cliProject();
+  if (!dir) { process.stdout.write(NOT_SET_UP); return; }
+  const f = path.join(paths.forgeDir(dir), 'handoff.md');
+  process.stdout.write(fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : 'No handoff saved yet in this project.\n');
+}
+
+// `forge.js where`: the absolute paths of the notes file and the handoff (the handoff skill writes the notes there).
+function cliWhere() {
+  const dir = cliProject();
+  if (!dir) { process.stdout.write(NOT_SET_UP); return; }
+  const f = paths.forgeDir(dir);
+  process.stdout.write(JSON.stringify({ notes: path.join(f, 'state', 'notes.md'), handoff: path.join(f, 'handoff.md') }, null, 2) + '\n');
+}
+
+function cliSave(args) {
+  const dir = cliProject();
+  if (!dir) { process.stdout.write(NOT_SET_UP); return; }
   const sid = process.env.CLAUDE_CODE_SESSION_ID || 'manual';
   const lines = [];
   doSave(dir, sid, 'manual', lines, { force: true }); // the user asked: always write
@@ -325,12 +347,13 @@ function cliSave(args) {
   }
   for (const [kind, detail] of lines) log.append(dir, { time: new Date(), session: sid, kind, detail });
   process.stdout.write(args.includes('--done')
-    ? 'Task closed. The handoff is archived in .jspark-forge/archive/; the next session starts fresh.\n'
+    ? `Task closed. The handoff is archived in ${paths.display(dir, path.join(paths.forgeDir(dir), 'archive'))}/; the next session starts fresh.\n`
     : 'Handoff saved. Next session, JSPARK Forge shows where you were.\n');
 }
 
-if (event === 'save') {
-  try { cliSave(process.argv.slice(3)); } catch (e) { process.stdout.write(`JSPARK Forge could not save: ${e.message}\n`); }
+const CLI = { save: cliSave, show: cliShow, where: cliWhere };
+if (CLI[event]) {
+  try { CLI[event](process.argv.slice(3)); } catch (e) { process.stdout.write(`JSPARK Forge could not ${event}: ${e.message}\n`); }
 } else {
   let raw = '';
   process.stdin.setEncoding('utf8');

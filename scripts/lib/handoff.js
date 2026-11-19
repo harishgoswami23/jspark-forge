@@ -9,6 +9,8 @@ const superpowers = require('./superpowers');
 const { gitInfo, headBranch } = require('./git');
 const log = require('./log');
 const state = require('./state');
+const paths = require('./paths');
+
 
 const CAP_WORDS = 600;
 const OLD_MS = 14 * 24 * 3600 * 1000;
@@ -20,7 +22,7 @@ const hhmm = d => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 const ymd = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 const words = s => s.split(/\s+/).filter(Boolean).length;
 const cut = (s, n = FIELD_MAX) => { const t = String(s).replace(/\s+/g, ' ').trim(); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
-const forgeDir = dir => path.join(dir, '.jspark-forge');
+const forgeDir = dir => paths.forgeDir(dir);
 const handoffFile = dir => path.join(forgeDir(dir), 'handoff.md');
 const notesFile = dir => path.join(forgeDir(dir), 'state', 'notes.md');
 
@@ -99,7 +101,7 @@ function render(m, opts = {}) {
       (s.running && s.running.length ? ` · running ${s.running.join(', ')}` : ''));
     L.push(`**Also active:** ${o.join('; ')}`);
   }
-  L.push(`**More detail:** ${m.logFile} · older handoffs: .jspark-forge/archive/`);
+  L.push(`**More detail:** ${m.logFile} · older handoffs: ${m.archiveDir || '.jspark-forge/archive/'}`);
   const text = L.join('\n') + '\n';
   if (words(text) > CAP_WORDS && level < 4) return render(m, { level: level + 1 });
   return text;
@@ -116,7 +118,8 @@ function recentActions(dir, sid, now) {
     const m = raw.match(log.LINE_RE);
     if (!m || !m[2].startsWith(s8)) continue;
     const [, time, , kind, detail] = m;
-    if ((kind === 'EDIT' || kind === 'WRITE') && detail.startsWith('.jspark-forge/')) continue; // Forge's own files
+    const own = `${paths.display(dir, forgeDir(dir))}/`;
+    if ((kind === 'EDIT' || kind === 'WRITE') && (detail.startsWith('.jspark-forge/') || detail.startsWith(own))) continue; // Forge's own files
     const t = time.slice(0, 5);
     const short = s => cut(s, 60);
     const say = { EDIT: `edited ${detail}`, WRITE: `wrote ${detail}`, BASH: `ran ${short(detail.split(' :: ')[0])}`,
@@ -174,7 +177,8 @@ function save(dir, sid, reason, { refreshGit = true, now = new Date(), force = f
     running: runningOf(sess), waiting: sess.waiting, lastRequest: sess.lastPrompt,
     notes: notes && notes.text ? { time: notes.time, text: notes.text } : null,
     recent: recentActions(dir, sid, now), files: task.files, ended: sess.ended,
-    logFile: `.jspark-forge/log/${log.dayStamp(now)}.log`, others,
+    logFile: paths.display(dir, path.join(forgeDir(dir), 'log', `${log.dayStamp(now)}.log`)), others,
+    archiveDir: `${paths.display(dir, path.join(forgeDir(dir), 'archive'))}/`,
   };
   writeAtomic(handoffFile(dir), render(model));
   state.writeMeta(dir, { status: 'open', savedAt: now.getTime(), session: sid, branch: sess.git && sess.git.branch,
@@ -186,7 +190,7 @@ function save(dir, sid, reason, { refreshGit = true, now = new Date(), force = f
 }
 
 // ---------- resume (design 8) ----------
-const NOTES_LINE = 'JSPARK Forge: update your notes now in .jspark-forge/state/notes.md (max 120 words: what you are doing, ' +
+const notesLine = dir => `JSPARK Forge: update your notes now in ${paths.display(dir, notesFile(dir))} (max 120 words: what you are doing, ` +
   "anything agreed with the user, what is next). Start with the lines 'Task:', 'Step: n of m: ...' and 'Next:' when you know them.";
 const WAIT_LINE = "JSPARK Forge: Before doing anything else, in your first reply show this in plain words (≤ 8 lines, ending with 'Continue?') " +
   'and wait for the user\'s answer. Do not change files or run commands for the old task until they reply. If their first message is ' +
@@ -220,7 +224,7 @@ function resumeContext(dir, sid, source, now = new Date()) {
   if (source === 'compact') {
     if (h) parts.push(h.text, CARRY_LINE);
     const sess = state.readSession(dir, sid);
-    if (sess.notesDue) { parts.push(NOTES_LINE); sess.notesDue = false; state.writeSession(dir, sid, sess); }
+    if (sess.notesDue) { parts.push(notesLine(dir)); sess.notesDue = false; state.writeSession(dir, sid, sess); }
   } else if (h) {
     if (now.getTime() - h.meta.savedAt < OLD_MS) {
       const current = headBranch(dir);
@@ -231,7 +235,7 @@ function resumeContext(dir, sid, source, now = new Date()) {
       if (branchNote) parts.push(`JSPARK Forge: ${branchNote}`);
     } else {
       const d = new Date(h.meta.savedAt);
-      msgs.push(`JSPARK Forge: an old handoff from ${d.getDate()} ${d.toLocaleString('en-GB', { month: 'short' })} exists (.jspark-forge/handoff.md).`);
+      msgs.push(`JSPARK Forge: an old handoff from ${d.getDate()} ${d.toLocaleString('en-GB', { month: 'short' })} exists (${paths.display(dir, handoffFile(dir))}).`);
     }
   }
   return { systemMessage: msgs.length ? msgs.join('\n') : null, context: parts.join('\n\n') };
@@ -264,4 +268,4 @@ function pruneArchive(dir, now = new Date()) {
   }
 }
 
-module.exports = { render, taskFields, parseNotes, save, resumeContext, archive, pruneArchive, NOTES_LINE, grounding };
+module.exports = { render, taskFields, parseNotes, save, resumeContext, archive, pruneArchive, notesLine, grounding };

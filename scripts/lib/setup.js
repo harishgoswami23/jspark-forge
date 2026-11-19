@@ -10,6 +10,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const statusline = require('./statusline-install');
+const paths = require('./paths');
+
 
 const GITIGNORE = '*\n!.gitignore\n!rules.md\n';
 const claudeHome = () => process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
@@ -26,7 +28,7 @@ function inGitProject(dir) {
 
 // -> 'created' | 'exists' | 'skipped'
 function ensureProject(dir, { force = false } = {}) {
-  const forge = path.join(dir, '.jspark-forge');
+  const forge = paths.repoForgeDir(dir);
   if (fs.existsSync(forge)) return 'exists';
   if (!force && !inGitProject(dir)) return 'skipped';
   fs.mkdirSync(forge, { recursive: true });

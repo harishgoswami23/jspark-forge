@@ -387,3 +387,19 @@ test('the notes reminder also rides on a git commit run from PowerShell', () => 
   const c = ctxOf(run(dir, 'PreToolUse', { tool_name: 'PowerShell', tool_input: { command: "git commit -m 'x'" } }));
   assert.match(c, /update your notes now/);
 });
+
+// ---- G1: skills ask the script where things are (guest mode will move them out of the repo) ----
+test('forge.js show prints the handoff; forge.js where prints the notes and handoff paths', () => {
+  const dir = repo();
+  editIn(dir, 'w.js');
+  run(dir, 'Stop', {});
+  const show = cli(dir, ['show']);
+  assert.match(show.stdout, /^# Where we were/);
+  const where = JSON.parse(cli(dir, ['where']).stdout);
+  assert.equal(path.resolve(where.notes), path.join(dir, '.jspark-forge', 'state', 'notes.md'));
+  assert.equal(path.resolve(where.handoff), path.join(dir, '.jspark-forge', 'handoff.md'));
+});
+
+test('forge.js show says so when there is no handoff yet', () => {
+  assert.match(cli(repo(), ['show']).stdout, /No handoff saved yet in this project/);
+});

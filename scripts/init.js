@@ -12,7 +12,7 @@ const args = process.argv.slice(2);
 const opt = (name, def) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : def; };
 const PROJECT = path.resolve(opt('--project', process.env.CLAUDE_PROJECT_DIR || process.cwd()));
 const CLAUDE_HOME = opt('--claude-home', path.join(os.homedir(), '.claude'));
-const FORGE = path.join(PROJECT, '.jspark-forge');
+const FORGE = require('./lib/paths').repoForgeDir(PROJECT);
 const GITIGNORE = '*\n!.gitignore\n!rules.md\n';
 const out = [];
 const readJson = f => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return null; } };
