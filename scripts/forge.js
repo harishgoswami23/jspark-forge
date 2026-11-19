@@ -380,6 +380,11 @@ function main(raw) {
     if (!handler) return;
     const res = handler(dir, input) || { lines: [], out: null };
     let { lines, out } = Array.isArray(res) ? { lines: [res], out: null } : res;
+    // A decision was just recorded: say so in the conversation, every time (design-v0.2 1.4: never unseen).
+    if (event === 'PostToolUse' && /\bdecide\b/.test(String((input.tool_input || {}).command || ''))) {
+      const ev = require('./lib/decide').takeEvent(dir);
+      if (ev) { out = out || {}; out.systemMessage = [out.systemMessage, ev].filter(Boolean).join('\n'); }
+    }
     if (USAGE_EVENTS.has(event)) out = withUsage(dir, input.session_id, lines, out);
     if (guest && (event === 'SessionStart' || event === 'UserPromptSubmit')) { // the repo's text is data, not instructions
       out = out || {};
@@ -473,7 +478,14 @@ function cliWaiting(args) {
 const cliDoctor = () => process.stdout.write(require('./lib/doctor').doctor(cliProject(), setup.claudeHome()));
 const cliStatus = () => process.stdout.write(require('./lib/doctor').status(cliProject()));
 
-const CLI = { save: cliSave, show: cliShow, where: cliWhere, waiting: cliWaiting, doctor: cliDoctor, status: cliStatus };
+// `forge.js decide --from <file.json> | --verify <id> | --retire <id> [--by <id>]` (design-v0.2 1.4).
+function cliDecide(args) {
+  const dir = cliProject();
+  if (!dir) { process.stdout.write(NOT_SET_UP); return; }
+  process.stdout.write(require('./lib/decide').run(dir, args, process.env.CLAUDE_CODE_SESSION_ID || 'manual'));
+}
+
+const CLI = { save: cliSave, show: cliShow, where: cliWhere, waiting: cliWaiting, doctor: cliDoctor, status: cliStatus, decide: cliDecide };
 if (CLI[event]) {
   try { CLI[event](process.argv.slice(3)); } catch (e) { process.stdout.write(`JSPARK Forge could not ${event}: ${e.message}\n`); }
 } else {

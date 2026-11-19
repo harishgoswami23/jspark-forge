@@ -78,9 +78,9 @@ function nextId(text) {
 const today = () => new Date().toISOString().slice(0, 10);
 
 // -> { text, id }
-function addEntry(text, { title, kind = 'decision', why = '', see = '', by = '', source = '', touches = [], date = today() }) {
+function addEntry(text, { id: wantId, title, kind = 'decision', why = '', see = '', by = '', source = '', touches = [], date = today() }) {
   const eol = eolOf(text || '');
-  const id = nextId(text);
+  const id = wantId || nextId(text);
   const clean = s => String(s || '').replace(/\s+/g, ' ').trim();
   const L = [`## ${id} ${clean(title)}`, `- Kind: ${kind}`];
   if (clean(why)) L.push(`- Why: ${clean(why)}`);
@@ -119,7 +119,25 @@ function setField(text, id, key, value) {
   return lines.join(eol);
 }
 
-const words = e => `${e.title || ''} ${e.why || ''}`.split(/\s+/).filter(Boolean).length;
+// Replaces the title on an entry's heading line; nothing else changes.
+function setTitle(text, id, title) {
+  const eol = eolOf(text);
+  const lines = String(text).split(/\r?\n/);
+  const i = lines.findIndex(l => { const m = l.replace(BOM, '').match(HEAD); return m && m[1] === id; });
+  if (i < 0) throw new Error(`no entry ${id} in decisions.md`);
+  const bom = lines[i].startsWith(String.fromCharCode(0xfeff)) ? String.fromCharCode(0xfeff) : '';
+  lines[i] = `${bom}## ${id} ${String(title).replace(/\s+/g, ' ').trim()}`;
+  return lines.join(eol);
+}
+
+// How many times each id appears (two branches merged can both add D-007).
+function idCounts(text) {
+  const n = {};
+  for (const m of String(text || '').matchAll(/^\S?##\s+(D-\d+)\s/gm)) n[m[1]] = (n[m[1]] || 0) + 1;
+  return n;
+}
+
+const words = e =>`${e.title || ''} ${e.why || ''}`.split(/\s+/).filter(Boolean).length;
 
 // ---------- Touches: matching (design 1.2) ----------
 const normRel = p => String(p || '').trim().replace(/\\/g, '/').replace(/^(\.\/)+/, '');
@@ -145,4 +163,4 @@ function matches(pattern, file) {
   return globRe(p).test(f);
 }
 
-module.exports = { parse, nextId, addEntry, setField, matches, words, KINDS };
+module.exports = { parse, nextId, addEntry, setField, setTitle, idCounts, matches, words, KINDS };
