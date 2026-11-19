@@ -116,3 +116,19 @@ test('the three shipped templates are valid graphs (spec 5.10)', () => {
     assert.equal(order(g).length, g.steps.length, `${n}: every step can run`);
   }
 });
+
+test('forge.js lint also checks build graphs in .jspark-forge/graphs/', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const lint = require('../scripts/lib/lint');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-lintg-'));
+  fs.mkdirSync(path.join(dir, '.jspark-forge', 'graphs'), { recursive: true });
+  fs.mkdirSync(path.join(dir, '.jspark-forge', 'state'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.jspark-forge', 'graphs', 'bad.md'), '# Graph: bad\n## a (robot)\n');
+  fs.writeFileSync(path.join(dir, '.jspark-forge', 'graphs', 'good.md'), '# Graph: good\n## a (agent)\n- helper: builder\n');
+  const out = lint.run(dir, []);
+  process.exitCode = 0;
+  assert.match(out, /bad\.md:2: unknown kind "robot"/);
+  assert.match(out, /ok .*good\.md/);
+});
