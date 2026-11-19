@@ -82,19 +82,20 @@ blocks something, Claude is told: *"Do not try an equivalent command; tell the u
 
 | Name | Blocks |
 |---|---|
-| `rm-rf-outside` | `rm -rf` outside the project, and inside it on the project root, `.` or `.git`. On your home folder, the root or a whole drive it is **always refused** |
+| `rm-rf-outside` | `rm -rf`, `Remove-Item -Recurse`, `rd /s` outside the project, and inside it on the project root, `.` or `.git`. On your home folder, the root or a whole drive it is **always refused** |
 | `git-force-push-main` | `git push --force` / `--force-with-lease` to `main` or `master` |
 | `git-reset-hard` | `git reset --hard`; also `git checkout -- .`, `git restore .`, `git restore --staged .` at the project root |
 | `git-clean-fdx` | `git clean -fdx` |
 | `git-stash-drop` | `git stash drop`, `git stash clear` |
-| `sql-destroy` | `DROP`, `TRUNCATE`, `DELETE` without `WHERE` |
-| `secret-files` | Editing `.env*`, key, secret and credential files (templates such as `.env.example` and `.env.sample` are allowed) |
-| `chmod-wide` | `chmod 777`, `chmod -R` |
-| `pipe-to-shell` | `curl … \| sh` and similar |
+| `sql-destroy` | `DROP`, `TRUNCATE`, `DELETE` without `WHERE` (psql, mysql, sqlite3, sqlcmd, `Invoke-Sqlcmd`, database MCP tools) |
+| `secret-files` | Editing `.env*`, key, secret and credential files, also via `>`, `tee`, `Set-Content`, `Out-File` (templates such as `.env.example` and `.env.sample` are allowed) |
+| `chmod-wide` | `chmod 777`, `chmod -R`, `icacls … /grant Everyone:F` |
+| `pipe-to-shell` | `curl … \| sh`, `iwr … \| iex`, `iex (irm …)` and similar |
 
-v0.1 matches Bash / Git Bash command forms. PowerShell forms (`Remove-Item -Recurse -Force`, `iwr | iex`) come in
-v0.1.1, with two more blocks: `readonly-source` (no edits to an old system you are migrating from, always refused)
-and `guest-quarantine` (no installing or running a repo you are only reviewing without `CONFIRM`).
+Bash, Git Bash, PowerShell and cmd forms are all matched (PowerShell from v0.1.1), also when one shell starts another
+(`powershell -Command "…"`, `bash -c "…"`, `cmd /c "…"`). Coming next in v0.1.1: `readonly-source` (no edits to an
+old system you are migrating from, always refused) and `guest-quarantine` (no installing or running a repo you are
+only reviewing without `CONFIRM`).
 
 Add your own in `.jspark-forge/rules.md` ("Confirm" or "Never" lines). Blocks also fire inside helper agents.
 This is a seatbelt, not a sandbox: a deliberately disguised command can get past pattern matching.
