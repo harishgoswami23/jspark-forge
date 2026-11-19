@@ -127,6 +127,11 @@ function offerContext(dir, input, sess) {
   return memory.deliver(sess);
 }
 
+const MODEL_MAP_LINE = 'JSPARK Forge model map: when a superpowers skill dispatches a helper, use subagent_type ' +
+  'jspark-forge:builder for implementers, jspark-forge:reviewer for spec and code reviews, and jspark-forge:checker for ' +
+  'mechanical checks (tests, logs); jspark-forge:planner for designs and plans. Each runs on its tier (strongest for ' +
+  'planner and reviewer, standard for builder, light for checker); if you also pass a model, pass the same tier.';
+
 // ---------- handlers ----------
 // A handler returns null, [kind, detail] (one log line), or { lines: [[kind, detail], ...], out: <hook JSON> }.
 const handlers = {
@@ -153,6 +158,11 @@ const handlers = {
     }
     const rc = handoff.resumeContext(dir, input.session_id, input.source || 'startup');
     if (offerAfterCompact) rc.context = `${rc.context}\n\n${offerAfterCompact}`;
+    // Model map (design-v0.2 4): superpowers starts general-purpose helpers and names a model per call, so with it the
+    // map is steered, not enforced: one line asking Claude to use JSPARK Forge's helpers.
+    try {
+      if (setup.superpowersInstalled(setup.claudeHome())) rc.context = `${rc.context}\n\n${MODEL_MAP_LINE}`;
+    } catch { /* never break a session start */ }
     // Decision memory (design-v0.2 1.6): the index of titles for Claude; for the user, entries that arrived with git
     // (once) and one line when some need a look. Off in guest repos (the functions check).
     try {

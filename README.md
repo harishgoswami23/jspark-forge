@@ -151,6 +151,21 @@ the block list) works as usual. A wrong guess costs nothing: only where the file
 A repo's own `.jspark-forge/rules.md` is never read in guest mode. Like the block list, the hold is a seatbelt, not a
 sandbox.
 
+## Which model does what (helpers)
+
+JSPARK Forge ships four helpers, each on the model strength its job needs:
+
+| Helper | Model | For | Why |
+|---|---|---|---|
+| `jspark-forge:planner` | strongest | specs, designs, plans, data-model choices | a mistake here is expensive and found late |
+| `jspark-forge:reviewer` | strongest | design and code reviews, security, migrations, release go/no-go | it must catch what others missed (it cannot edit) |
+| `jspark-forge:builder` | standard | building from a reviewed plan, small fixes | the plan carries the judgement; tests catch slips |
+| `jspark-forge:checker` | light | tests, logs, mechanical checks | cheap and visible mistakes (it cannot edit) |
+
+Each works from a brief (goal, what it may and may not change, when it is done, when to stop) and ends with evidence.
+With superpowers, JSPARK Forge asks Claude to use these helpers for its implementers, reviewers and checks. That is
+guidance, not a lock: superpowers chooses a model for each helper it starts.
+
 ## Commands
 
 | Command | What it does |
