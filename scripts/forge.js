@@ -17,6 +17,7 @@ const state = require('./lib/state');
 const handoff = require('./lib/handoff');
 const git = require('./lib/git');
 const { parsePlan } = require('./lib/plan');
+const usageLib = require('./lib/usage');
 
 const event = process.argv[2] || '';
 const DEBOUNCE_MS = 5000;
@@ -248,6 +249,30 @@ const handlers = {
   },
 };
 
+// ---------- usage bands (design 7.2) ----------
+// Checked on the events that can show output; PreCompact cannot, PreToolUse stays lean.
+const USAGE_EVENTS = new Set(['UserPromptSubmit', 'PostToolUse', 'Stop']);
+const MSG95 = 'Usage at 95 %. Handoff saved. Next session, JSPARK Forge shows where you were.';
+const CTX95 = 'JSPARK Forge: usage is at 95 %. The handoff is saved. Please finish the current small step, update your ' +
+  'notes in .jspark-forge/state/notes.md, and do not start new work.';
+
+function withUsage(dir, sid, lines, out) {
+  const band = usageLib.crossed(dir, sid);
+  if (!band) return out;
+  doSave(dir, sid, `usage ${band} %`, lines);
+  const msg = band === 95 ? MSG95 : null;
+  const ctx = band === 95 ? CTX95 : (notesOn(dir) ? handoff.NOTES_LINE : null);
+  if (!msg && !ctx) return out;
+  const o = out || {};
+  if (msg) o.systemMessage = o.systemMessage ? `${o.systemMessage}\n${msg}` : msg;
+  if (ctx && event !== 'Stop') { // Stop carries no additionalContext
+    o.hookSpecificOutput = o.hookSpecificOutput || { hookEventName: event };
+    const had = o.hookSpecificOutput.additionalContext;
+    o.hookSpecificOutput.additionalContext = had ? `${had}\n\n${ctx}` : ctx;
+  }
+  return Object.keys(o).length ? o : null;
+}
+
 // ---------- hook entry ----------
 function main(raw) {
   let input = null;
@@ -258,9 +283,9 @@ function main(raw) {
     if (!isInitialised(dir)) return;
     const handler = handlers[event];
     if (!handler) return;
-    const res = handler(dir, input);
-    if (!res) return;
-    const { lines, out } = Array.isArray(res) ? { lines: [res], out: null } : res;
+    const res = handler(dir, input) || { lines: [], out: null };
+    let { lines, out } = Array.isArray(res) ? { lines: [res], out: null } : res;
+    if (USAGE_EVENTS.has(event)) out = withUsage(dir, input.session_id, lines, out);
     // Helpers' tool calls carry agent_id; SubagentStart/Stop describe the helper itself, so they stay main-session.
     const agent = event.startsWith('Subagent') ? null : input.agent_id;
     const secrets = lines.length ? log.envSecrets(dir) : [];

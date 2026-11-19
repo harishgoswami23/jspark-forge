@@ -335,8 +335,9 @@ Treat it as a workaround, because it is one. [owner]
        "five_hour_resets_at": n|null, "seven_day_resets_at": n|null}`;
   3. runs the user's **original** command (saved in `statusline.json`) with the same stdin, through the same shell
      Claude Code would use (Git Bash if present on Windows, else PowerShell; `sh -c` elsewhere), timeout 2 s;
-  4. prints the original output unchanged, then Forge's short part (`· Forge saved 3m ago`), which the user can
-     switch off. If the original command fails or times out, prints Forge's part only.
+  4. prints the original output unchanged, then the short part (`· JSPARK Forge saved 3m ago`; `JSPARK Forge on`
+     before the first save; nothing in projects without `.jspark-forge/`) [builder 2026-11-19: brand rule, never
+     "Forge" alone], which the user can switch off. If the original command fails or times out, prints Forge's part only.
 - Spike B decides the exact shell call and whether a `refreshInterval` is needed. [spike]
 - **`refreshInterval` [owner 2026-11-19, spike A]:** when the user's status line has none, the installer sets
   `refreshInterval: 30` (disclosed in 7.4, removed on undo); a user's own value is kept. Re-test passed 2026-11-19 (7/7 fresh).

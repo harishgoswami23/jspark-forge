@@ -30,3 +30,22 @@ test('handoff updates the notes, then runs the save script from the plugin root;
   assert.match(t, /--done/);
   assert.match(t, /\$ARGUMENTS/);
 });
+
+test('init is user-only, runs init.js, asks before wrapping the status line, and offers undo', () => {
+  const t = read('init');
+  const f = front(t);
+  assert.match(f, /^name: init$/m);
+  assert.match(f, /^disable-model-invocation: true$/m);
+  assert.match(t, /node "\$\{CLAUDE_PLUGIN_ROOT\}\/scripts\/init\.js"/);
+  assert.match(t, /Go ahead\? \(yes \/ no\)/);
+  assert.match(t, /--undo-statusline/);
+  assert.match(t, /install\.js" --undo/);
+});
+
+test('the rules template parses with no errors and no active rules', () => {
+  const { parseRules } = require('../scripts/lib/rules');
+  const r = parseRules(fs.readFileSync(path.join(__dirname, '..', 'templates', 'rules.md'), 'utf8'));
+  assert.equal(r.errors.length, 0);
+  assert.equal(r.confirm.length + r.never.length, 0);
+  assert.equal(r.settings.notes, 'on');
+});
