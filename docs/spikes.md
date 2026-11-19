@@ -73,6 +73,10 @@ canary is never seen, record the notes-reminder route (design 5.3) in "Deviation
   `/compact`; the rejected JSON (incl. the canary) then leaks into the conversation via the error text. **Confirms
   the docs; Forge's PreCompact must print nothing.** The design 5.3 route (`notes_due` → SessionStart `compact`) is
   needed and works: SessionStart `compact` fired and its context reached Claude.
+- **Re-test with `refreshInterval: 30` (2026-11-19, owner decision):** two 2-minute idle gaps; 23 status-line runs,
+  every 30 s while idle; **7/7 hook calls fresh (< 2 min), oldest 26 s → pass.**
+- **Plan type:** the login is a **Team** plan, and `rate_limits` (five-hour, seven-day) were present after the first
+  prompt. The docs/README say Pro/Max/Ultra only; Team appears to report too (observed, not documented).
 - API-key account side: not run yet.
 
 ---
