@@ -23,6 +23,8 @@ function project({ space = false } = {}) {
   fs.writeFileSync(path.join(dir, 'package.json'), '{"name":"x"}');
   g('add', '-A'); g('commit', '-qm', 'start');
   fs.mkdirSync(path.join(dir, '.jspark-forge', 'state'), { recursive: true });
+  // As in every real project: JSPARK Forge's own files stay out of git (CI: `git add -A` met a lock file mid-refresh).
+  fs.writeFileSync(path.join(dir, '.jspark-forge', '.gitignore'), '*\n!.gitignore\n!rules.md\n!decisions.md\n');
   require('../scripts/lib/paths').markOwn(dir);
   return dir;
 }
