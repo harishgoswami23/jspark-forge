@@ -231,4 +231,14 @@ function check(input, ctx) {
   }
 }
 
-module.exports = { check, BUILTINS, STOP, isSecretName };
+// True when a shell command line runs `git commit` anywhere (any -C, env prefix or chained position).
+function isGitCommit(raw, cwd) {
+  try {
+    return shell.parse(raw).some(pl => pl.some(st => {
+      const c = shell.command(st.words);
+      return c && c.cmd === 'git' && parseGit(c.args, cwd || '.').sub === 'commit';
+    }));
+  } catch { return false; }
+}
+
+module.exports = { check, BUILTINS, STOP, isSecretName, isGitCommit, toFs };

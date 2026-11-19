@@ -9,7 +9,7 @@ const { writeAtomic } = require('./fsx');
 const CAP_BYTES = 2 * 1024 * 1024;
 const KEEP_AFTER_CAP = new Set(['SAVE', 'BLOCK', 'CONFIRM', 'COMMIT']);
 const ID_WIDTH = 19; // "[a1b2c3d4/9f8e7d6c]"
-const LINE_RE = /^(\d\d:\d\d:\d\d) \[([^\]]*)\]\s+(\S+)\s?(.*)$/;
+const LINE_RE = /^(\d\d:\d\d:\d\d) \[([^\]]*)\]\s+(\S+)\s*(.*)$/;
 
 const pad2 = n => String(n).padStart(2, '0');
 const dayStamp = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;

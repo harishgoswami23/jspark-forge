@@ -105,3 +105,10 @@ test('envSecrets reads values from .env files but not from templates', () => {
   assert.ok(vals.includes('quoted-secret-2'));
   assert.ok(!vals.includes('placeholder-value-3'));
 });
+
+test('a written line parses back to kind and detail without the padding', () => {
+  const line = log.formatLine({ time: at(2026, 11, 2), session: 'abc', kind: 'EDIT', detail: 'docs/plan.md' });
+  const m = line.match(log.LINE_RE);
+  assert.equal(m[3], 'EDIT');
+  assert.equal(m[4], 'docs/plan.md');
+});
