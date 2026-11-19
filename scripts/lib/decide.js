@@ -106,7 +106,8 @@ function run(dir, args, sid) {
   }
   const hwm = Number(st.hwm) || 0;
   const id = `D-${String(Math.max(Number(D.nextId(text).slice(2)), hwm + 1)).padStart(3, '0')}`;
-  const entry = { id, title, kind, why: one(j.why, 2000), // long is accepted (warned once); injection shows 160 chars see, source: one(j.source, 120), touches,
+  // A long why is accepted (warned once below); the just-in-time line shows only its first 160 characters.
+  const entry = { id, title, kind, why: one(j.why, 2000), see, source: one(j.source, 120), touches,
     by: j.drafted ? 'you (drafted by Claude)' : 'you' };
   const out = D.addEntry(text, entry);
   fs.mkdirSync(path.dirname(f), { recursive: true });
