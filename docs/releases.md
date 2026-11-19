@@ -1,6 +1,6 @@
 # JSPARK Forge: releases
 
-Status: 2026-11-19 (brought in line with spec Rev 6–9). One section per release, consistent with [`spec.md`](spec.md) (sections 5 and 7); the spec wins
+Status: 2026-11-20 (brought in line with spec Rev 6–11). One section per release, consistent with [`spec.md`](spec.md) (sections 5 and 7); the spec wins
 if the two ever differ. v0.1 build detail is in [`design-v0.1.md`](design-v0.1.md); spikes in
 [`spikes.md`](spikes.md); revision history in [`changelog.md`](changelog.md).
 
@@ -11,12 +11,14 @@ that date; **[spike]** depends on a spike. Spike results override review decisio
 |---|---|---|
 | v0.1 | Resume + hooks: back to work after any cutoff; dangerous actions blocked | ~1 week (real build) |
 | v0.1.1 | "Waiting on you" list (spec 5.2a); PowerShell command forms; ~~hook-enforced show-and-wait~~ (dropped 2026-11-19, design-v0.1.1 section 1); guest mode + quarantine, readonly sources (spec 5.2b) | ~4–5½ days |
-| v0.2 | Decision memory, the "why"; `/jspark-forge:check`; migration mappings, licence check | ~4½–5 days |
+| Real users (gate) | 20–50 users and ~2 weeks of feedback before v0.2; the roadmap below is reordered from it (spec 7) | ~2 weeks, calendar |
+| v0.2 | Decision memory, the "why" (the centrepiece); `/jspark-forge:check`; migration mappings, licence check | ~4½–5 days |
 | v0.2 | Skill and brief templates with lint; plugin + plain instruction file from one source (spec 5.11) | ~1 week |
-| v0.3 | Codebase map, the "what and where"; launch-scope guard; map of readonly sources | ~1–1½ weeks, **soft** |
-| v0.4 | Build graph: a build as a fixed graph of nodes, saved after every node, resumed on the running node (spec 5.10) | ~1½–2 weeks, **soft** |
+| v0.2.1 | Database guard: production read-only unless `CONFIRM db-write` (spec 5.2c) | ~1–1½ days |
+| v0.3 | Codebase map as a thin layer on an existing engine (integrate, don't build): freshness, schema from source files, links to decisions; launch-scope guard; map of readonly sources | ~1 week, **soft** |
+| v0.4 (only if users ask) | Build graph: a build as a fixed graph of nodes, saved after every node, resumed on the running node (spec 5.10) | ~1½–2 weeks, **soft** |
 | Later, only if asked | Security review prompts (incl. council mode), `/capacity`, dashboard (incl. git view), `/jspark-forge:review`, migration mode, customer edition, secrets by name, limit handover, `/jspark-forge:doctor` (spec 5.6–5.8a, 5.12, 5.13) | not estimated |
-| **Total to v0.4** | | ~6–7 weeks, **soft** |
+| **Total to v0.3** | | ~4–4½ weeks of build after v0.1.1, plus ~2 weeks of feedback, **soft** (v0.4 ~1½–2 weeks more, only if asked) |
 
 ---
 
@@ -139,6 +141,42 @@ is pulled forward, it lands here. Not counted in the estimate above.
 
 ---
 
+## Real users (gate) [owner 2026-11-20]
+
+**What.** After v0.1.1 ships and before v0.2 starts, JSPARK Forge goes in front of 20–50 real users: the official
+Claude Code plugin directory, the superpowers community, a short demo. What they hit is fixed first; the order of
+everything below is then revisited from their feedback.
+
+**Measured without telemetry** (spec principle 3): installs, GitHub issues and stars, direct replies.
+
+**Success measure** users who come back after a cutoff in a second week.
+
+---
+
+## v0.2.1: Database guard (spec 5.2c) [owner 2026-11-20]
+
+**What it does.** Guards databases instead of reading them: a write to a production database is denied until the
+user types `CONFIRM db-write` (one-shot, 5 minutes). Reads are never blocked.
+
+**User-visible behaviour**
+- Writes = anything but `SELECT` / `WITH … SELECT` / `EXPLAIN` / `SHOW` / `DESCRIBE`, plus migration-apply, merge,
+  reset and restore tools of database MCP servers.
+- Checked in MCP tool calls and in Bash / PowerShell database clients (`psql`, `mysql`, `sqlite3`, `mongosh`,
+  `supabase db`, `prisma migrate deploy`, …).
+- Production by default: every database MCP server and every non-local host. One line in `rules.md` relaxes it:
+  `- database dev: <server name or host pattern>` (ignored in a guest repo's own rules).
+- `sql-destroy` keeps blocking `DROP` / `TRUNCATE` / `DELETE` without `WHERE` everywhere.
+
+**Acceptance criteria** ≥ 5 positive / ≥ 5 negative tests per form (MCP, Bash, PowerShell); a `SELECT` is never
+blocked; a dev line relaxes only its own server.
+
+**Estimate** ~1–1½ days.
+
+**Limits** seatbelt, not sandbox: a write inside a script file or stored procedure passes. JSPARK Forge never
+connects to a database.
+
+---
+
 ## v0.2: Decision memory (the "why")
 
 **What it does.** Keeps one-line decisions, standing rules and lessons, each with the files it touches, and injects
@@ -216,6 +254,11 @@ test).
 
 ## v0.3: Codebase map (the "what and where") + launch-scope guard
 
+**Integrate, don't build [owner 2026-11-20].** JSPARK Forge builds no map engine. It detects an installed MCP map
+engine and adds three layers: freshness ("as of <commit>" on every answer), the database schema from migration and
+schema files, and links to the v0.2 decisions that touch each file. No engine → map features off with a one-time
+tip; everything else works (spec 5.4).
+
 **What it does.** The architecture memory: a local index of files, symbols, routes and call relations that Claude
 queries instead of re-reading files. It also indexes `docs/`, ADRs and the schema source (migrations, Prisma schema,
 ORM models, SQL files), so tables and relationships come from the code itself, never from a separate knowledge
@@ -249,7 +292,7 @@ estimate; estimate only with ≥ 10 history items.
 
 **Success measure** **at least one feature shrunk or postponed** because the guard showed its cost.
 
-**Estimate** ~1–1½ weeks, **soft until the engine trial is done**.
+**Estimate** ~1 week, **soft until the engine trial is done** (smaller than before: no engine is built).
 
 **Honest caveat** [owner, 2026-11-03]: the hardest piece; a stale map is worse than none; the engine (Windows support,
 licence, refresh speed) is unproven and **not chosen**. The trial runs after v0.1 ships (candidates and criteria:
@@ -262,6 +305,9 @@ spec 5.4).
 ---
 
 ## v0.4: Build graph (spec 5.10) [owner 2026-11-05]
+
+**Only if users ask [owner 2026-11-20].** Multi-agent runs are the feature most likely to be absorbed by Claude Code;
+built only on user demand after v0.3.
 
 **What it does.** A build is written down once as a graph (`forge/graphs/<name>.md`): which steps exist, what each
 hands to the next, which can run side by side, and where a person must act. JSPARK Forge runs it, saves after every

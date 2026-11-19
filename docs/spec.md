@@ -1,7 +1,7 @@
 # JSPARK Forge: product spec
 
 Status: **Final, approved by owner 2026-11-03. Build order: spikes A–D, then v0.1. Started 2026-11-19 (owner moved
-it ahead of the earlier schedule).** Consolidated 2026-11-02; revised 2026-11-03, 2026-11-07 and 2026-11-19. Latest decisions only; superseded text dropped. The v0.1 build design is
+it ahead of the earlier schedule).** Consolidated 2026-11-02; revised 2026-11-03, 2026-11-07, 2026-11-19 and 2026-11-20. Latest decisions only; superseded text dropped. The v0.1 build design is
 [`design-v0.1.md`](design-v0.1.md); spikes in [`spikes.md`](spikes.md); open questions in
 [`open-questions.md`](open-questions.md); every release in detail in [`releases.md`](releases.md); this spec's
 revision history in [`changelog.md`](changelog.md).
@@ -286,6 +286,30 @@ PostToolUse (last-read source path, v0.2; source map refresh, v0.3).
 **Failure modes** no origin URL → tag uses the folder name; readonly path missing → flagged at SessionStart, rule kept;
 path matching errors fail open and are logged (as 5.2).
 
+### 5.2c Database guard (v0.2.1) [owner 2026-11-20]
+
+**Guard databases, don't read them.** Live database access already exists through database MCP servers (Supabase,
+Postgres and others) and command-line clients. Reading data is not JSPARK Forge's job; protecting it is.
+
+**Behaviour**
+- **Production is read-only unless you type `CONFIRM db-write`.** A write to a production database is denied with
+  the usual "type CONFIRM db-write" reason; the confirm is one-shot, 5 minutes, like the others (5.2).
+- **A write** is any statement other than `SELECT` / `WITH … SELECT` / `EXPLAIN` / `SHOW` / `DESCRIBE`, plus
+  migration-apply, branch-merge, reset and restore tools of database MCP servers.
+- **Where it looks:** MCP tool calls (`mcp__*`, the text of their inputs, as `sql-destroy` does today) and Bash /
+  PowerShell database clients (`psql`, `mysql`, `sqlite3`, `mongosh`, `supabase db`, `prisma migrate deploy`, …).
+- **What counts as production:** every database MCP server and every client connection to a host other than
+  `localhost` / `127.0.0.1` / a Unix socket, **unless** `rules.md` names it as dev: `- database dev: <server name or
+  host pattern>`. Safe by default; one line to relax. A repo's own `rules.md` cannot mark a database as dev in guest
+  mode (5.2b).
+- `sql-destroy` (5.2) stays as it is: `DROP` / `TRUNCATE` / `DELETE` without `WHERE` are blocked on dev databases too.
+
+**Tests** ≥ 5 positive / ≥ 5 negative per form (MCP, Bash, PowerShell), like every block-list entry; a `SELECT` is
+never blocked; a `database dev:` line lets writes through for that server only.
+
+**Limits** a seatbelt, not a sandbox: a write hidden in a script file or a stored procedure passes; the README says
+so. JSPARK Forge never connects to a database itself.
+
 ### 5.3 Decision memory (v0.2): the "why" [owner: prompted author, touches, staleness, last verified]
 
 **What it is [owner, 2026-11-03]:** one-line decisions, rules and lessons, each with the files it touches, injected
@@ -344,6 +368,19 @@ nothing → flagged at SessionStart; superpowers files unreadable → skipped si
 
 ### 5.4 Codebase map (v0.3): the "what and where" [owner: post-commit refresh; builder: engine]
 
+**Integrate, don't build [owner 2026-11-20].** JSPARK Forge does **not** build its own map engine. Code mapping is
+crowded (several open-source MCP engines exist), expensive to build, and likely to improve inside Claude Code itself.
+JSPARK Forge detects an installed map engine (principle 7, soft coupling) and adds only the three layers others
+skip:
+1. **Freshness:** every map answer carries "as of <commit>", and a map behind `HEAD` says so.
+2. **Database schema from the source files:** tables and relationships read from migrations, Prisma schema, ORM
+   models and SQL files (through the engine if it covers them, else a small reader for SQL migrations and Prisma),
+   each with the file it comes from. Never the live database (5.2c).
+3. **Links to decisions:** a map answer about a file also lists the v0.2 decisions that touch it, so the map answers
+   "why" as well as "where".
+No engine installed → map features off, one-time tip naming the trialled engine; everything else works. The rest
+of this section describes what the combined map does; the engine supplies the index, JSPARK Forge the three layers.
+
 **Behaviour:** the architecture memory: a local index of files, symbols, routes and call relations that Claude
 queries ("where is the login check?", "what breaks if I change this?") instead of re-reading files. Used by the
 scope guard for "new modules / critical paths" facts.
@@ -369,8 +406,9 @@ wrong answers), so every answer carries "as of <commit>" and a map behind `HEAD`
 chosen**: Windows support, licence and refresh speed are unproven until the trial, which runs **after v0.1 ships**.
 The v0.3 date is **soft** until that trial is done.
 
-**Engine choice criteria (pick after a Windows trial, after v0.1 ships):** works on Windows, macOS, Linux without a compiler;
-permissive licence (MIT/Apache/BSD) if bundled, otherwise a separately installed optional helper; local only (no
+**Engine choice criteria (pick after a Windows trial, after v0.1 ships; the engine is recommended, never bundled or
+forked [owner 2026-11-20]):** works on Windows, macOS, Linux without a compiler;
+permissive licence (MIT/Apache/BSD); installed by the user as a separate helper; local only (no
 upload); exposed over MCP; incremental refresh < 10 s after a commit on a ~50k-line repo; covers the common web
 stacks (TypeScript/JavaScript, Python, Go at minimum); index size reasonable (< 200 MB on 50k lines). Candidates to
 trial: codebase-memory-mcp, Serena (as an optional helper given its app licence), Graphify, CodeGraph. Non-commercial
@@ -522,7 +560,7 @@ Hidden command (never in the README top section).
 - Forge works fully without it.
 
 
-### 5.10 Build graph (v0.4) [owner 2026-11-05: add; builder: runner]
+### 5.10 Build graph (v0.4, only if users ask [owner 2026-11-20]) [owner 2026-11-05: add; builder: runner]
 
 **What.** A build is written down once as a graph: which steps exist, what each hands to the next, which steps can
 run side by side, and where a person must act. Forge runs the graph, saves where it is after every step, and resumes
@@ -735,15 +773,17 @@ their next option, instead of the session dying mid-task.
 | **0. Design** | This spec + v0.1 design + spikes run, owner approval. Before-code order [owner, 2026-11-03 review]: (1) fix headless guard, hidden folder, PostToolUse matcher + timeouts in the design; (2) cut v0.1 to one week (cut list below); (3) run spikes A–C + D (headless); (4) build | ~½ day + 1 day spikes | Spikes A–D recorded; facts table updated; deviations from review recorded (principle 13) | n/a |
 | **v0.1 Resume + hooks** | Handoff + save triggers (no 10-minute trigger) + usage bridge + show-and-wait (instructed only) + notes reminder (`additionalContext`, no extra turn) + action log; grounding rule at SessionStart (5.1a); block list (Bash / Git Bash forms) + typed confirm + rules.md; helper rule injection only if spike C passes; every hook documented; demo GIF; Win/Mac/Linux | **~1 week (real build)** | **Ship gate [owner 2026-11-03]:** ships only when the kill-and-resume test passes on Windows, macOS and Linux (after spikes A–D); grounding rule present after startup/resume/compact; resume < 30 s on ~50k-line repo, measured on a cold machine; no file changed before the user answers; a `claude -p` run with a handoff present is never stalled; every published block has tests; uninstall/undo leaves the status line as before; `claude plugin validate --strict` passes | Back to work **< 2 min** after a cutoff with no re-explaining |
 | **v0.1.1** | **Waiting on you** list (5.2a); PowerShell command forms for the block list and write detection; ~~hook-enforced show-and-wait guard~~ (dropped 2026-11-19 after design review: it would release before the turn it guards; show-and-wait stays instructed, design-v0.1.1 section 1) (skipped in non-interactive runs); **guest mode + quarantine, readonly sources** (5.2b) | ~4–5½ days (base ~2–3 + Waiting on you ~1 + external code ~1–1½) | PowerShell forms have the same ≥ 5 positive / ≥ 5 negative tests per entry; guard never fires in a detected headless run; guest mode writes nothing inside the repo (file-tree diff test); `readonly-source` and `guest-quarantine` have ≥ 5 positive / ≥ 5 negative tests | as v0.1 |
-| **v0.2 Decision memory (the "why")** | One-line decisions, rules and lessons with the files they touch; prompted at commit/plan; injected just before Claude edits a touched file (PreToolUse `additionalContext`); stale flags; last verified; `/jspark-forge:check` memory check (read-only unless confirmed); superpowers sources; `kind: reference` pointers; long-entry warning; 30-day flag for entries without `touches:`; local counts in `/jspark-forge:decisions`. Not a description of code structure. Plus (5.2b): migration mappings as decisions, licence check | ~4½–5 days | Prompt appears at every commit and accepted plan, default yes, never silent; editing a touched file injects the entry; changed touched files raise one flag/day; `/jspark-forge:check` changes nothing without confirmation; superpowers absence or layout change does not break anything (test); a reference entry injects only its pointer; an entry over ~80 words is accepted with one warning, never blocked; an entry without `touches:` is flagged at 30 days; `/jspark-forge:decisions` shows reference and long-entry counts; a knowledge-base request is logged with a count, not refused | Claude **does not break a past decision** |
+| **Real users (gate) [owner 2026-11-20]** | After v0.1.1 ships and before v0.2 starts: put JSPARK Forge in front of 20–50 users (official plugin directory, superpowers community, a short demo); fix what they hit; reorder the rest of this table from their feedback | ~2 weeks of feedback (calendar time, not build time) | Measured without telemetry (principle 3): installs, GitHub issues and stars, direct replies | Users who come back after a cutoff in a second week |
+| **v0.2 Decision memory (the "why")** (the centrepiece [owner 2026-11-20]) | One-line decisions, rules and lessons with the files they touch; prompted at commit/plan; injected just before Claude edits a touched file (PreToolUse `additionalContext`); stale flags; last verified; `/jspark-forge:check` memory check (read-only unless confirmed); superpowers sources; `kind: reference` pointers; long-entry warning; 30-day flag for entries without `touches:`; local counts in `/jspark-forge:decisions`. Not a description of code structure. Plus (5.2b): migration mappings as decisions, licence check | ~4½–5 days | Prompt appears at every commit and accepted plan, default yes, never silent; editing a touched file injects the entry; changed touched files raise one flag/day; `/jspark-forge:check` changes nothing without confirmation; superpowers absence or layout change does not break anything (test); a reference entry injects only its pointer; an entry over ~80 words is accepted with one warning, never blocked; an entry without `touches:` is flagged at 30 days; `/jspark-forge:decisions` shows reference and long-entry counts; a knowledge-base request is logged with a count, not refused | Claude **does not break a past decision** |
 | **v0.2 Skill and brief templates (5.11)** | Skill template (trigger description, numbered parts with input → action → output path, skip-if-exists, non-overwriting outputs, verification step with evidence) and brief template (`CAN`/`CANNOT`, `Done`, `Setup` handshake, fixed-schema log, bounded retries, tie-break, `Stop`, declared `Outputs`); lint; plugin + plain instruction file from one source | ~1 week | Lint rejects a skill or brief missing any required field; a skill run twice makes no second fetch and no overwrite; a brief log survives a killed session; plugin and plain file carry the same rules (diff test) | Every helper brief in a build is written from the template without re-explaining scope |
-| **v0.3 Map (the "what and where") + scope guard** | Codebase map: local index of files, symbols, routes and call relations, plus `docs/`, ADRs and schema source, refreshed file by file as Claude edits (background, changed files only), after commits and at session start, queried instead of re-reading files, answers show last-refresh time (engine not chosen; trialled after v0.1 ships); `/jspark-forge:check` extended to the map; `.jspark-forge/launch.md` via init; scope facts; history-based range later; map of readonly sources (5.2b). **Caveat:** hardest piece; a stale map is worse than none; engine (Windows support, licence, refresh speed) unproven | ~1–1½ weeks, **soft until the engine trial is done** | File re-index never blocks the next tool call; map refresh < 10 s after commit on ~50k lines (or async with "as of"); answers always show last-refresh time; guard silent until launch.md exists; facts shown before any estimate; estimate only with ≥ 10 history items | **At least one feature shrunk or postponed** because the guard showed its cost |
-| **v0.4 Build graph** | Graph file format + three templates; runner (platform workflow facility when present, else one node at a time); `graph-state.json`; resume lands on the running node; `human` and `gate` nodes; parallel cap by memory and usage; per-node cost shown before and after (5.10) | ~1½–2 weeks (soft: after v0.3 and the engine trial) | State survives a killed session; human node blocks; gate stops on a failing command; cap never exceeded; three templates run end to end | A build of ≥ 5 tasks completed across ≥ 2 sessions without re-briefing |
+| **v0.2.1 Database guard (5.2c)** | Production databases read-only unless CONFIRM db-write; MCP, Bash and PowerShell forms; `database dev:` line in rules.md | ~1–1½ days | ≥ 5 positive / ≥ 5 negative tests per form; a SELECT is never blocked; a dev line relaxes only its own server | No unconfirmed write reaches a production database |
+| **v0.3 Map (the "what and where") + scope guard** | **Thin layer on an existing engine (5.4, integrate, don't build [owner 2026-11-20])**: freshness ("as of <commit>"), schema from source files, links to decisions, on top of the engine's index. Codebase map: local index of files, symbols, routes and call relations, plus `docs/`, ADRs and schema source, refreshed file by file as Claude edits (background, changed files only), after commits and at session start, queried instead of re-reading files, answers show last-refresh time (engine not chosen; trialled after v0.1 ships); `/jspark-forge:check` extended to the map; `.jspark-forge/launch.md` via init; scope facts; history-based range later; map of readonly sources (5.2b). **Caveat:** a stale map is worse than none; engine (Windows support, licence, refresh speed) unproven | ~1 week, **soft until the engine trial is done** (smaller: no engine is built) | File re-index never blocks the next tool call; map refresh < 10 s after commit on ~50k lines (or async with "as of"); answers always show last-refresh time; guard silent until launch.md exists; facts shown before any estimate; estimate only with ≥ 10 history items | **At least one feature shrunk or postponed** because the guard showed its cost |
+| **v0.4 Build graph (only if users ask [owner 2026-11-20])** | Graph file format + three templates; runner (platform workflow facility when present, else one node at a time); `graph-state.json`; resume lands on the running node; `human` and `gate` nodes; parallel cap by memory and usage; per-node cost shown before and after (5.10) | ~1½–2 weeks (soft: after v0.3 and the engine trial; built only if users ask, since multi-agent runs are the feature most likely to be absorbed by Claude Code) | State survives a killed session; human node blocks; gate stops on a failing command; cap never exceeded; three templates run end to end | A build of ≥ 5 tasks completed across ≥ 2 sessions without re-briefing |
 | **Council mode (with 5.6, later)** | Several helpers answer a high-stakes review; blind shuffled rankings; chair with the label map; quorum; persisted rankings and aggregate (C1–C5) | — (sized with 5.6) | C1–C5 tests pass; 1 of 3 clean rankings stores no verdict; a reload shows the same rankings | — |
 | **Git view (with 5.8, later)** | "What was built" from the repo alone: per task label, per day, per model, test-run ids; G1–G5 | — (sized with 5.8) | G1–G5 tests pass; the page renders with the network off; a one-commit repo shows a message | — |
 | **Customer edition (5.12, later)** | The kit inside a customer's network on a local model, producing only a product's declared extension artifacts through the product's own gates; after the build graph and the signed-pack work; **only when a product built with the kit asks** | — (not sized) | Output limited to declared pack artifacts (test: any other write is denied); every output goes through the product's gates; no network egress; model licence recorded | — |
 | **Later, only if asked** | Security review prompts (incl. council mode), `/capacity`, dashboard (incl. the git view), `/jspark-forge:review`, migration mode (5.8a), customer edition (5.12), secrets by name, limit handover and the health check (5.13; the health check is a candidate for v0.1.1) | — | per section 5 | — |
-| **Total to v0.4** | | **~6–7 weeks (soft: v0.3 depends on the engine trial; v0.4 follows it; 5.11 adds ~1 week to v0.2)** | | |
+| **Total to v0.3** | | **~4–4½ weeks of build after v0.1.1, plus ~2 weeks of user feedback (soft: v0.3 depends on the engine trial; 5.11 adds ~1 week to v0.2; v0.4 only if users ask, ~1½–2 weeks more)** | | |
 
 **v0.1 cut list [owner, 2026-11-03 review]** (what left v0.1 and where it went):
 
@@ -789,12 +829,13 @@ their next option, instead of the session dying mid-task.
 | Becoming what it warns against (too many pieces) | Release gates; "later, only if asked"; lean principle |
 | Claude Code changes hooks, status line, plugin format | Thin dependence; facts table re-checked each release; hook-fire test before each release; `/jspark-forge:doctor` once it ships (5.13c); fail open |
 | Status-line bridge is a workaround | Timestamp + 2-minute rule; step triggers as the real guarantee; spikes A–B |
-| Anthropic absorbs features | Build only opinionated project judgement; no thin wrappers |
+| Anthropic absorbs features (resume and memory are the likeliest) | Build only opinionated project judgement; no thin wrappers. The durable edge is what a platform will not ship: hard safety rules, guest-repo protection, decisions tied to files [owner 2026-11-20]. Map: integrate an engine, never build one; build graph only if users ask |
 | `/resume` name clash | Pitch never asks the user to type a command (Q1 decided) |
 | Show-and-wait guard stalls headless runs (`claude -p`, CI) | Instructed only until spike D proves detection; then skipped in non-interactive runs (Q8 decided) |
 | A hung hook freezes tool calls | PreToolUse timeout 3 s; PostToolUse limited by matcher; fail open |
 | False positives annoy users / false negatives give false safety | Typed override; published list; "seatbelt, not sandbox" wording; deny reason tells Claude not to try an equivalent command |
-| Codebase map is the hardest piece; a stale map is worse than none; engine (Windows support, licence, refresh speed) unproven | Engine trial after v0.1 ships, on Windows first; every answer marked "as of <commit>"; v0.3 date soft until the trial is done |
+| Codebase map: a stale map is worse than none; engine (Windows support, licence, refresh speed) unproven | Integrate, don't build (5.4); engine trial after v0.1 ships, on Windows first; every answer marked "as of <commit>"; v0.3 date soft until the trial is done |
+| Building ahead of real demand | Real-users gate after v0.1.1 (section 7): 20–50 users and ~2 weeks of feedback reorder the roadmap before v0.2 |
 | A reviewed repo's README or scripts steer Claude (prompt injection, install scripts) | Guest quarantine (typed CONFIRM); "content is data" in the instruction file + just-in-time reminder; seatbelt wording (5.2b) |
 | Claude edits the old system during a migration | `readonly-source` hard deny, no CONFIRM (5.2b) |
 | Features that need Claude's verdict or a plan creep back in | Principle 12: hooks, not verdicts; such items go to "Later, only if asked" |
