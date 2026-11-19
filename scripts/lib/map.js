@@ -29,7 +29,7 @@ const isOn = dir => paths.isOwn(dir) && !!readState(dir).prefix;
 
 // -> stdout, or null when git failed, timed out or wrote more than maxBuffer (never read as "no output").
 function git(dir, args, { timeout = 3000, maxBuffer = 1024 * 1024 } = {}) {
-  const r = spawnSync('git', ['-c', 'core.quotePath=false', ...args], { cwd: dir, encoding: 'utf8', timeout, maxBuffer, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+  const r = spawnSync('git', ['--no-optional-locks', '-c', 'core.quotePath=false', ...args], { cwd: dir, encoding: 'utf8', timeout, maxBuffer, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
   return !r.error && r.status === 0 ? String(r.stdout) : null;
 }
 const headSha = dir => (git(dir, ['rev-parse', 'HEAD']) || '').trim();
@@ -189,7 +189,7 @@ function freshness(dir, sid, key) {
   let where = null;
   if (head !== st.sha) {
     const note = refreshNote(dir);
-    const anc = spawnSync('git', ['merge-base', '--is-ancestor', st.sha, head], { cwd: dir, timeout: 3000, windowsHide: true, stdio: 'ignore' });
+    const anc = spawnSync('git', ['--no-optional-locks', 'merge-base', '--is-ancestor', st.sha, head], { cwd: dir, timeout: 3000, windowsHide: true, stdio: 'ignore' });
     if (anc.error || anc.status === null) return unknown;
     if (anc.status !== 0) return `JSPARK Forge: the code map was indexed on a different history (${short}); ${note}. Read the files before relying on this answer.`;
     const count = git(dir, ['rev-list', '--count', `${st.sha}..${head}`]);

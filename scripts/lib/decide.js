@@ -171,7 +171,7 @@ function list(dir, args) {
 
 // ---------- `forge.js check`: is my memory still true? (design-v0.2 1.7), read-only ----------
 function gitOut(dir, args) {
-  const r = spawnSync('git', ['-c', 'core.quotePath=false', ...args], { cwd: dir, encoding: 'utf8', timeout: 5000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+  const r = spawnSync('git', ['--no-optional-locks', '-c', 'core.quotePath=false', ...args], { cwd: dir, encoding: 'utf8', timeout: 5000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
   return r.status === 0 ? String(r.stdout) : null;
 }
 // Every commit since the oldest Last verified date, with its local date and files (paths relative to the project), in

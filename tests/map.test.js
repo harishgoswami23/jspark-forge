@@ -208,7 +208,14 @@ test('forge.js map status and /check show a map that is behind or failing', () =
 
 // ---------- review fixes (v0.3 code map review) ----------
 const RUNNER = path.join(__dirname, '..', 'scripts', 'map-refresh.js');
-const alive = pid => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
+// On macOS and Linux an exited child of this test stays a zombie until Node reaps it, which a blocking wait never lets
+// happen, so "kill 0" still succeeds: a zombie counts as ended (CI found this; Windows has no zombies).
+const zombie = pid => {
+  if (process.platform === 'win32') return false;
+  const r = spawnSync('ps', ['-o', 'stat=', '-p', String(pid)], { encoding: 'utf8' });
+  return r.status === 0 && /^\s*Z/.test(r.stdout);
+};
+const alive = pid => { try { process.kill(pid, 0); return !zombie(pid); } catch (e) { return e.code === 'EPERM'; } };
 const ageLock = (dir, ms) => { const t = new Date(Date.now() - ms); fs.utimesSync(lockOf(dir), t, t); };
 const switchOn = dir => fs.writeFileSync(path.join(dir, '.jspark-forge', 'state', 'map.json'), JSON.stringify({ prefix: 'mcp__codebase-memory__' }));
 
