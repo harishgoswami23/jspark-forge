@@ -397,8 +397,11 @@ test('forge.js show prints the handoff; forge.js where prints the notes and hand
   const show = cli(dir, ['show']);
   assert.match(show.stdout, /^# Where we were/);
   const where = JSON.parse(cli(dir, ['where']).stdout);
-  assert.equal(path.resolve(where.notes), path.join(dir, '.jspark-forge', 'state', 'notes.md'));
-  assert.equal(path.resolve(where.handoff), path.join(dir, '.jspark-forge', 'handoff.md'));
+  // macOS: /var is a link to /private/var, so compare real paths (the file must exist for that)
+  const real = p => fs.realpathSync.native(p);
+  assert.equal(real(path.dirname(where.notes)), real(path.join(dir, '.jspark-forge', 'state')));
+  assert.equal(path.basename(where.notes), 'notes.md');
+  assert.equal(real(where.handoff), real(path.join(dir, '.jspark-forge', 'handoff.md')));
 });
 
 test('forge.js show says so when there is no handoff yet', () => {
