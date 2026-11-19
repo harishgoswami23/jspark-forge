@@ -75,33 +75,43 @@ jobs:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       FORGE_IT_MODEL: haiku
     steps:
+      # Without the secret: a manual run fails with a clear message; a push skips quietly (no red X on main).
       - name: check the API key secret
+        id: key
         shell: bash
         run: |
-          if [ -z "$ANTHROPIC_API_KEY" ]; then
+          if [ -n "$ANTHROPIC_API_KEY" ]; then echo "ok=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          echo "ok=false" >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
             echo "::error::Repository secret ANTHROPIC_API_KEY is not set (Settings -> Secrets and variables -> Actions)."
             exit 1
           fi
+          echo "::notice::Integration tests skipped: repository secret ANTHROPIC_API_KEY is not set."
       - uses: actions/checkout@v4
+        if: steps.key.outputs.ok == 'true'
       - uses: actions/setup-node@v4
+        if: steps.key.outputs.ok == 'true'
         with:
           node-version: 22
       - name: git identity for test repositories
+        if: steps.key.outputs.ok == 'true'
         run: |
           git config --global user.email ci@example.invalid
           git config --global user.name ci
           git config --global init.defaultBranch main
       - name: install Claude Code (macOS, Linux)
-        if: runner.os != 'Windows'
+        if: steps.key.outputs.ok == 'true' && runner.os != 'Windows'
         run: |
           curl -fsSL https://claude.ai/install.sh | bash
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: install Claude Code (Windows)
-        if: runner.os == 'Windows'
+        if: steps.key.outputs.ok == 'true' && runner.os == 'Windows'
         shell: pwsh
         run: |
           irm https://claude.ai/install.ps1 | iex
           "$env:USERPROFILE\.local\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
       - run: claude --version
+        if: steps.key.outputs.ok == 'true'
       - name: integration tests (hook-fire, headless, kill and resume)
+        if: steps.key.outputs.ok == 'true'
         run: npm run test:integration

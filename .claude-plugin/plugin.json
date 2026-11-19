@@ -3,7 +3,17 @@
   "displayName": "JSPARK Forge",
   "version": "0.1.0",
   "description": "Resume after a crash, logout or limit. Rules enforced by hooks.",
-  "author": { "name": "JSPARK AI" },
+  "author": {
+    "name": "JSPARK AI"
+  },
   "license": "MIT",
-  "keywords": ["resume", "handoff", "hooks", "safety", "solo-founder"]
+  "keywords": [
+    "resume",
+    "handoff",
+    "hooks",
+    "safety",
+    "solo-founder"
+  ],
+  "homepage": "https://github.com/harishgoswami23/jspark-forge",
+  "repository": "https://github.com/harishgoswami23/jspark-forge"
 }

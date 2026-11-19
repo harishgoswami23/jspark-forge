@@ -101,11 +101,11 @@ This is a seatbelt, not a sandbox: a deliberately disguised command can get past
 Needs Claude Code and **Node.js 18 or newer**.
 
 ```
-/plugin install jspark-forge --marketplace <org>/jspark-forge
+/plugin install jspark-forge --marketplace harishgoswami23/jspark-forge
 /jspark-forge:init
 ```
 
-On Claude Code older than 2.1.275: `/plugin marketplace add <org>/jspark-forge`, then `/plugin install jspark-forge`.
+On Claude Code older than 2.1.275: `/plugin marketplace add harishgoswami23/jspark-forge`, then `/plugin install jspark-forge`.
 Add superpowers from the same marketplace if you want both: `/plugin install superpowers@jspark-forge`.
 
 `/jspark-forge:init` creates a hidden `.jspark-forge/` folder in your project (git-ignored except
