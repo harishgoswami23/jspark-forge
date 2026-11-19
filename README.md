@@ -1,5 +1,3 @@
-<!-- DRAFT for v0.1. Pitch decided by the owner (Q1, 2026-11-03 review). -->
-
 <p align="center">
   <a href="https://github.com/harishgoswami23/jspark-forge">
     <picture>
