@@ -8,6 +8,10 @@ Set up JSPARK Forge in this project. Arguments: $ARGUMENTS
 If the arguments contain "--undo-statusline":
 1. Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/statusline/install.js" --undo` and reply with the line it printed. Stop.
 
+If the arguments contain "--guest" (a repo the user is reviewing: write nothing into it, hold its install, build,
+test and run commands) or "--mine" (the repo is the user's own):
+1. Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/init.js" --guest` (or `--mine`) and reply with the line it printed. Stop.
+
 Otherwise:
 1. Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/init.js"`.
    If `node` is not found, reply: "JSPARK Forge needs Node.js 18 or newer. Install it from nodejs.org, then run

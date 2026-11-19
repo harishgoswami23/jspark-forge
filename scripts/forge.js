@@ -72,7 +72,9 @@ function writtenFiles(dir, input) {
 }
 
 const branchOf = dir => git.headBranch(dir) || ''; // read from .git/HEAD, no git process
-const blockCtx = (dir, rules) => ({ projectDir: dir, home: os.homedir(), rules, branchOf });
+// quarantine: only in a guest repo after /jspark-forge:init --guest (one small file read, no git).
+const blockCtx = (dir, rules) => ({ projectDir: dir, home: os.homedir(), rules, branchOf,
+  quarantine: paths.isGuest(dir) && !!(paths.guestMeta(dir) || {}).quarantine });
 const confirmableIds = rules => Object.keys(BUILTINS).concat(rules.confirm.map(r => r.id));
 const preTool = (decision, reason) => ({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: decision, permissionDecisionReason: reason } });
 const context = (ev, text) => ({ hookSpecificOutput: { hookEventName: ev, additionalContext: text } });
@@ -115,9 +117,11 @@ const handlers = {
     }
     const granted = confirm.grantFromPrompt(dir, input.session_id, prompt, confirmableIds(loadRules(dir)));
     for (const id of granted) lines.push(['CONFIRM', `${id} granted`]);
-    const out = granted.length ? context('UserPromptSubmit',
-      `JSPARK Forge: the user typed CONFIRM ${granted.join(', ')}. The next matching action is allowed once within 5 minutes; ` +
-      'Claude Code will still ask the user for a final yes/no.') : null;
+    const say = id => (confirm.SESSION_LONG.has(id)
+      ? `JSPARK Forge: the user typed CONFIRM ${id}. Matching actions are allowed for the rest of this session.`
+      : `JSPARK Forge: the user typed CONFIRM ${id}. The next matching action is allowed once within 5 minutes; ` +
+        'Claude Code will still ask the user for a final yes/no.');
+    const out = granted.length ? context('UserPromptSubmit', granted.map(say).join('\n')) : null;
     return { lines, out };
   },
 
@@ -127,6 +131,9 @@ const handlers = {
     if (r) {
       const what = String(r.matched || '');
       if (!r.hard && confirm.consume(dir, input.session_id, r.id)) {
+        if (confirm.SESSION_LONG.has(r.id)) { // allowed for the session: Claude Code's normal permission flow decides
+          return { lines: [['CONFIRM', `${r.id} used :: ${what}`]], out: null };
+        }
         return { lines: [['CONFIRM', `${r.id} used :: ${what}`]],
           out: preTool('ask', `JSPARK Forge: you typed CONFIRM ${r.id}, so this is allowed once: ${r.plain}.`) };
       }

@@ -194,7 +194,7 @@ function command(words) {
     break;
   }
   if (i >= words.length) return null;
-  return { cmd: baseName(words[i]), args: words.slice(i + 1) };
+  return { cmd: baseName(words[i]), args: words.slice(i + 1), word: words[i] };
 }
 
 function baseName(w) {

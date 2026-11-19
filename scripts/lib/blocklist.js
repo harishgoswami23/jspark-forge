@@ -17,7 +17,8 @@ const WIN = process.platform === 'win32';
 function reasonFor(id, plain, hard) {
   return hard
     ? `JSPARK Forge blocked: ${plain}. This is never allowed. ${STOP}`
-    : `JSPARK Forge blocked: ${plain}. ${STOP} To allow it once, the user types: CONFIRM ${id}`;
+    : `JSPARK Forge blocked: ${plain}. ${STOP} To allow ${require('./confirm').SESSION_LONG.has(id)
+      ? 'these for the rest of this session' : 'it once'}, the user types: CONFIRM ${id}`;
 }
 function hit(id, hard, matched, plain) {
   const p = plain || (hard && BUILTINS[id] && BUILTINS[id].hardPlain) || (BUILTINS[id] && BUILTINS[id].plain) || id;
@@ -132,6 +133,58 @@ function stageWrites(stage, dialect) {
     if (target) out.push(psPath(target));
   }
   return out;
+}
+
+// ---------- guest-quarantine (v0.1.1 guest mode G3; only after /jspark-forge:init --guest) ----------
+// Common commands that run a reviewed repo's own code: installs (which run install scripts), builds, tests, task
+// runners, containers, and the repo's own script files. Package managers are held for every subcommand except a short
+// read-only list, so new subcommands are held by default. A script is held only when its file is inside the repo, so
+// Claude's own scratch scripts elsewhere stay free. A seatbelt, not a sandbox: "common", never "all".
+const PM_READONLY = new Set(['info', 'view', 'show', 'list', 'ls', 'why', 'outdated', 'audit', 'help', 'search', 'config',
+  'licenses', 'whoami', 'ping', 'docs', 'repo', 'bugs', 'freeze', 'check', 'tree', 'version', '--version', '-v', '-V', '--help', '-h']);
+const PACKAGE_MANAGERS = new Set(['npm', 'pnpm', 'yarn', 'bun', 'pip', 'pip3', 'uv', 'pipx', 'poetry', 'pdm', 'hatch',
+  'conda', 'mamba', 'micromamba', 'composer', 'bundle', 'gem', 'cargo', 'go', 'dotnet', 'deno', 'mvn', 'gradle', 'ant',
+  'docker', 'docker-compose', 'podman', 'swift', 'mix', 'stack', 'cabal']);
+const PM_ALWAYS = new Set(['npx', 'pnpx', 'bunx', 'uvx', 'make', 'gmake', 'cmake', 'ninja', 'just', 'task', 'tox', 'nox', 'rake',
+  'msbuild', 'pre-commit', 'pytest', 'py.test', 'jest', 'vitest', 'mocha', 'ava', 'tap', 'playwright', 'cypress',
+  'eslint', 'vite', 'webpack', 'rollup', 'next', 'nuxt', 'turbo', 'nx', 'lerna', 'tsx', 'ts-node', 'gradlew']);
+const DOCKER_READONLY = new Set(['ps', 'images', 'image', 'inspect', 'logs', 'version', 'info', 'stats', 'top', 'volume', 'network', 'search', 'login', 'logout', 'pull']);
+const INTERPRETERS = new Set(['python', 'python3', 'py', 'node', 'nodejs', 'ruby', 'perl', 'php']);
+const SCRIPT_SHELLS = new Set(['bash', 'sh', 'zsh', 'dash', 'ksh', 'fish', 'source', '.']);
+
+function insideRepo(p, cwd, ctx) {
+  if (!p || /^-/.test(p)) return false;
+  const r = norm(path.resolve(toFs(cwd), toFs(WIN ? p : String(p).split(String.fromCharCode(92)).join('/'))));
+  const project = norm(ctx.projectDir);
+  return r === project || inside(r, project);
+}
+
+function quarantined(cmdWord, cmd, args, cwd, ctx) {
+  const sub = (args.find(a => !a.startsWith('-')) || '').toLowerCase();
+  const first = (args[0] || '').toLowerCase();
+  if (PM_ALWAYS.has(cmd)) return true;
+  if (cmd === 'docker' || cmd === 'podman') return !!sub && !DOCKER_READONLY.has(sub);
+  if (PACKAGE_MANAGERS.has(cmd)) {
+    if (!args.length) return cmd === 'yarn' || cmd === 'bundle'; // bare "yarn" / "bundle" install
+    if (PM_READONLY.has(first) || PM_READONLY.has(sub)) return false;
+    return true;
+  }
+  if (INTERPRETERS.has(cmd)) {
+    if (args.some(a => /^-(m|c|e|-eval|r|-require|-import)$/.test(a))) return true; // python -m/-c, node -e/-r
+    const script = args.find(a => !a.startsWith('-'));
+    return !!script && insideRepo(script, cwd, ctx);
+  }
+  if (SCRIPT_SHELLS.has(cmd) && !args.includes('-c')) {
+    const script = args.find(a => !a.startsWith('-'));
+    return !!script && insideRepo(script, cwd, ctx);
+  }
+  if (PS_SHELLS.has(cmd)) {
+    const i = args.findIndex(a => /^-(f|file)$/i.test(a));
+    return i >= 0 && insideRepo(args[i + 1], cwd, ctx);
+  }
+  // The repo's own executable run by path: ./x, scripts/x.sh, .\build.ps1, gradlew.bat
+  if (/[\\/]/.test(cmdWord) || /\.(sh|bash|ps1|bat|cmd|py|js|mjs|rb|pl)$/i.test(cmdWord)) return insideRepo(cmdWord, cwd, ctx);
+  return false;
 }
 
 // ---------- icacls: the Windows form of chmod 777 (v0.1.1) ----------
@@ -274,6 +327,7 @@ function shellHits(raw, cwd, ctx, depth = 0, dialect = 'bash') {
         if (level) hits.push(hit('rm-rf-outside', level === 'hard', raw));
       }
       if (cmd === 'icacls' && icaclsWide(args)) hits.push(hit('chmod-wide', false, raw));
+      if (ctx.quarantine && quarantined(c.word, cmd, args, cwd, ctx)) hits.push(hit('guest-quarantine', false, raw));
       if (cmd === 'git') { const id = gitCheck(args, cwd, ctx); if (id) hits.push(hit(id, false, raw)); }
       if (cmd === 'chmod' && args.some(a => /^0?777$/.test(a) || a === '--recursive' || /^-[a-zA-Z]*R[a-zA-Z]*$/.test(a))) {
         hits.push(hit('chmod-wide', false, raw));

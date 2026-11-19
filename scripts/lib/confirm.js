@@ -28,20 +28,26 @@ function grantFromPrompt(dir, session, prompt, knownIds, now = Date.now()) {
     if (known.has(m[1]) && !granted.includes(m[1])) granted.push(m[1]);
   }
   if (!granted.length) return granted;
-  const tokens = (read(dir) || []).filter(t => t.expires >= now && !(t.session === session && granted.includes(t.id)));
-  for (const id of granted) tokens.push({ id, session, expires: now + TTL_MS });
+  const tokens = (read(dir) || []).filter(t => live(t, now) && !(t.session === session && granted.includes(t.id)));
+  for (const id of granted) tokens.push({ id, session, expires: SESSION_LONG.has(id) ? null : now + TTL_MS });
   write(dir, tokens);
   return granted;
 }
 
+// guest-quarantine (v0.1.1, owner 2026-11-19): one CONFIRM covers the rest of the session (reviewing a repo means
+// installing, building and testing it repeatedly). Every other block stays one-shot, 5 minutes.
+const SESSION_LONG = new Set(['guest-quarantine']);
+const live = (t, now) => t.expires === null || t.expires >= now;
+
 function consume(dir, session, id, now = Date.now()) {
   const tokens = read(dir);
   if (!tokens) return false;
-  const i = tokens.findIndex(t => t.id === id && t.session === session && t.expires >= now);
+  const i = tokens.findIndex(t => t.id === id && t.session === session && live(t, now));
   if (i < 0) return false;
+  if (tokens[i].expires === null) return true; // session-long: kept
   tokens.splice(i, 1);
-  write(dir, tokens.filter(t => t.expires >= now));
+  write(dir, tokens.filter(t => live(t, now)));
   return true;
 }
 
-module.exports = { grantFromPrompt, consume, TTL_MS };
+module.exports = { grantFromPrompt, consume, TTL_MS, SESSION_LONG };

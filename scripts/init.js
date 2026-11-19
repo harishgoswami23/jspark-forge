@@ -22,6 +22,50 @@ const major = Number(process.versions.node.split('.')[0]);
 out.push(major >= 18 ? `Node.js ${process.versions.node}: ok`
   : `Node.js ${process.versions.node}: too old. JSPARK Forge needs 18 or newer; until then its hooks stay off.`);
 
+// ---------- --mine / --guest (guest mode, design-v0.1.1 section 2) ----------
+// Only JSPARK Forge's own local files move; tracked files (rules.md, .gitignore) and everything of the user's stay.
+const paths = require('./lib/paths');
+const setup = require('./lib/setup');
+const OWN_FILES = ['state', 'log', 'archive', 'usage', 'handoff.md'];
+function moveOwnFiles(from, to) {
+  fs.mkdirSync(to, { recursive: true });
+  for (const n of OWN_FILES) {
+    const src = path.join(from, n);
+    if (!fs.existsSync(src)) continue;
+    fs.cpSync(src, path.join(to, n), { recursive: true, force: true });
+    fs.rmSync(src, { recursive: true, force: true });
+  }
+}
+const finish = () => { process.stdout.write(out.join('\n') + '\n'); process.exit(0); };
+
+if (args.includes('--mine')) {
+  if (paths.isGuest(PROJECT)) {
+    moveOwnFiles(paths.guestDir(PROJECT), FORGE);
+    fs.rmSync(paths.guestDir(PROJECT), { recursive: true, force: true });
+  }
+  fs.mkdirSync(path.join(FORGE, 'state'), { recursive: true });
+  if (!fs.existsSync(path.join(FORGE, '.gitignore'))) fs.writeFileSync(path.join(FORGE, '.gitignore'), GITIGNORE);
+  if (!fs.existsSync(path.join(FORGE, 'rules.md'))) fs.copyFileSync(path.join(__dirname, '..', 'templates', 'rules.md'), path.join(FORGE, 'rules.md'));
+  out.push('This repo is now yours: JSPARK Forge keeps its files in .jspark-forge/ (commit rules.md and .gitignore; the ' +
+    'rest stays local). The guest quarantine is off.');
+  finish();
+}
+
+if (args.includes('--guest')) {
+  if (!paths.isGuest(PROJECT) && paths.isOwn(PROJECT)) moveOwnFiles(FORGE, paths.guestDir(PROJECT));
+  setup.writeGuest(PROJECT, { quarantine: true });
+  out.push('JSPARK Forge now treats this repo as one you are reviewing: nothing is written into it (its files are in ' +
+    `${paths.guestDir(PROJECT).replace(/\\/g, '/')}), and its common install, build, test and run commands are held ` +
+    'until you type CONFIRM guest-quarantine (then allowed for the rest of that session). Undo: /jspark-forge:init --mine');
+  finish();
+}
+
+if (paths.isGuest(PROJECT)) {
+  out.push('This repo is treated as one you are reviewing, so JSPARK Forge writes nothing into it. If it is yours: ' +
+    '/jspark-forge:init --mine. To hold its install, build and run commands: /jspark-forge:init --guest.');
+  finish();
+}
+
 // Project folder
 if (fs.existsSync(FORGE)) out.push('JSPARK Forge is already set up in this project (.jspark-forge/).');
 else {

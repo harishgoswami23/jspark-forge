@@ -54,14 +54,17 @@ function decide(dir) {
   return mine.out ? 'own' : 'guest';
 }
 
-function writeMeta(dir, origin) {
+function writeMeta(dir, origin, { quarantine } = {}) {
   const g = paths.guestDir(dir);
   fs.mkdirSync(path.join(g, 'state'), { recursive: true });
   const now = Date.now();
   const prev = paths.guestMeta(dir) || {};
   fs.writeFileSync(path.join(g, 'meta.json'), JSON.stringify({ path: paths.normPath(dir), origin,
-    created: prev.created || now, lastUsed: now, quarantine: !!prev.quarantine }, null, 2) + '\n');
+    created: prev.created || now, lastUsed: now, quarantine: quarantine === undefined ? !!prev.quarantine : !!quarantine },
+  null, 2) + '\n');
 }
+// /jspark-forge:init --guest: make (or update) the guest folder, with the quarantine switch.
+const writeGuest = (dir, opts) => writeMeta(dir, (paths.guestMeta(dir) || {}).origin || originOf(dir), opts);
 
 // -> 'created' (yours: files in the repo) | 'guest' (files in the guest folder) | 'exists' | 'skipped'
 function ensureProject(dir, { force = false } = {}) {
@@ -168,5 +171,5 @@ function machineMessages(home = claudeHome()) {
   return msgs;
 }
 
-module.exports = { ensureProject, touchGuest, decide, cleanOrigin, guestMessage, GUEST_DATA_LINE, machineMessages, inGitProject,
+module.exports = { ensureProject, touchGuest, writeGuest, decide, cleanOrigin, guestMessage, GUEST_DATA_LINE, machineMessages, inGitProject,
   superpowersInstalled, claudeHome, ON_MESSAGE, SUPERPOWERS_TIP, GITIGNORE };

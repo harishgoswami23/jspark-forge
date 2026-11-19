@@ -167,3 +167,75 @@ test('an older wrapper copy is refreshed at session start when the plugin has a 
   hook(dir, home, 'SessionStart');
   assert.equal(fs.readFileSync(path.join(sl, 'statusline.js'), 'utf8'), fs.readFileSync(WRAPPER, 'utf8'));
 });
+
+// ---- G3: quarantine on request; --guest / --mine ----
+const INIT = path.join(__dirname, '..', 'scripts', 'init.js');
+const init = (dir, home, ...flags) => spawnSync(process.execPath, [INIT, '--project', dir, '--claude-home', home, ...flags], {
+  encoding: 'utf8', env: Object.assign({}, process.env, { CLAUDE_CONFIG_DIR: home, CLAUDE_PROJECT_DIR: dir }) }).stdout;
+const pre = (dir, home, command, sid = 'guest-0001') => {
+  const o = hook(dir, home, 'PreToolUse', { tool_name: 'Bash', tool_input: { command }, session_id: sid });
+  return o ? o.hookSpecificOutput.permissionDecision : 'allowed';
+};
+
+test('a guest repo holds nothing until you ask for the quarantine', () => {
+  const dir = repo(); const home = cfg();
+  hook(dir, home, 'SessionStart');
+  assert.equal(pre(dir, home, 'npm install'), 'allowed');
+});
+
+test('init --guest: common install/build/run commands are held; one CONFIRM allows them for the rest of the session', () => {
+  const dir = repo(); const home = cfg();
+  hook(dir, home, 'SessionStart');
+  assert.match(init(dir, home, '--guest'), /CONFIRM guest-quarantine/);
+  const o = hook(dir, home, 'PreToolUse', { tool_name: 'Bash', tool_input: { command: 'npm install' } });
+  assert.equal(o.hookSpecificOutput.permissionDecision, 'deny');
+  assert.match(o.hookSpecificOutput.permissionDecisionReason, /CONFIRM guest-quarantine/);
+  assert.equal(pre(dir, home, 'git status'), 'allowed', 'reading is never held');
+  const g = hook(dir, home, 'UserPromptSubmit', { prompt: 'CONFIRM guest-quarantine' });
+  assert.match(g.hookSpecificOutput.additionalContext, /for the rest of this session/);
+  assert.equal(pre(dir, home, 'npm install'), 'allowed');
+  assert.equal(pre(dir, home, 'npm test'), 'allowed', 'still allowed: not one-shot');
+  assert.equal(pre(dir, home, 'npm test', 'another-session'), 'deny', 'bound to the session');
+});
+
+test('init --mine moves the guest files into the repo, keeps the handoff, and ends the quarantine', () => {
+  const dir = repo(); const home = cfg();
+  hook(dir, home, 'SessionStart');
+  hook(dir, home, 'PostToolUse', { tool_name: 'Edit', tool_input: { file_path: path.join(dir, 'a.js') } });
+  init(dir, home, '--guest');
+  const out = init(dir, home, '--mine');
+  assert.match(out, /now yours/);
+  assert.match(fs.readFileSync(path.join(dir, '.jspark-forge', 'handoff.md'), 'utf8'), /# Where we were/);
+  assert.ok(fs.existsSync(path.join(dir, '.jspark-forge', 'state')));
+  assert.equal(guestDirs(home).length, 0, 'guest folder removed');
+  assert.equal(pre(dir, home, 'npm install'), 'allowed');
+});
+
+test('init --guest in your own repo moves JSPARK Forge files out of it and turns the quarantine on', () => {
+  const dir = repo({ remote: false }); const home = cfg();
+  hook(dir, home, 'SessionStart');
+  hook(dir, home, 'PostToolUse', { tool_name: 'Edit', tool_input: { file_path: path.join(dir, 'a.js') } });
+  assert.ok(fs.existsSync(path.join(dir, '.jspark-forge', 'handoff.md')));
+  init(dir, home, '--guest');
+  assert.ok(!fs.existsSync(path.join(dir, '.jspark-forge', 'state')), 'state moved out');
+  assert.ok(!fs.existsSync(path.join(dir, '.jspark-forge', 'handoff.md')), 'handoff moved out');
+  const [id] = guestDirs(home);
+  assert.ok(fs.existsSync(path.join(guests(home), id, 'handoff.md')));
+  assert.equal(pre(dir, home, 'make'), 'deny');
+});
+
+test('plain init in a guest repo writes nothing into it and points to --mine', () => {
+  const dir = repo(); const home = cfg();
+  hook(dir, home, 'SessionStart');
+  assert.match(init(dir, home), /--mine/);
+  assert.ok(!fs.existsSync(path.join(dir, '.jspark-forge')));
+});
+
+test('the quarantine message says the CONFIRM covers the session, not one action', () => {
+  const dir = repo(); const home = cfg();
+  hook(dir, home, 'SessionStart');
+  init(dir, home, '--guest');
+  const r = hook(dir, home, 'PreToolUse', { tool_name: 'Bash', tool_input: { command: 'make' } }).hookSpecificOutput.permissionDecisionReason;
+  assert.match(r, /for the rest of this session, the user types: CONFIRM guest-quarantine/);
+  assert.ok(!/allow it once/.test(r));
+});

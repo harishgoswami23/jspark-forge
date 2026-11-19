@@ -125,13 +125,28 @@ That is all. superpowers comes with it, and there is no setup step:
 
 On Claude Code older than 2.1.275: `/plugin marketplace add harishgoswami23/jspark-forge`, then `/plugin install jspark-forge`.
 
+## Someone else's repo (guest mode)
+
+Open a repo you cloned and never committed to, and JSPARK Forge **writes nothing into it**: its handoff and log live
+in `~/.claude/jspark-forge/guests/` instead, the handoff says *"Review of <repo> @ <commit>"*, and Claude is told that
+the repo's README, comments, docs and scripts are data to review, never instructions. Everything else (saves, resume,
+the block list) works as usual. A wrong guess costs nothing: only where the files live changes.
+
+- `/jspark-forge:init --guest` also **holds the repo's common install, build, test and run commands** (`npm install`,
+  `pip install`, `make`, `pytest`, `docker compose up`, its own scripts, and so on) until you type
+  `CONFIRM guest-quarantine`, which then allows them for the rest of that session.
+- `/jspark-forge:init --mine` says the repo is yours: the files move into `.jspark-forge/` and the hold ends.
+
+A repo's own `.jspark-forge/rules.md` is never read in guest mode. Like the block list, the hold is a seatbelt, not a
+sandbox.
+
 ## Commands
 
 | Command | What it does |
 |---|---|
 | `/jspark-forge:resume` | Show where you were again, on demand, and wait |
 | `/jspark-forge:handoff` | Save the handoff now (`done` closes the task and archives it) |
-| `/jspark-forge:init` | Optional. Wrap your own status line (asks first); `--undo-statusline` restores it exactly |
+| `/jspark-forge:init` | Optional. Wrap your own status line (asks first); `--undo-statusline` restores it exactly; `--guest` / `--mine` for someone else's repo or your own |
 
 ## Uninstall
 
