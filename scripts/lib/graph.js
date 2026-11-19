@@ -4,16 +4,19 @@
 // that respects `after:` and the fields steps need from each other. Pure functions: no files, no processes.
 const KINDS = new Set(['agent', 'parallel', 'gate', 'human']);
 const HELPERS = new Set(['planner', 'reviewer', 'builder', 'checker']);
-const MODELS = new Set(['fable', 'opus', 'sonnet', 'haiku']);
-const ID = /^[a-z0-9][a-z0-9-]{0,40}$/;
+const ID = /^[a-z][a-z0-9-]{0,39}$/;
 const FIELD = /^[a-z][a-z0-9_]{0,40}$/;
 const LIST_KEYS = new Set(['needs', 'gives', 'after', 'steps']);
+const MAX_RUN = 200;
+// A gate command is printed and matched exactly as written, so it must already be what cleaning would show: one line,
+// no tabs, double spaces or hidden characters, at most 200 characters (v0.4 code review M2).
+const cleanRun = r => require('./memory').clean(r, MAX_RUN) === r;
 
 const list = v => String(v || '').split(',').map(s => s.trim()).filter(Boolean);
 
 function parse(text) {
   const lines = String(text || '').replace(new RegExp(`^${String.fromCharCode(0xfeff)}`), '').split(/\r?\n/);
-  const g = { name: '', nameLine: 0, maxParallel: 1, maxParallelRaw: null, minFreeMemoryMb: 0, steps: [] };
+  const g = { name: '', nameLine: 0, maxParallel: 1, maxParallelRaw: null, memLine: 0, steps: [] };
   let cur = null;
   lines.forEach((line, i) => {
     const n = i + 1;
@@ -27,7 +30,7 @@ function parse(text) {
     const val = f[2];
     if (!cur) {
       if (key === 'max_parallel') { g.maxParallelRaw = val; g.maxParallel = Number(val); g.maxParallelLine = n; }
-      if (key === 'min_free_memory_mb') { g.minFreeMemoryMb = Number(val); g.memLine = n; }
+      if (key === 'min_free_memory_mb') g.memLine = n; // cut from v0.4 (design section 6): reported by validate()
       return;
     }
     cur.fieldLines[key] = cur.fieldLines[key] || n;
@@ -39,27 +42,34 @@ function parse(text) {
   return g;
 }
 
-// -> [{ line, message }], empty when the graph can run.
-function validate(g) {
+// -> [{ line, message }], empty when the graph can run. fileName: the graph's file name without .md, which the
+// title must match.
+function validate(g, fileName) {
   const errs = [];
   const err = (line, message) => errs.push({ line: line || 1, message });
   if (!g.name) err(1, 'the first heading must be "# Graph: <name>"');
+  else if (fileName && g.name !== fileName) err(g.nameLine, `the title must name the file: "# Graph: ${fileName}"`);
   if (g.maxParallelRaw !== null && !(Number.isInteger(g.maxParallel) && g.maxParallel >= 1 && g.maxParallel <= 8)) err(g.maxParallelLine, 'max_parallel must be a whole number from 1 to 8');
-  if (!Number.isFinite(g.minFreeMemoryMb) || g.minFreeMemoryMb < 0) err(g.memLine, 'min_free_memory_mb must be a number of megabytes');
+  if (g.memLine) err(g.memLine, '"min_free_memory_mb" is not supported in v0.4 (max_parallel and the plan-usage cap remain)');
   const byId = new Map();
   for (const s of g.steps) {
-    if (!ID.test(s.id)) err(s.line, `step id "${s.id}" must be lower-case letters, digits and dashes`);
+    if (!ID.test(s.id)) err(s.line, `step id "${s.id}" must start with a letter, then lower-case letters, digits and dashes (at most 40)`);
     if (byId.has(s.id)) err(s.line, `step "${s.id}" is defined twice`);
     else byId.set(s.id, s);
     if (!KINDS.has(s.kind)) { err(s.line, `unknown kind "${s.kind}" (agent, parallel, gate or human)`); continue; }
     if (s.kind === 'agent') {
-      if (!s.helper) err(s.line, `step "${s.id}" needs "helper:" (planner, reviewer, builder, checker, or plugin:agent)`);
-      else if (!HELPERS.has(s.helper) && !/^[a-z0-9-]+:[a-z0-9-]+$/i.test(s.helper)) err(s.fieldLines.helper || s.line, `unknown helper "${s.helper}"`);
-      if (s.model && !MODELS.has(String(s.model).toLowerCase())) err(s.fieldLines.model || s.line, `unknown model "${s.model}" (fable, opus, sonnet or haiku)`);
+      if (!s.helper) err(s.line, `step "${s.id}" needs "helper:" (planner, reviewer, builder or checker)`);
+      else if (s.helper.includes(':')) err(s.fieldLines.helper || s.line, `helper "${s.helper}" is not supported in v0.4 (planner, reviewer, builder or checker)`);
+      else if (!HELPERS.has(s.helper)) err(s.fieldLines.helper || s.line, `unknown helper "${s.helper}" (planner, reviewer, builder or checker)`);
     }
+    if (s.fieldLines.model) err(s.fieldLines.model, '"model:" is not supported in v0.4 (each helper runs on its own tier)');
     if (s.kind === 'gate' && !s.run.length) err(s.line, `gate needs at least one "run:" line`);
     // One simple command per line: no chaining, pipes, redirects or substitutions (design-v0.4 2, review H2/H4).
-    if (s.kind === 'gate') for (const r of s.run) if (/[;&|<>`]|\$\(/.test(r) || r.length > 300) err(s.fieldLines.run || s.line, `gate "${s.id}": each "run:" line must be one simple command (no ; && | > < \` or $( ), at most 300 characters)`);
+    if (s.kind === 'gate') {
+      for (const r of s.run) {
+        if (/[;&|<>`]|\$\(/.test(r) || !cleanRun(r)) err(s.fieldLines.run || s.line, `gate "${s.id}": each "run:" line must be one simple command (no ; && | > < \` or $( ), no tabs, double spaces or hidden characters, at most ${MAX_RUN} characters)`);
+      }
+    }
     if (s.kind === 'human' && !s.say) err(s.line, `human step needs "say:" (one plain instruction)`);
     for (const k of ['needs', 'gives']) for (const name of s[k]) if (!FIELD.test(name)) err(s.fieldLines[k] || s.line, `field name "${name}" must be lower-case letters, digits and underscores`);
   }
@@ -129,4 +139,4 @@ function order(g) {
   return out;
 }
 
-module.exports = { parse, validate, order, deps, KINDS, HELPERS, MODELS };
+module.exports = { parse, validate, order, deps, KINDS, HELPERS, ID };

@@ -864,9 +864,122 @@ function userHits(text, rules) {
   return hits;
 }
 
-// JSPARK Forge's own build-graph record (state and trust) is written only by JSPARK Forge (design-v0.4 1, review H1):
-// a hard deny for Edit / Write / shell writes, so neither Claude nor a helper can mark steps done or trust a graph.
-const isForgeState = p => /(^|[\\/])\.jspark-forge[\\/]state[\\/]graph-[^\\/]*$/i.test(String(p || '').trim().replace(/^["']|["']$/g, ''));
+// ---------- forge-state (design-v0.4 1; v0.4 code review H1, H3) ----------
+// JSPARK Forge's own build-graph record (state and trust) is written only by JSPARK Forge: a hard deny for Edit /
+// Write / shell changes, so neither Claude nor a helper can mark steps done or trust a graph. Every change target is
+// resolved against the command's folder (following `cd` within the line) and through junctions and links where the
+// folder exists; the state folder itself, the .jspark-forge folder (moving or renaming it) and any graph-* file in
+// state are refused. On top, text rules: a command whose text names state/graph-* is refused unless it only reads;
+// an interpreter one-liner (or a .NET file call) that writes and mentions .jspark-forge is refused; running JSPARK
+// Forge's hooks or its graph and confirm code by hand is refused. Text matching, so a seatbelt: a script in a file
+// ("node fix.js") is not read.
+const fsMod = require('fs');
+const FORGE_PATH = /(^|\/)\.jspark-forge(\/state(\/graph-[^/]*)?)?$/i;
+const STATE_TEXT = /state[\\/]{1,4}graph-/i;
+const READERS = new Set(['cat', 'type', 'get-content', 'gc', 'less', 'more', 'head', 'tail', 'grep', 'egrep', 'fgrep', 'rg',
+  'select-string', 'sls', 'ls', 'dir', 'get-childitem', 'gci', 'jq', 'wc', 'stat', 'file', 'test-path']);
+const ONE_LINER = /\b(node|nodejs|deno|bun|python[0-9.]{0,6}|py|perl|ruby|php)(\.exe)?["']?\s{1,20}(-{1,2}[\w=-]{1,30}\s{1,20}){0,6}-(e|p|c|r|pe|pi|ne|i|-eval|-print)(\s|["']|$)/i;
+const DOTNET_IO = /\[(system\.)?io\.(file|directory|fileinfo|directoryinfo)\]::/i;
+const WRITES_TEXT = /write|append|copy|rename|move|unlink|\brm|symlink|truncate|chmod|mkdir|replace|open\s{0,5}\(|out-file|set-content|add-content/i;
+const HOOK_EVENTS = 'SessionStart|UserPromptSubmit|PreToolUse|PostToolUseFailure|PostToolUse|Stop|PreCompact|SessionEnd|SubagentStart|SubagentStop';
+const HOOK_BY_NAME = new RegExp(`forge(\\.js)?["'\\s,\\[\\]]{1,12}(${HOOK_EVENTS})\\b`);
+const HOOK_BY_VAR = new RegExp(`\\bnode(js)?(\\.exe)?\\b[^\\n|;&]{0,200}?\\$\\{?[\\w:]{1,60}\\}?["']?\\s{1,20}["']?(${HOOK_EVENTS})\\b`);
+const LOADS_JS = /\b(node|nodejs|deno|bun)(\.exe)?\b/i;
+const LOADER = /\brequire\b|\bimport\b|(^|\s)-{1,2}(e|p|r|eval|print|require|import)(\s|=|["']|$)/;
+const FORGE_CODE = /lib[\\/]{1,4}(graph-run|confirm)\b|\bforge\.js\b|[\\/'"]forge['"]/i;
+const HOOK_RUN_PLAIN = "this runs JSPARK Forge's own hooks or graph code by hand, which only Claude Code does: report a step with " +
+  'forge.js graph done; the user trusts a graph or completes a human step by typing TRUST GRAPH <name> or DONE <step>';
+
+function realish(abs) { // the path with every existing part resolved through junctions and links
+  let head = abs, tail = '';
+  for (let i = 0; i < 64; i++) {
+    try { const r = fsMod.realpathSync.native(head); return tail ? path.join(r, tail) : r; } catch { /* not there yet */ }
+    const up = path.dirname(head);
+    if (up === head) return abs;
+    tail = tail ? path.join(path.basename(head), tail) : path.basename(head);
+    head = up;
+  }
+  return abs;
+}
+const slashes = p => String(p).replace(/\\/g, '/').replace(/[. ]+(?=\/|$)/g, m => (WIN ? '' : m));
+const GLOB = /[*?[]/;
+function globMatches(pattern, candidates) {
+  const re = new RegExp(`^${pattern.replace(/\[[^\]]{0,50}\]/g, '?').replace(/\*{2,}/g, '*').split('').map(ch =>
+    (ch === '*' ? '[^/]*' : ch === '?' ? '[^/]' : ch.replace(/[.+^${}()|[\]\\]/g, '\\$&'))).join('')}$`, 'i');
+  return candidates.some(c => re.test(c));
+}
+// The paths that a glob could name: the state folder, the fixed record files and the graph-* files that exist.
+function forgeCandidates(ctx) {
+  const forge = require('./paths').repoForgeDir(ctx.projectDir);
+  const state = path.join(forge, 'state');
+  let names = ['graph-trust.json', 'graph-active.json', 'graph-x.json'];
+  try { names = names.concat(fsMod.readdirSync(state).filter(n => /^graph-/i.test(n))); } catch { /* none */ }
+  return [forge, state].concat(names.map(n => path.join(state, n))).map(p => slashes(p));
+}
+function isForgeTarget(p, cwd, ctx) {
+  const t = String(p || '').trim().replace(/^["']|["']$/g, '');
+  if (!t) return false;
+  const abs = path.resolve(toFs(cwd || ctx.projectDir), toFs(t));
+  if (FORGE_PATH.test(slashes(abs)) || FORGE_PATH.test(slashes(realish(abs)))) return true;
+  return GLOB.test(t) && /\.jspark-forge/i.test(slashes(abs)) && globMatches(slashes(abs), forgeCandidates(ctx));
+}
+// Every path a stage changes, for the forge-state check: writes, deletes, moves (both ends), copy and link
+// destinations, dd of=, install, rsync, curl -o / wget -O, sed -i, perl -i, patch, git mv / checkout / restore.
+function forgeStageTargets(stage, dialect, cwd) {
+  const c = shell.command(stage.words);
+  const out = c && c.cmd === 'git' ? stageWrites(stage, dialect) : stageChanges(stage, dialect, cwd);
+  if (!c) return out;
+  const { cmd, args } = c;
+  const plain = args.filter(a => !a.startsWith('-') && !/^\/[a-z]{1,4}$/i.test(a));
+  if (['cp', 'ln', 'install', 'rsync', 'scp', 'copy', 'xcopy', 'robocopy'].includes(cmd) && plain.length) out.push(dialect === 'ps' ? psPath(plain[plain.length - 1]) : plain[plain.length - 1]);
+  if (cmd === 'dd') out.push(...args.filter(a => /^of=/.test(a)).map(a => a.slice(3)));
+  if (cmd === 'curl' || cmd === 'wget') args.forEach((a, i) => { if (/^(-o|--output|-O|--output-document)$/.test(a) && args[i + 1]) out.push(args[i + 1]); else if (/^--output(-document)?=/.test(a)) out.push(a.replace(/^[^=]*=/, '')); });
+  if (cmd === 'perl' || cmd === 'patch' || cmd === 'ed' || cmd === 'ex' || cmd === 'vi' || cmd === 'vim') out.push(...plain);
+  if (cmd === 'git') {
+    const g = parseGit(args, cwd);
+    if (['mv', 'checkout', 'restore', 'rm'].includes(g.sub)) out.push(...g.rest.filter(a => !a.startsWith('-')).map(a => path.resolve(toFs(g.dir), toFs(a))));
+  }
+  return out;
+}
+const CD = new Set(['cd', 'chdir', 'pushd', 'set-location', 'sl', 'push-location']);
+function forgeShellHits(raw, cwd, ctx, depth, dialect) {
+  const budget = ctx.budget || (ctx.budget = { calls: 0 });
+  if (++budget.calls > MAX_CALLS || depth > MAX_DEPTH) return [tooComplex(raw)];
+  let here = cwd;
+  for (const pl of shell.parse(raw, { dialect })) {
+    for (const stage of pl) {
+      const c = shell.command(stage.words);
+      if (c && CD.has(c.cmd)) {
+        const to = c.args.filter(a => !a.startsWith('-'))[0];
+        if (to && !/[$`%~]/.test(to)) here = path.resolve(toFs(here), toFs(dialect === 'ps' ? psPath(to) : to));
+        continue;
+      }
+      if (forgeStageTargets(stage, dialect, here).some(p => isForgeTarget(p, here, ctx))) return [hit('forge-state', true, raw)];
+      for (const inner of stage.subs || []) { const h = forgeShellHits(inner, here, ctx, depth + 1, dialect); if (h.length) return h; }
+      if (!c) continue;
+      const inner = innerScript(c.cmd, c.args)
+        || (dialect !== 'ps' && c.cmd === 'eval' && c.args.length ? { script: c.args.join(' '), dialect: 'bash' } : null)
+        || (dialect === 'ps' && PS_EXEC.has(c.cmd) && c.args.length ? { script: c.args.join(' '), dialect: 'ps' } : null);
+      if (inner) { const h = forgeShellHits(inner.script, here, ctx, depth + 1, inner.dialect); if (h.length) return h; }
+    }
+  }
+  return [];
+}
+// Only readers in every stage, no command substitutions, no redirects: the text may name the record freely.
+function onlyReads(raw, dialect) {
+  return shell.parse(raw, { dialect }).every(pl => pl.every(st => {
+    const c = shell.command(st.words);
+    return c && READERS.has(c.cmd) && !(st.subs && st.subs.length) && !st.redirects.some(r => !/^(\/dev\/null|\$null|nul)$/i.test(r));
+  }));
+}
+function forgeTextHits(raw, dialect) {
+  if (HOOK_BY_NAME.test(raw) || HOOK_BY_VAR.test(raw) || (LOADS_JS.test(raw) && LOADER.test(raw) && FORGE_CODE.test(raw))) {
+    return [hit('forge-state', true, raw, HOOK_RUN_PLAIN)];
+  }
+  if (STATE_TEXT.test(raw) && !onlyReads(raw, dialect)) return [hit('forge-state', true, raw)];
+  if (/\.jspark-forge/i.test(raw) && (ONE_LINER.test(raw) || DOTNET_IO.test(raw)) && WRITES_TEXT.test(raw)) return [hit('forge-state', true, raw)];
+  return [];
+}
 
 // opts.all: return every hit (hard ones first) instead of the one to report.
 function check(input, ctx, opts = {}) {
@@ -882,11 +995,14 @@ function check(input, ctx, opts = {}) {
       if (isSecretName(p)) hits.push(hit('secret-files', false, p));
       const root = underReadonly(p, cwd, ctx.roRoots);
       if (root) hits.push(readonlyHit(root, p));
-      if (isForgeState(p)) hits.push(hit('forge-state', true, p));
+      if (isForgeTarget(p, cwd, ctx)) hits.push(hit('forge-state', true, p));
     } else if (tool === 'Bash' || tool === 'PowerShell') {
       const raw = String(ti.command || '');
-      hits = shellHits(raw, cwd, ctx, 0, tool === 'PowerShell' ? 'ps' : 'bash');
-      if (changeTargets(raw, tool === 'PowerShell' ? 'ps' : 'bash', cwd).some(isForgeState)) hits.push(hit('forge-state', true, raw));
+      const dialect = tool === 'PowerShell' ? 'ps' : 'bash';
+      hits = forgeTextHits(raw, dialect);
+      if (!hits.length) hits = forgeShellHits(raw, cwd, ctx, 0, dialect);
+      ctx.budget = { calls: 0 };
+      hits = hits.concat(shellHits(raw, cwd, ctx, 0, dialect));
       hits = hits.concat(userHits(raw, ctx.rules));
     } else if (tool.startsWith('mcp__')) {
       const text = mcpText(ti);
