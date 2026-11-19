@@ -43,15 +43,26 @@ function originOf(dir) {
 
 // 'own' unless there is positive evidence that the repo is someone else's. Any git failure: 'own' (fail open, the
 // files stay in the repo as before automatic setup existed).
+// Fable review M6: once a remote is known, any later failure or time-out means guest. Guessing guest costs nothing
+// (only where the files live; the quarantine is opt-in), guessing own writes into a stranger's repo. Total budget for
+// the calls ~6 s, inside the 10 s SessionStart / UserPromptSubmit limit.
 function decide(dir) {
-  if (!git(dir, ['rev-parse', '--verify', '-q', 'HEAD']).ok) return 'own';              // no commits yet
-  const remotes = git(dir, ['remote']);
-  if (!remotes.ok || !remotes.out) return 'own';                                        // made on this machine
-  const email = git(dir, ['config', 'user.email']).out;
+  const remotes = git(dir, ['remote'], 1500);
+  if (!remotes.ok || !remotes.out) return 'own';                                        // made on this machine (or git unusable)
+  const head = git(dir, ['rev-parse', '--verify', '-q', 'HEAD'], 1500);
+  if (head.failed) return 'guest';
+  if (!head.ok) return 'own';                                                           // no commits yet
+  const email = git(dir, ['config', 'user.email'], 1000).out;
   if (!email) return 'guest';                                                           // cannot prove it is yours
-  const mine = git(dir, ['log', '--all', '--fixed-strings', `--author=<${email}>`, '--max-count=1', '--format=%H']);
-  if (mine.failed || !mine.ok) return 'own';
+  const mine = git(dir, ['log', '--all', '--fixed-strings', `--author=<${email}>`, '--max-count=1', '--format=%H'], 2000);
+  if (mine.failed || !mine.ok) return 'guest';
   return mine.out ? 'own' : 'guest';
+}
+
+// A repo's identity across URL changes (Fable review M5): its first (root) commit. Unknown -> ''.
+function rootOf(dir) {
+  const r = git(dir, ['rev-list', '--max-parents=0', 'HEAD'], 2500);
+  return r.ok ? r.out.split(/\r?\n/)[0] : '';
 }
 
 function writeMeta(dir, origin, { quarantine } = {}) {
@@ -60,8 +71,8 @@ function writeMeta(dir, origin, { quarantine } = {}) {
   const now = Date.now();
   const prev = paths.guestMeta(dir) || {};
   fs.writeFileSync(path.join(g, 'meta.json'), JSON.stringify({ path: paths.normPath(dir), origin,
-    created: prev.created || now, lastUsed: now, quarantine: quarantine === undefined ? !!prev.quarantine : !!quarantine },
-  null, 2) + '\n');
+    root: prev.root || rootOf(dir), created: prev.created || now, lastUsed: now,
+    quarantine: quarantine === undefined ? !!prev.quarantine : !!quarantine }, null, 2) + '\n');
 }
 // /jspark-forge:init --guest: make (or update) the guest folder, with the quarantine switch.
 const writeGuest = (dir, opts) => writeMeta(dir, (paths.guestMeta(dir) || {}).origin || originOf(dir), opts);
@@ -92,11 +103,11 @@ function ensureProject(dir, { force = false } = {}) {
 function touchGuest(dir) {
   const meta = paths.guestMeta(dir);
   if (!meta) return;
-  const origin = originOf(dir);
-  if (origin && meta.origin && origin !== meta.origin) {
-    fs.rmSync(paths.guestDir(dir), { recursive: true, force: true });
-  }
-  writeMeta(dir, origin || meta.origin);
+  // Same folder, different repo (re-cloned: a different first commit) -> start fresh. A changed URL alone (https to
+  // ssh, a fork) is the same repo: keep the handoff and the hold, update the origin (Fable review M5).
+  const root = rootOf(dir);
+  if (root && meta.root && root !== meta.root) fs.rmSync(paths.guestDir(dir), { recursive: true, force: true });
+  writeMeta(dir, originOf(dir) || meta.origin);
 }
 
 const ON_MESSAGE = 'JSPARK Forge is on in this project: it saves where you are and blocks dangerous commands. ' +

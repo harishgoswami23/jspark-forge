@@ -133,15 +133,38 @@ test('origin with a user:password is never stored or shown', () => {
   assert.ok(!all.includes('s3cret-token') && !all.includes('bob:'), all);
 });
 
-test('a different origin at the same path starts fresh', () => {
+// Replace the repo at the same folder with a different one (different first commit): a real re-clone.
+function reclone(dir, origin) {
+  for (const n of fs.readdirSync(dir)) fs.rmSync(path.join(dir, n), { recursive: true, force: true });
+  const g = (...a) => execFileSync('git', a, { cwd: dir, stdio: 'ignore' });
+  g('init', '-q', '-b', 'main'); g('config', 'user.email', 'me@example.com');
+  fs.writeFileSync(path.join(dir, 'other.txt'), 'different history\n');
+  g('add', '-A'); g('-c', 'user.email=someone@example.com', '-c', 'user.name=x', 'commit', '-qm', 'another project');
+  g('remote', 'add', 'origin', origin);
+}
+
+test('a different repo re-cloned into the same folder starts fresh (different first commit)', () => {
   const dir = repo(); const home = cfg();
   hook(dir, home, 'SessionStart');
   hook(dir, home, 'PostToolUse', { tool_name: 'Edit', tool_input: { file_path: path.join(dir, 'a.js') } });
-  execFileSync('git', ['remote', 'set-url', 'origin', 'https://example.com/other/project.git'], { cwd: dir });
+  reclone(dir, 'https://example.com/other/project.git');
   hook(dir, home, 'SessionStart');
   const [id] = guestDirs(home);
   assert.ok(!fs.existsSync(path.join(guests(home), id, 'handoff.md')), 'the old handoff is not shown for a different repo');
   assert.match(fs.readFileSync(path.join(guests(home), id, 'meta.json'), 'utf8'), /other\/project/);
+});
+
+test('M5: changing only the remote URL (https to ssh, a fork) keeps the handoff and the hold', () => {
+  const dir = repo(); const home = cfg();
+  hook(dir, home, 'SessionStart');
+  hook(dir, home, 'PostToolUse', { tool_name: 'Edit', tool_input: { file_path: path.join(dir, 'a.js') } });
+  init(dir, home, '--guest');
+  execFileSync('git', ['remote', 'set-url', 'origin', 'git@example.com:someone/their-repo.git'], { cwd: dir });
+  hook(dir, home, 'SessionStart');
+  const [id] = guestDirs(home);
+  assert.ok(fs.existsSync(path.join(guests(home), id, 'handoff.md')), 'handoff kept');
+  assert.match(fs.readFileSync(path.join(guests(home), id, 'meta.json'), 'utf8'), /git@example\.com:someone/);
+  assert.equal(pre(dir, home, 'make'), 'deny', 'hold kept');
 });
 
 // ---- status line ----
@@ -290,7 +313,7 @@ test('a different repo cloned into a reused folder does not inherit the old one\
   hook(dir, home, 'SessionStart');
   init(dir, home, '--guest');
   assert.equal(pre(dir, home, 'make'), 'deny');
-  execFileSync('git', ['remote', 'set-url', 'origin', 'https://example.com/another/one.git'], { cwd: dir });
+  reclone(dir, 'https://example.com/another/one.git');
   hook(dir, home, 'SessionStart');
   assert.equal(pre(dir, home, 'make'), 'allowed');
 });
