@@ -18,6 +18,7 @@ const handoff = require('./lib/handoff');
 const git = require('./lib/git');
 const { parsePlan } = require('./lib/plan');
 const usageLib = require('./lib/usage');
+const setup = require('./lib/setup');
 
 const event = process.argv[2] || '';
 const DEBOUNCE_MS = 5000;
@@ -273,6 +274,8 @@ function withUsage(dir, sid, lines, out) {
   return Object.keys(o).length ? o : null;
 }
 
+const SETUP_EVENTS = new Set(['SessionStart', 'UserPromptSubmit']);
+
 // ---------- hook entry ----------
 function main(raw) {
   let input = null;
@@ -280,12 +283,22 @@ function main(raw) {
   try {
     input = JSON.parse(raw);
     dir = projectDirOf(input);
-    if (!isInitialised(dir)) return;
+    // Automatic setup (owner 2026-11-19): the first session or prompt in a git project switches JSPARK Forge on.
+    let created = false;
+    if (!isInitialised(dir)) {
+      if (!SETUP_EVENTS.has(event) || setup.ensureProject(dir) !== 'created') return;
+      created = true;
+    }
     const handler = handlers[event];
     if (!handler) return;
     const res = handler(dir, input) || { lines: [], out: null };
     let { lines, out } = Array.isArray(res) ? { lines: [res], out: null } : res;
     if (USAGE_EVENTS.has(event)) out = withUsage(dir, input.session_id, lines, out);
+    const notices = (created ? [setup.ON_MESSAGE] : []).concat(event === 'SessionStart' ? setup.machineMessages() : []);
+    if (notices.length) {
+      out = out || {};
+      out.systemMessage = [out.systemMessage, ...notices].filter(Boolean).join('\n');
+    }
     // Helpers' tool calls carry agent_id; SubagentStart/Stop describe the helper itself, so they stay main-session.
     const agent = event.startsWith('Subagent') ? null : input.agent_id;
     const secrets = lines.length ? log.envSecrets(dir) : [];

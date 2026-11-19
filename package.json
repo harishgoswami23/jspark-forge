@@ -8,7 +8,7 @@
     "node": ">=18"
   },
   "scripts": {
-    "test": "node --test",
+    "test": "node --require ./tests/helpers/isolate.js --test",
     "test:integration": "node --test --test-concurrency=1 \"tests/integration/*.it.js\""
   }
 }

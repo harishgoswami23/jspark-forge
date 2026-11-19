@@ -8,6 +8,8 @@ const path = require('path');
 const { spawn, spawnSync, execFileSync } = require('child_process');
 
 const PLUGIN = path.resolve(__dirname, '..', '..');
+// Real Claude Code runs with the real login and config: never let automatic setup touch the real status line.
+process.env.JSPARK_FORGE_AUTO_STATUSLINE = 'off';
 const MODEL = process.env.FORGE_IT_MODEL || 'haiku';
 
 function project(prefix, { files = { 'a.txt': 'a\n' } } = {}) {

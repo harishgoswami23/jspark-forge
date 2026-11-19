@@ -56,17 +56,13 @@ sources** (keep an old system next to the new one, never edited).
 
 ## Works best with superpowers
 
-JSPARK Forge does not teach Claude *how* to build. For that we recommend
-[superpowers](https://github.com/obra/superpowers) by Jesse Vincent (MIT): brainstorm, plan, test first, review,
-verify. The JSPARK Forge marketplace lists it **from its own repository** (nothing is copied or changed), so you can
-install both from one place:
+JSPARK Forge does not teach Claude *how* to build. [superpowers](https://github.com/obra/superpowers) by Jesse
+Vincent (MIT) does: brainstorm, plan, test first, review, verify. **It is installed together with JSPARK Forge**: it is
+a declared dependency, listed in the JSPARK Forge marketplace from its own repository (nothing is copied or changed).
+The handoff then shows superpowers plan progress ("Task 3 of 8").
 
-```
-/plugin install superpowers@jspark-forge
-```
-
-JSPARK Forge never requires it, never installs it by itself, and works fully without it. With it, the handoff shows
-superpowers plan progress ("Task 3 of 8"). On first run, if it is missing, JSPARK Forge mentions it once.
+Already had superpowers from another marketplace? Then it is installed twice and its skills show twice; JSPARK Forge
+tells you once which copy to remove.
 
 ## When it saves (published list)
 
@@ -111,20 +107,20 @@ Needs Claude Code and **Node.js 18 or newer**.
 
 ```
 /plugin install jspark-forge --marketplace harishgoswami23/jspark-forge
-/jspark-forge:init
 ```
 
+That is all. superpowers comes with it, and there is no setup step:
+
+- **Each git project switches on by itself** the first time you open Claude Code in it: a hidden `.jspark-forge/`
+  folder appears (git-ignored except `rules.md` and `.gitignore`, which you can commit). Folders that are not git
+  projects are left alone.
+- **Status line.** Claude Code shows context and plan usage only to the status line, and JSPARK Forge needs those
+  figures for the 80 % / 95 % saves. If you have no status line, JSPARK Forge adds its own and tells you how to undo
+  it (`/jspark-forge:init --undo-statusline`). If you have your own, it is never touched: run `/jspark-forge:init`
+  once if you want JSPARK Forge to wrap it (it asks first; your status line looks exactly as now, with a short
+  "saved" note after it). Set `JSPARK_FORGE_AUTO_STATUSLINE=off` to stop JSPARK Forge adding one at all.
+
 On Claude Code older than 2.1.275: `/plugin marketplace add harishgoswami23/jspark-forge`, then `/plugin install jspark-forge`.
-Add superpowers from the same marketplace if you want both: `/plugin install superpowers@jspark-forge`.
-
-`/jspark-forge:init` creates a hidden `.jspark-forge/` folder in your project (git-ignored except
-`.jspark-forge/rules.md`) and asks before it **changes your status line**:
-
-> Claude Code shows context and plan usage only to the status line, so JSPARK Forge wraps yours: your status line
-> looks exactly as now, with a short "saved" note after it. A backup of your settings is kept in
-> `~/.claude/jspark-forge/`. Undo any time with `/jspark-forge:init --undo-statusline`.
-
-Say no and everything else still works; only the 80 % / 95 % usage saves are off.
 
 ## Commands
 
@@ -132,13 +128,14 @@ Say no and everything else still works; only the 80 % / 95 % usage saves are off
 |---|---|
 | `/jspark-forge:resume` | Show where you were again, on demand, and wait |
 | `/jspark-forge:handoff` | Save the handoff now (`done` closes the task and archives it) |
-| `/jspark-forge:init` | Set up this project; `--undo-statusline` restores your status line |
+| `/jspark-forge:init` | Optional. Wrap your own status line (asks first); `--undo-statusline` restores it exactly |
 
 ## Uninstall
 
 1. `/jspark-forge:init --undo-statusline` (restores your status line exactly; if you forget, it keeps working as
    before anyway).
-2. `/plugin uninstall jspark-forge`.
+2. `/plugin uninstall jspark-forge`. superpowers stays installed; `claude plugin prune` removes it if nothing else
+   needs it.
 3. Optional: delete the `.jspark-forge/` folder in your projects and `~/.claude/jspark-forge/`.
 
 ## Privacy

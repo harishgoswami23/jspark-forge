@@ -142,7 +142,14 @@ branch, Claude's own notes. Enough to resume the work, not a map of the system. 
 action; Still running at cutoff; Waiting on you; Your last request; Claude's notes; recent actions; files touched;
 pointers to log and archive.
 
-**Commands** `/jspark-forge:resume`, `/jspark-forge:handoff [done]`, `/jspark-forge:init`.
+**Commands** `/jspark-forge:resume`, `/jspark-forge:handoff [done]`, `/jspark-forge:init` (optional).
+
+**No setup step [owner 2026-11-19]:** the first SessionStart or prompt in a git project creates `.jspark-forge/`
+by itself (never outside git projects, the home folder or a drive root). Once per machine, if the user has no status
+line, JSPARK Forge adds its own (one-line notice with the undo command); a user's own status line is never touched
+automatically (a one-time tip points to `/jspark-forge:init`). `JSPARK_FORGE_AUTO_STATUSLINE=off` turns the automatic
+status line off. This supersedes Q15's "write nothing before init" for owned projects; guest mode (v0.1.1) must add
+its own opt-out for repos the user only reviews.
 
 **Hooks** SessionStart, UserPromptSubmit, PreToolUse (blocks, commit notes reminder), PostToolUse (matcher limited
 to writing/state tools, not Read/Grep/Glob), PostToolUseFailure, Stop, PreCompact, SessionEnd, SubagentStop and
@@ -492,7 +499,13 @@ Hidden command (never in the README top section).
 
 ### 5.9 superpowers integration [owner]
 
-- **Recommend, don't bundle or install.** Forge builds no "how" (plan/test/review) piece of its own.
+- **Installed with JSPARK Forge [owner 2026-11-19, supersedes "recommend, don't bundle or install"]:** `plugin.json`
+  declares `"dependencies": ["superpowers"]`, resolved against the JSPARK Forge marketplace, so installing JSPARK
+  Forge installs superpowers (tested: "+ 1 dependency: superpowers"). Nothing is copied. A user who already had it from
+  another marketplace has two copies: JSPARK Forge says once which to remove (a dependency on another marketplace's
+  copy is not used: fresh setups name the official marketplace `anthropic-plugin-directory`, older ones
+  `claude-plugins-official`, and cross-marketplace dependencies need an allowlist). Forge builds no "how"
+  (plan/test/review) piece of its own.
 - **Listed in our marketplace [owner 2026-11-19]:** the JSPARK Forge marketplace lists superpowers from its own
   repository at a pinned commit (the same form Anthropic's official marketplace uses), so users install both from
   one place (`/plugin install superpowers@jspark-forge`). Nothing is copied into this repo; the pin is bumped each

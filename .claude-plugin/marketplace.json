@@ -1,8 +1,10 @@
 {
   "name": "jspark-forge",
-  "owner": { "name": "JSPARK AI" },
+  "owner": {
+    "name": "JSPARK AI"
+  },
   "metadata": {
-    "description": "JSPARK Forge, plus superpowers (listed from its own repository, not copied) so you can install both from one place."
+    "description": "JSPARK Forge and superpowers in one install: superpowers (by Jesse Vincent) is a declared dependency, listed from its own repository, not copied."
   },
   "plugins": [
     {
@@ -10,7 +12,10 @@
       "source": "./",
       "description": "Resume after a crash, logout or limit. Rules enforced by hooks.",
       "version": "0.1.0",
-      "category": "development"
+      "category": "development",
+      "dependencies": [
+        "superpowers"
+      ]
     },
     {
       "name": "superpowers",

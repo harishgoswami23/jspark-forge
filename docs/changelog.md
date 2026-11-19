@@ -161,3 +161,13 @@ copied; each passes principle 12.
 - 5.13 no longer points to a git-ignored internal file.
 - Spec status line lists the 2026-11-19 revision.
 **Why:** documents disagreed with each other; one term meant two things; a public doc linked to a private file.
+
+### Rev 10: no setup step; superpowers installed with JSPARK Forge (2026-11-19)
+**What:** the first session in a git project switches JSPARK Forge on by itself; the status line is added
+automatically when the user has none (their own is never touched; a one-time tip points to `/jspark-forge:init`);
+`/jspark-forge:init` becomes optional. superpowers is a declared plugin dependency from the JSPARK Forge marketplace, so
+one install brings both; a duplicate from another marketplace gets a one-time note. Install is one line. Also this
+day: plugin and README carry the JSPARK AI logo; the repository is public at github.com/harishgoswami23/jspark-forge;
+CI runs unit tests on Windows, macOS and Linux and the ship gate with the owner's subscription token.
+**Why [owner, 2026-11-19]:** "once the user downloads and uses the repo, the work must be done automatically", and
+"it must download superpowers as well".

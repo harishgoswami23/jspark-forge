@@ -32,3 +32,9 @@ test('init suggests the one-line install from this marketplace', () => {
   const src = fs.readFileSync(path.join(ROOT, 'scripts', 'init.js'), 'utf8');
   assert.match(src, /\/plugin install superpowers@jspark-forge/);
 });
+
+test('JSPARK Forge declares superpowers as a dependency, so installing one installs both (owner 2026-11-19)', () => {
+  const p = JSON.parse(fs.readFileSync(path.join(ROOT, '.claude-plugin', 'plugin.json'), 'utf8'));
+  assert.deepEqual(p.dependencies, ['superpowers'], 'bare name: resolved against our own marketplace');
+  assert.deepEqual(byName('jspark-forge').dependencies, ['superpowers'], 'marketplace entry matches plugin.json');
+});

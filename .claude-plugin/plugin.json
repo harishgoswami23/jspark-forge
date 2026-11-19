@@ -15,5 +15,8 @@
     "solo-founder"
   ],
   "homepage": "https://github.com/harishgoswami23/jspark-forge",
-  "repository": "https://github.com/harishgoswami23/jspark-forge"
+  "repository": "https://github.com/harishgoswami23/jspark-forge",
+  "dependencies": [
+    "superpowers"
+  ]
 }
