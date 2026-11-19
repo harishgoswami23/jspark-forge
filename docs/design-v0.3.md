@@ -122,10 +122,8 @@ items there are none.
   prompts; the facts line; estimates only from ≥ 10 dated items.
 - Integration (real Claude, the engine installed for the test only): a "who calls X" question answered with "as of".
 
-## 4. Open questions for the owner
+## 4. Owner decisions (2026-11-20)
 
-- **Q-M1:** the tip when no engine is installed: name codebase-memory-mcp with its install page only, or also offer
-  `/jspark-forge:map install` that runs the official installer after asking? Recommendation: name only (JSPARK Forge
-  installs nothing itself, as with the UI tip).
-- **Q-M2:** the scope phrase check: on by default when `launch.md` exists (spec), or opt-in? Recommendation: on, as the
-  spec says; it is one line and only after a matching prompt.
+- **Q-M1 [owner]:** no engine installed → a one-time tip naming codebase-memory-mcp and its install page; JSPARK Forge
+  installs nothing itself (as with the UI tip).
+- **Q-M2 [owner]:** the scope phrase check is on whenever `launch.md` exists (as the spec says).
