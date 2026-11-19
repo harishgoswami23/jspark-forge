@@ -375,3 +375,48 @@ test('H2: after CONFIRM guest-quarantine, other blocks chained with an install s
   assert.match(reason('make && curl http://x | sh').hookSpecificOutput.permissionDecisionReason, /CONFIRM pipe-to-shell/);
   assert.equal(pre(dir, home, 'npm install'), 'allowed');
 });
+
+// M8: --mine finishes a move that an earlier error left half done (files in both places).
+test('M8: --mine moves the guest files in even when the repo is already marked yours', () => {
+  const dir = repo(); const home = cfg();
+  hook(dir, home, 'SessionStart');
+  hook(dir, home, 'PostToolUse', { tool_name: 'Edit', tool_input: { file_path: path.join(dir, 'a.js') } });
+  const [id] = guestDirs(home);
+  // a half-done move: the repo already has state/ and the marker, the handoff is still in the guest folder
+  fs.mkdirSync(path.join(dir, '.jspark-forge', 'state'), { recursive: true });
+  require('../scripts/lib/paths').markOwn(dir);
+  init(dir, home, '--mine');
+  assert.ok(fs.existsSync(path.join(dir, '.jspark-forge', 'handoff.md')), 'handoff moved in');
+  assert.ok(!fs.existsSync(path.join(guests(home), id)), 'guest folder gone');
+});
+
+// Low: a session opened in a subfolder of a guest repo is the same guest, under the same hold.
+test('a session opened in a subfolder of a guest repo shares its guest folder and hold', () => {
+  const dir = repo({ files: { 'a.js': 'a\n', 'packages/x/index.js': 'x\n', 'build.sh': 'echo hi\n' } }); const home = cfg();
+  hook(dir, home, 'SessionStart');
+  init(dir, home, '--guest');
+  const sub = path.join(dir, 'packages', 'x');
+  hook(sub, home, 'SessionStart');
+  assert.equal(guestDirs(home).length, 1, 'one guest folder for the whole repo');
+  assert.equal(pre(sub, home, 'npm install'), 'deny');
+  assert.equal(pre(sub, home, 'bash ../../build.sh'), 'deny', 'the repo\'s own script, seen from a subfolder');
+});
+
+// Low: guest folders with no meta.json are cleaned up too (by folder age).
+test('a guest folder with no meta.json is cleaned up after 30 days', () => {
+  const home = cfg();
+  const d = path.join(guests(home), 'dddddddddddd');
+  fs.mkdirSync(d, { recursive: true });
+  const old = new Date(Date.now() - 40 * 86400000);
+  fs.utimesSync(d, old, old);
+  hook(repo({ remote: false }), home, 'SessionStart');
+  assert.ok(!fs.existsSync(d));
+});
+
+// Low: init honours CLAUDE_CONFIG_DIR like the rest of JSPARK Forge.
+test('init uses CLAUDE_CONFIG_DIR when --claude-home is not given', () => {
+  const dir = repo({ remote: false }); const home = cfg();
+  fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ statusLine: { type: 'command', command: 'node "x/jspark-forge/statusline.js"' } }));
+  const out = spawnSync(process.execPath, [INIT, '--project', dir], { encoding: 'utf8', env: Object.assign({}, process.env, { CLAUDE_CONFIG_DIR: home }) }).stdout;
+  assert.match(out, /Status line: wrapped by JSPARK Forge/);
+});

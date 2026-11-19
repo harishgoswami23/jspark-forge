@@ -70,7 +70,7 @@ function writeMeta(dir, origin, { quarantine } = {}) {
   fs.mkdirSync(path.join(g, 'state'), { recursive: true });
   const now = Date.now();
   const prev = paths.guestMeta(dir) || {};
-  fs.writeFileSync(path.join(g, 'meta.json'), JSON.stringify({ path: paths.normPath(dir), origin,
+  fs.writeFileSync(path.join(g, 'meta.json'), JSON.stringify({ path: paths.normPath(paths.repoRoot(dir)), origin,
     root: prev.root || rootOf(dir), created: prev.created || now, lastUsed: now,
     quarantine: quarantine === undefined ? !!prev.quarantine : !!quarantine }, null, 2) + '\n');
 }
@@ -155,7 +155,8 @@ function pruneGuests(home, st, now = Date.now()) {
   try { ids = fs.readdirSync(root); } catch { return 0; }
   for (const id of ids) {
     const meta = readJson(path.join(root, id, 'meta.json'));
-    const last = meta && typeof meta.lastUsed === 'number' ? meta.lastUsed : 0;
+    let last = meta && typeof meta.lastUsed === 'number' ? meta.lastUsed : 0;
+    if (!last) { try { last = fs.statSync(path.join(root, id)).mtimeMs; } catch { last = 0; } } // no meta: folder age
     if (last && now - last > GUEST_DAYS * 86400000) {
       try { fs.rmSync(path.join(root, id), { recursive: true, force: true }); removed++; } catch { /* next time */ }
     }

@@ -22,7 +22,15 @@ function normPath(p) {
   if (r.length > 1 && !/^[a-zA-Z]:\/$/.test(r)) r = r.replace(/\/+$/, '');
   return process.platform === 'win32' ? r.toLowerCase() : r;
 }
-const guestId = project => crypto.createHash('sha1').update(normPath(project)).digest('hex').slice(0, 12);
+// The repo's top folder (where .git is), walking up from the project folder; no git process. None -> the project.
+// A session opened in a subfolder of a guest repo is the same guest, under the same hold (Fable code review, low).
+function repoRoot(project) {
+  for (let d = path.resolve(project); ; d = path.dirname(d)) {
+    if (fs.existsSync(path.join(d, '.git'))) return d;
+    if (path.dirname(d) === d) return path.resolve(project);
+  }
+}
+const guestId = project => crypto.createHash('sha1').update(normPath(repoRoot(project))).digest('hex').slice(0, 12);
 const guestsRoot = () => path.join(claudeHome(), 'jspark-forge', 'guests');
 const guestDir = project => path.join(guestsRoot(), guestId(project));
 
@@ -73,5 +81,5 @@ function display(project, p) {
 }
 
 module.exports = { NAME, claudeHome, normPath, guestId, guestsRoot, guestDir, guestMeta, repoForgeDir, hasRepoState, gitDirOf,
-  ownMarker, markOwn, unmarkOwn, isOwn, isGuest,
+  ownMarker, markOwn, unmarkOwn, isOwn, isGuest, repoRoot,
   forgeDir, isActive, display };

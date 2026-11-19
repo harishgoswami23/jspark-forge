@@ -171,7 +171,7 @@ const baseTool = cmd => cmd.replace(/^(python|pip|ruby|node|php|perl)\d+(\.\d+)*
 function insideRepo(p, cwd, ctx) {
   if (!p || /^-/.test(p)) return false;
   const r = norm(path.resolve(toFs(cwd), toFs(WIN ? p : String(p).split(String.fromCharCode(92)).join('/'))));
-  const project = norm(ctx.projectDir);
+  const project = norm(ctx.repoRoot || ctx.projectDir); // the whole repo, also from a subfolder session
   return r === project || inside(r, project);
 }
 

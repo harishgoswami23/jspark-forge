@@ -11,7 +11,7 @@ const path = require('path');
 const args = process.argv.slice(2);
 const opt = (name, def) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : def; };
 const PROJECT = path.resolve(opt('--project', process.env.CLAUDE_PROJECT_DIR || process.cwd()));
-const CLAUDE_HOME = opt('--claude-home', path.join(os.homedir(), '.claude'));
+const CLAUDE_HOME = opt('--claude-home', process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude')); // like paths.js
 const FORGE = require('./lib/paths').repoForgeDir(PROJECT);
 const GITIGNORE = '*\n!.gitignore\n!rules.md\n';
 const out = [];
@@ -27,24 +27,33 @@ out.push(major >= 18 ? `Node.js ${process.versions.node}: ok`
 const paths = require('./lib/paths');
 const setup = require('./lib/setup');
 const OWN_FILES = ['state', 'log', 'archive', 'usage', 'handoff.md'];
+// Copy everything first, then delete (Fable code review M8): an error part-way leaves every file in at least one
+// place, and running the same command again finishes the move.
 function moveOwnFiles(from, to) {
   fs.mkdirSync(to, { recursive: true });
-  for (const n of OWN_FILES) {
-    const src = path.join(from, n);
-    if (!fs.existsSync(src)) continue;
-    fs.cpSync(src, path.join(to, n), { recursive: true, force: true });
-    fs.rmSync(src, { recursive: true, force: true });
-  }
+  const present = OWN_FILES.filter(n => fs.existsSync(path.join(from, n)));
+  for (const n of present) fs.cpSync(path.join(from, n), path.join(to, n), { recursive: true, force: true });
+  for (const n of present) fs.rmSync(path.join(from, n), { recursive: true, force: true });
 }
 const finish = () => { process.stdout.write(out.join('\n') + '\n'); process.exit(0); };
+const isDirSync = p => { try { return fs.statSync(p).isDirectory(); } catch { return false; } };
+function guarded(what, fn) {
+  try { fn(); } catch (e) {
+    out.push(`JSPARK Forge could not finish ${what}: ${e.message}. Nothing was lost; run the same command again to finish.`);
+    finish();
+  }
+}
 
 if (args.includes('--mine')) {
-  if (paths.isGuest(PROJECT)) {
-    moveOwnFiles(paths.guestDir(PROJECT), FORGE);
-    fs.rmSync(paths.guestDir(PROJECT), { recursive: true, force: true });
-  }
+  guarded('moving its files into the repo', () => {
+    // Also when the repo is already marked yours: a half-done earlier move left files in the guest folder.
+    if (isDirSync(paths.guestDir(PROJECT))) {
+      moveOwnFiles(paths.guestDir(PROJECT), FORGE);
+      fs.rmSync(paths.guestDir(PROJECT), { recursive: true, force: true });
+    }
+  });
   fs.mkdirSync(path.join(FORGE, 'state'), { recursive: true });
-if (!args.includes('--guest')) paths.markOwn(PROJECT); // yours: the marker inside .git
+  paths.markOwn(PROJECT); // yours: the marker inside .git
   if (!fs.existsSync(path.join(FORGE, '.gitignore'))) fs.writeFileSync(path.join(FORGE, '.gitignore'), GITIGNORE);
   if (!fs.existsSync(path.join(FORGE, 'rules.md'))) fs.copyFileSync(path.join(__dirname, '..', 'templates', 'rules.md'), path.join(FORGE, 'rules.md'));
   out.push('This repo is now yours: JSPARK Forge keeps its files in .jspark-forge/ (commit rules.md and .gitignore; the ' +
@@ -53,7 +62,10 @@ if (!args.includes('--guest')) paths.markOwn(PROJECT); // yours: the marker insi
 }
 
 if (args.includes('--guest')) {
-  if (!paths.isGuest(PROJECT) && paths.isOwn(PROJECT)) moveOwnFiles(FORGE, paths.guestDir(PROJECT));
+  guarded('moving its files out of the repo', () => {
+    // Only JSPARK Forge's own local files (proven by the .git marker): a cloned repo's committed state/ stays put.
+    if (paths.isOwn(PROJECT)) moveOwnFiles(FORGE, paths.guestDir(PROJECT));
+  });
   paths.unmarkOwn(PROJECT);
   setup.writeGuest(PROJECT, { quarantine: true });
   out.push('JSPARK Forge now treats this repo as one you are reviewing: nothing is written into it (its files are in ' +

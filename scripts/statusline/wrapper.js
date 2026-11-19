@@ -45,7 +45,12 @@ function forgeOf(proj) {
   const own = (isDir(path.join(repo, 'state')) || isDir(path.join(repo, 'log'))) &&
     (!gitDir || fs.existsSync(path.join(gitDir, 'jspark-forge-own'))); // a committed state/ proves nothing (paths.js isOwn)
   if (own) return { dir: repo, guest: false };
-  const id = require('crypto').createHash('sha1').update(normPath(proj)).digest('hex').slice(0, 12);
+  let root = path.resolve(proj); // the repo's top folder, as paths.js repoRoot
+  for (let d = root; ; d = path.dirname(d)) {
+    if (fs.existsSync(path.join(d, '.git'))) { root = d; break; }
+    if (path.dirname(d) === d) break;
+  }
+  const id = require('crypto').createHash('sha1').update(normPath(root)).digest('hex').slice(0, 12);
   const g = path.join(__dirname, 'guests', id);
   return isDir(g) ? { dir: g, guest: true } : null;
 }

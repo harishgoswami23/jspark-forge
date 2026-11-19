@@ -24,27 +24,32 @@ const write = (dir, tokens) => writeAtomic(fileOf(dir), JSON.stringify({ tokens 
 function grantFromPrompt(dir, session, prompt, knownIds, now = Date.now()) {
   const known = new Set(knownIds);
   const granted = [];
+  const whole = String(prompt || '').trim().replace(/[.!]+$/, '');
   for (const m of String(prompt || '').matchAll(/\bconfirm\s+([A-Za-z0-9][A-Za-z0-9-]*)/gi)) {
-    if (known.has(m[1]) && !granted.includes(m[1])) granted.push(m[1]);
+    if (!known.has(m[1]) || granted.includes(m[1])) continue;
+    // A session-long CONFIRM must be the whole message (not inside pasted or quoted text). Fable code review, low.
+    if (SESSION_LONG.has(m[1]) && !new RegExp(`^confirm\\s+${m[1]}$`, 'i').test(whole)) continue;
+    granted.push(m[1]);
   }
   if (!granted.length) return granted;
   const tokens = (read(dir) || []).filter(t => live(t, now) && !(t.session === session && granted.includes(t.id)));
-  for (const id of granted) tokens.push({ id, session, expires: SESSION_LONG.has(id) ? null : now + TTL_MS });
+  for (const id of granted) tokens.push({ id, session, expires: now + (SESSION_LONG.has(id) ? SESSION_MS : TTL_MS) });
   write(dir, tokens);
   return granted;
 }
 
 // guest-quarantine (v0.1.1, owner 2026-11-19): one CONFIRM covers the rest of the session (reviewing a repo means
-// installing, building and testing it repeatedly). Every other block stays one-shot, 5 minutes.
+// installing, building and testing it repeatedly), capped at 12 hours. Every other block stays one-shot, 5 minutes.
 const SESSION_LONG = new Set(['guest-quarantine']);
-const live = (t, now) => t.expires === null || t.expires >= now;
+const SESSION_MS = 12 * 3600 * 1000;
+const live = (t, now) => typeof t.expires === 'number' && t.expires >= now; // a token without an expiry is not valid
 
 function consume(dir, session, id, now = Date.now()) {
   const tokens = read(dir);
   if (!tokens) return false;
   const i = tokens.findIndex(t => t.id === id && t.session === session && live(t, now));
   if (i < 0) return false;
-  if (tokens[i].expires === null) return true; // session-long: kept
+  if (SESSION_LONG.has(id)) return true; // session-long: kept until it expires
   tokens.splice(i, 1);
   write(dir, tokens.filter(t => live(t, now)));
   return true;

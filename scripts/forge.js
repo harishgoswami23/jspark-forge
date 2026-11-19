@@ -74,7 +74,7 @@ function writtenFiles(dir, input) {
 const branchOf = dir => git.headBranch(dir) || ''; // read from .git/HEAD, no git process
 // quarantine: only in a guest repo after /jspark-forge:init --guest (one small file read, no git).
 const blockCtx = (dir, rules) => ({ projectDir: dir, home: os.homedir(), rules, branchOf,
-  quarantine: paths.isGuest(dir) && !!(paths.guestMeta(dir) || {}).quarantine });
+  quarantine: paths.isGuest(dir) && !!(paths.guestMeta(dir) || {}).quarantine, repoRoot: paths.repoRoot(dir) });
 const confirmableIds = rules => Object.keys(BUILTINS).concat(rules.confirm.map(r => r.id));
 const preTool = (decision, reason) => ({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: decision, permissionDecisionReason: reason } });
 const context = (ev, text) => ({ hookSpecificOutput: { hookEventName: ev, additionalContext: text } });
