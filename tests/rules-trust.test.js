@@ -131,9 +131,13 @@ test('N6: two different blocks in one command: the message names both; both CONF
 
 // M4 (review): a repo's slow regex must not hide the user's own rules when no built-in matches.
 test("M4: a repo's slow regex cannot time out the user's own rule", () => {
-  const s = setup({ repoRules: '## Never\n- `re:(a+)+$` : slow on purpose\n', userRules: '## Confirm\n- `terraform destroy` : infra\n' });
-  const t = Date.now();
-  const o = hook(s, 'PreToolUse', bash(`terraform destroy ${'a'.repeat(28)}!`));
-  assert.match(o.hookSpecificOutput.permissionDecisionReason, /CONFIRM terraform-destroy/);
-  assert.ok(Date.now() - t < 2500, `${Date.now() - t} ms (the hook limit is 3 s)`);
+  // What the slow pattern adds is measured against the same hook without it (best of two each): starting Node on a
+  // busy CI runner alone once took 2.7 s, which says nothing about the pattern (CI 2026-11-20).
+  const cmd = bash(`terraform destroy ${'a'.repeat(28)}!`);
+  const slow = setup({ repoRules: '## Never\n- `re:(a+)+$` : slow on purpose\n', userRules: '## Confirm\n- `terraform destroy` : infra\n' });
+  const plain = setup({ userRules: '## Confirm\n- `terraform destroy` : infra\n' });
+  const time = s => { let best = Infinity, out; for (let i = 0; i < 2; i++) { const t = Date.now(); out = hook(s, 'PreToolUse', cmd); best = Math.min(best, Date.now() - t); } return { best, out }; };
+  const a = time(slow), b = time(plain);
+  assert.match(a.out.hookSpecificOutput.permissionDecisionReason, /CONFIRM terraform-destroy/);
+  assert.ok(a.best - b.best < 1000, `the slow pattern added ${a.best - b.best} ms (its limit is 250 ms; the hook's is 3 s)`);
 });
