@@ -44,18 +44,21 @@ function guarded(what, fn) {
   }
 }
 
+// The whole repo is yours or a guest, so --mine and --guest act on its top folder, also from a subfolder session.
+const ROOT = paths.repoRoot(PROJECT);
+const ROOT_FORGE = paths.repoForgeDir(ROOT);
 if (args.includes('--mine')) {
   guarded('moving its files into the repo', () => {
     // Also when the repo is already marked yours: a half-done earlier move left files in the guest folder.
-    if (isDirSync(paths.guestDir(PROJECT))) {
-      moveOwnFiles(paths.guestDir(PROJECT), FORGE);
-      fs.rmSync(paths.guestDir(PROJECT), { recursive: true, force: true });
+    if (isDirSync(paths.guestDir(ROOT))) {
+      moveOwnFiles(paths.guestDir(ROOT), ROOT_FORGE);
+      fs.rmSync(paths.guestDir(ROOT), { recursive: true, force: true });
     }
   });
-  fs.mkdirSync(path.join(FORGE, 'state'), { recursive: true });
-  paths.markOwn(PROJECT); // yours: the marker inside .git
-  if (!fs.existsSync(path.join(FORGE, '.gitignore'))) fs.writeFileSync(path.join(FORGE, '.gitignore'), GITIGNORE);
-  if (!fs.existsSync(path.join(FORGE, 'rules.md'))) fs.copyFileSync(path.join(__dirname, '..', 'templates', 'rules.md'), path.join(FORGE, 'rules.md'));
+  fs.mkdirSync(path.join(ROOT_FORGE, 'state'), { recursive: true });
+  paths.markOwn(ROOT); // yours: the marker inside .git
+  if (!fs.existsSync(path.join(ROOT_FORGE, '.gitignore'))) fs.writeFileSync(path.join(ROOT_FORGE, '.gitignore'), GITIGNORE);
+  if (!fs.existsSync(path.join(ROOT_FORGE, 'rules.md'))) fs.copyFileSync(path.join(__dirname, '..', 'templates', 'rules.md'), path.join(ROOT_FORGE, 'rules.md'));
   out.push('This repo is now yours: JSPARK Forge keeps its files in .jspark-forge/ (commit rules.md and .gitignore; the ' +
     'rest stays local). The guest quarantine is off.');
   finish();
@@ -64,12 +67,12 @@ if (args.includes('--mine')) {
 if (args.includes('--guest')) {
   guarded('moving its files out of the repo', () => {
     // Only JSPARK Forge's own local files (proven by the .git marker): a cloned repo's committed state/ stays put.
-    if (paths.isOwn(PROJECT)) moveOwnFiles(FORGE, paths.guestDir(PROJECT));
+    if (paths.isOwn(ROOT)) moveOwnFiles(ROOT_FORGE, paths.guestDir(ROOT));
   });
-  paths.unmarkOwn(PROJECT);
-  setup.writeGuest(PROJECT, { quarantine: true });
+  paths.unmarkOwn(ROOT);
+  setup.writeGuest(ROOT, { quarantine: true });
   out.push('JSPARK Forge now treats this repo as one you are reviewing: nothing is written into it (its files are in ' +
-    `${paths.guestDir(PROJECT).replace(/\\/g, '/')}), and its common install, build, test and run commands are held ` +
+    `${paths.guestDir(ROOT).replace(/\\/g, '/')}), and its common install, build, test and run commands are held ` +
     'until you type CONFIRM guest-quarantine (then allowed for the rest of that session). Undo: /jspark-forge:init --mine');
   finish();
 }

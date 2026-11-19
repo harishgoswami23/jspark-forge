@@ -465,6 +465,22 @@ test('a session opened in a subfolder of a guest repo shares its guest folder an
   assert.equal(pre(sub, home, 'bash ../../build.sh'), 'deny', 'the repo\'s own script, seen from a subfolder');
 });
 
+// Verification (M8 low): --mine from a subfolder makes the whole repo yours, and it stays yours.
+test('--mine run from a subfolder moves the files to the repo top folder; later sessions anywhere stay yours', () => {
+  const dir = repo({ files: { 'a.js': 'a\n', 'packages/x/index.js': 'x\n' } }); const home = cfg();
+  hook(dir, home, 'SessionStart');
+  hook(dir, home, 'PostToolUse', { tool_name: 'Edit', tool_input: { file_path: path.join(dir, 'a.js') } });
+  const sub = path.join(dir, 'packages', 'x');
+  init(sub, home, '--mine');
+  assert.ok(fs.existsSync(path.join(dir, '.jspark-forge', 'handoff.md')), 'handoff at the top folder');
+  assert.ok(!fs.existsSync(path.join(sub, '.jspark-forge')), 'nothing in the subfolder');
+  assert.equal(guestDirs(home).length, 0, 'guest folder gone');
+  hook(dir, home, 'SessionStart');
+  hook(sub, home, 'SessionStart');
+  assert.equal(guestDirs(home).length, 0, 'not turned back into a guest');
+  assert.ok(fs.existsSync(path.join(dir, '.git', 'jspark-forge-own')), 'marker kept');
+});
+
 // Low: guest folders with no meta.json are cleaned up too (by folder age).
 test('a guest folder with no meta.json is cleaned up after 30 days', () => {
   const home = cfg();

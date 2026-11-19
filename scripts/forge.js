@@ -308,6 +308,7 @@ function main(raw) {
     // Automatic setup (owner 2026-11-19): the first session or prompt in a git project switches JSPARK Forge on.
     // A repo that is someone else's keeps its files in a guest folder (design-v0.1.1 section 2).
     let setupResult = null;
+    setup.startBudget(setup.SETUP_BUDGET_MS); // setup and the guest check share one git time budget
     if (!isInitialised(dir)) {
       if (!SETUP_EVENTS.has(event)) return;
       setupResult = setup.ensureProject(dir);

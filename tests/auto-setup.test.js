@@ -127,3 +127,20 @@ test('one copy of superpowers, or a disabled second copy: no note', () => {
   const off = config({ enabledPlugins: { 'superpowers@claude-plugins-official': false, 'superpowers@jspark-forge': true } });
   assert.ok(!/installed twice/.test(start(gitProject(), off).systemMessage || ''));
 });
+
+// Fable verification (M6 follow-up): the git calls of automatic setup share one time budget, so a slow git can never
+// push the hook past its 10 s limit. Out of budget, a git call fails at once (and failures after a remote is known
+// mean guest, review M6).
+test('setup git calls share one budget; out of budget they fail at once without starting git', () => {
+  const setup = require('../scripts/lib/setup');
+  assert.ok(setup.SETUP_BUDGET_MS <= 7000, 'budget leaves room inside the 10 s hook limit');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-budget-'));
+  setup.startBudget(0);
+  const t = Date.now();
+  const r = setup.git(dir, ['--version']);
+  assert.equal(r.ok, false);
+  assert.equal(r.failed, true);
+  assert.ok(Date.now() - t < 50, `${Date.now() - t} ms`);
+  setup.startBudget(Infinity);
+  assert.equal(setup.git(dir, ['--version']).ok, true);
+});

@@ -28,8 +28,16 @@ function inGitProject(dir) {
 
 // ---------- own or guest (design-v0.1.1 section 2, owner decision box) ----------
 const { spawnSync } = require('child_process');
+// One time budget for all git calls of one hook run (Fable verification, M6 follow-up): each call has its own limit,
+// but together they could exceed the 10 s hook limit on a very slow git. forge.js starts the budget before setup;
+// out of budget, a call fails at once (a failure after a remote is known means guest).
+const SETUP_BUDGET_MS = 6000;
+let deadline = Infinity;
+const startBudget = ms => { deadline = Date.now() + ms; };
 function git(dir, args, timeout = 3000) {
-  const r = spawnSync('git', args, { cwd: dir, encoding: 'utf8', timeout, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+  const left = deadline - Date.now();
+  if (left <= 0) return { ok: false, out: '', failed: true };
+  const r = spawnSync('git', args, { cwd: dir, encoding: 'utf8', timeout: Math.min(timeout, left), windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
   return { ok: !r.error && r.status === 0, out: (r.stdout || '').trim(), failed: !!r.error || r.signal !== null };
 }
 // Origin without any user:password (it is stored and shown).
@@ -95,6 +103,10 @@ function ensureProject(dir, { force = false } = {}) {
   if (paths.isActive(dir)) return 'exists';
   if (!force && !inGitProject(dir)) return 'skipped';
   const toGuest = () => { paths.unmarkOwn(dir); writeMeta(dir, originOf(dir)); return 'guest'; };
+  // The marker inside .git is never cloned: it was written on this machine (setup, /jspark-forge:init --mine), so the
+  // repo is yours in every folder of it, whatever its commits say.
+  const marker = paths.ownMarker(dir);
+  if (marker && fs.existsSync(marker)) force = true;
   // Projects set up before the .git marker existed (v0.1.0): a state/ folder made on this machine means the project is
   // yours; add the marker once. Anything else (tracked, linked, a submodule, or git not answering) came with a clone or
   // cannot be proven, so the repo is a guest whatever its authors say (Fable review H1; verification N3).
@@ -233,5 +245,5 @@ function machineMessages(home = claudeHome()) {
   return msgs;
 }
 
-module.exports = { ensureProject, touchGuest, writeGuest, decide, cleanOrigin, guestMessage, GUEST_DATA_LINE, machineMessages, inGitProject,
+module.exports = { ensureProject, touchGuest, writeGuest, decide, git, startBudget, SETUP_BUDGET_MS, cleanOrigin, guestMessage, GUEST_DATA_LINE, machineMessages, inGitProject,
   superpowersInstalled, claudeHome, ON_MESSAGE, SUPERPOWERS_TIP, GITIGNORE };
