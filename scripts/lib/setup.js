@@ -125,12 +125,39 @@ function refreshWrapper(home) {
   } catch { /* never break a session start */ }
 }
 
+// Guest folders not used for 30 days are removed (spec Q16), checked at most once a day. Their handoffs are long past
+// the 14-day "last time you were on" window by then. -> how many were removed.
+const GUEST_DAYS = 30;
+function pruneGuests(home, st, now = Date.now()) {
+  if (st.guestsPrunedAt && now - st.guestsPrunedAt < 86400000) return 0;
+  st.guestsPrunedAt = now;
+  const root = path.join(home, 'jspark-forge', 'guests');
+  let removed = 0;
+  let ids = [];
+  try { ids = fs.readdirSync(root); } catch { return 0; }
+  for (const id of ids) {
+    const meta = readJson(path.join(root, id, 'meta.json'));
+    const last = meta && typeof meta.lastUsed === 'number' ? meta.lastUsed : 0;
+    if (last && now - last > GUEST_DAYS * 86400000) {
+      try { fs.rmSync(path.join(root, id), { recursive: true, force: true }); removed++; } catch { /* next time */ }
+    }
+  }
+  return removed;
+}
+
 function machineMessages(home = claudeHome()) {
   const stateFile = path.join(home, 'jspark-forge', 'state.json');
   const st = readJson(stateFile) || {};
   const msgs = [];
   refreshWrapper(home);
   let changed = false;
+  const lastPrune = st.guestsPrunedAt;
+  const pruned = pruneGuests(home, st);
+  if (st.guestsPrunedAt !== lastPrune) changed = true;
+  if (pruned) {
+    msgs.push(`JSPARK Forge removed the files of ${pruned} reviewed repo${pruned === 1 ? '' : 's'} not used for ` +
+      `${GUEST_DAYS} days (their handoffs and logs; the repos themselves were never touched).`);
+  }
   if (!st.statusline && process.env.JSPARK_FORGE_AUTO_STATUSLINE !== 'off') {
     const settings = path.join(home, 'settings.json');
     const cur = statusline.status({ settings });

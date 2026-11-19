@@ -239,3 +239,66 @@ test('the quarantine message says the CONFIRM covers the session, not one action
   assert.match(r, /for the rest of this session, the user types: CONFIRM guest-quarantine/);
   assert.ok(!/allow it once/.test(r));
 });
+
+// ---- G4: clean-up and edge cases ----
+function fakeGuest(home, id, daysAgo) {
+  const d = path.join(guests(home), id);
+  fs.mkdirSync(path.join(d, 'state'), { recursive: true });
+  fs.writeFileSync(path.join(d, 'meta.json'), JSON.stringify({ path: `/x/${id}`, origin: 'o', created: 0, lastUsed: Date.now() - daysAgo * 86400000 }));
+  return d;
+}
+
+test('guest folders unused for 30 days are removed at a session start, with one line; at most once a day', () => {
+  const home = cfg();
+  const old = fakeGuest(home, 'aaaaaaaaaaaa', 40);
+  const recent = fakeGuest(home, 'bbbbbbbbbbbb', 5);
+  const mine = repo({ remote: false });
+  const o = hook(mine, home, 'SessionStart');
+  assert.ok(!fs.existsSync(old), 'old one removed');
+  assert.ok(fs.existsSync(recent), 'recent one kept');
+  assert.match(o.systemMessage, /removed the files of 1 reviewed repo not used for 30 days/);
+  const again = fakeGuest(home, 'cccccccccccc', 40);
+  const o2 = hook(mine, home, 'SessionStart');
+  assert.ok(fs.existsSync(again), 'not checked again the same day');
+  assert.ok(!/reviewed repo/.test(o2.systemMessage || ''));
+});
+
+test('a guest repo nested inside your own project keeps its own files out of both', () => {
+  const own = repo({ remote: false }); const home = cfg();
+  hook(own, home, 'SessionStart');
+  const nested = path.join(own, 'vendor', 'theirs');
+  fs.mkdirSync(nested, { recursive: true });
+  const g = (...a) => execFileSync('git', a, { cwd: nested, stdio: 'ignore' });
+  g('init', '-q', '-b', 'main'); g('config', 'user.email', 'me@example.com');
+  fs.writeFileSync(path.join(nested, 'x.js'), 'x\n');
+  g('add', '-A'); g('-c', 'user.email=someone@example.com', '-c', 'user.name=x', 'commit', '-qm', 'theirs');
+  g('remote', 'add', 'origin', ORIGIN);
+  hook(nested, home, 'SessionStart');
+  hook(nested, home, 'PostToolUse', { tool_name: 'Edit', tool_input: { file_path: path.join(nested, 'x.js') } });
+  assert.ok(!fs.existsSync(path.join(nested, '.jspark-forge')), 'nothing in the nested repo');
+  assert.ok(!fs.existsSync(path.join(own, '.jspark-forge', 'handoff.md')),
+    "the nested session wrote no handoff into the outer project (nothing was done there)");
+  const save = spawnSync(process.execPath, [FORGE, 'save'], { cwd: nested, encoding: 'utf8', input: '',
+    env: Object.assign({}, process.env, { CLAUDE_PROJECT_DIR: '', CLAUDE_CONFIG_DIR: home, CLAUDE_CODE_SESSION_ID: 'guest-0001' }) });
+  assert.match(save.stdout, /Handoff saved/);
+  assert.ok(guestDirs(home).length === 1 && fs.existsSync(path.join(guests(home), guestDirs(home)[0], 'handoff.md')),
+    'a manual save from inside the nested repo goes to its guest folder, not the outer project');
+});
+
+test('a different repo cloned into a reused folder does not inherit the old one\'s quarantine', () => {
+  const dir = repo(); const home = cfg();
+  hook(dir, home, 'SessionStart');
+  init(dir, home, '--guest');
+  assert.equal(pre(dir, home, 'make'), 'deny');
+  execFileSync('git', ['remote', 'set-url', 'origin', 'https://example.com/another/one.git'], { cwd: dir });
+  hook(dir, home, 'SessionStart');
+  assert.equal(pre(dir, home, 'make'), 'allowed');
+});
+
+test('the same folder spelled with different letter case or slashes is the same guest (Windows)', { skip: process.platform !== 'win32' && 'Windows paths are case-insensitive; elsewhere they are not' }, () => {
+  const dir = repo(); const home = cfg();
+  hook(dir, home, 'SessionStart');
+  const shouty = dir.toUpperCase().split(String.fromCharCode(92)).join('/');
+  hook(shouty, home, 'SessionStart');
+  assert.equal(guestDirs(home).length, 1);
+});
