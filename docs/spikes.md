@@ -71,7 +71,7 @@ canary is never seen, record the notes-reminder route (design 5.3) in "Deviation
   sessions can use the plan). Next: repeat with `refreshInterval: 30` (spike's own fallback).
 - PreCompact `hookSpecificOutput.additionalContext` is **rejected by validation** and shows a visible error at
   `/compact`; the rejected JSON (incl. the canary) then leaks into the conversation via the error text. **Confirms
-  the docs; Forge's PreCompact must print nothing.** The design 5.3 route (`notes_due` → SessionStart `compact`) is
+  the docs; JSPARK Forge's PreCompact must print nothing.** The design 5.3 route (`notes_due` → SessionStart `compact`) is
   needed and works: SessionStart `compact` fired and its context reached Claude.
 - **Re-test with `refreshInterval: 30` (2026-11-19, owner decision):** two 2-minute idle gaps; 23 status-line runs,
   every 30 s while idle; **7/7 hook calls fresh (< 2 min), oldest 26 s → pass.**
@@ -83,11 +83,11 @@ canary is never seen, record the notes-reminder route (design 5.3) in "Deviation
 
 ## Spike B: status-line wrapper with an existing user command
 
-**Question:** can Forge wrap any existing status line without the user seeing a difference, and undo cleanly?
+**Question:** can JSPARK Forge wrap any existing status line without the user seeing a difference, and undo cleanly?
 
 **Setup**
 - [ ] Write `wrapper.js` (reads stdin; writes the usage file; runs the original command with the same stdin;
-      prints its output then ` · Forge ok`) and `install.js` / `--undo` (back up `~/.claude/settings.json`, save the
+      prints its output then ` · JSPARK Forge ok`) and `install.js` / `--undo` (back up `~/.claude/settings.json`, save the
       original `statusLine` object, set the wrapper, restore on undo).
 - [ ] Copy the wrapper to `~/.claude/jspark-forge/statusline.js`.
 
@@ -104,9 +104,9 @@ canary is never seen, record the notes-reminder route (design 5.3) in "Deviation
 
 **Steps per row**
 - [ ] Screenshot/record status line output before install.
-- [ ] Install; compare output (must be identical + Forge's suffix).
+- [ ] Install; compare output (must be identical + JSPARK Forge's suffix).
 - [ ] Measure added time per run (100 runs, median and p95).
-- [ ] Make the original command fail / hang 5 s: the wrapper still prints Forge's part within 2 s.
+- [ ] Make the original command fail / hang 5 s: the wrapper still prints JSPARK Forge's part within 2 s.
 - [ ] Undo: `diff` settings.json with the backup.
 - [ ] Re-install, then delete the plugin folder (simulate uninstall): status line still shows the original output.
 
@@ -133,7 +133,7 @@ of command, explains why, and the user keeps their status line (plan-limit saves
   step 6 of the build.
 - Test note: a PowerShell `-File` status line needs `-ExecutionPolicy Bypass` on default Windows (it fails without
   the wrapper too).
-- Live session (2026-11-19, via `--settings`): Claude Code ran the wrapper; the owner saw `probe · Forge ok`; usage
+- Live session (2026-11-19, via `--settings`): Claude Code ran the wrapper; the owner saw `probe · JSPARK Forge ok`; usage
   file written. **Pass.**
 - Still to run: project-level status line row, npx line, Windows without Git Bash, macOS (zsh), Linux.
 
@@ -181,7 +181,7 @@ injection; README says only "safety blocks still fire inside helpers".
 
 ## Spike D: headless detection [owner, 2026-11-03 review]
 
-**Question:** can a Forge hook tell, reliably and from what Claude Code gives it, that the session is
+**Question:** can a JSPARK Forge hook tell, reliably and from what Claude Code gives it, that the session is
 **non-interactive** (`claude -p` in a script or CI, or the Agent SDK), so a show-and-wait guard can skip itself
 there? Result is **pass/fail**.
 

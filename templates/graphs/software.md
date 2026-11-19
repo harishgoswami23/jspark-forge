@@ -2,7 +2,7 @@
 - max_parallel: 2
 - min_free_memory_mb: 1500
 
-<!-- A feature from spec to release. Copy with /jspark-forge:new-graph software <name>, then edit the briefs and checks. -->
+<!-- A feature from spec to release. Start one with /jspark-forge:build (it copies this template), then edit the briefs and checks. -->
 
 ## spec (agent)
 - helper: planner

@@ -1,7 +1,7 @@
 # Graph: documents
 - max_parallel: 1
 
-<!-- A document from research to publication. Copy with /jspark-forge:new-graph documents <name>. -->
+<!-- A document from research to publication. Start one with /jspark-forge:build (it copies this template). -->
 
 ## research (agent)
 - helper: planner

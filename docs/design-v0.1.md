@@ -59,8 +59,8 @@ and readonly sources (v0.1.1, spec 5.2b); v0.1 assumes one owned project in one 
 **Anti-goals**: no thin wrappers on native features (plan mode, basic memory); no extra service, daemon or network
 call; nothing leaves the machine; no auto-continue after a cutoff (show and wait); no feature that needs Claude to
 remember to use it. If v0.1 needs more than ~1 week to build, it is too big. [owner 2026-11-03] Store
-nothing Forge can re-derive from the repo: specs, schema and architecture are indexed from their source files by
-the v0.3 map, never copied into memory; users may still write whatever they want into `decisions.md`, and Forge
+nothing JSPARK Forge can re-derive from the repo: specs, schema and architecture are indexed from their source files by
+the v0.3 map, never copied into memory; users may still write whatever they want into `decisions.md`, and JSPARK Forge
 never blocks it (spec principle 11).
 
 ---
@@ -74,7 +74,7 @@ never blocks it (spec principle 11).
 | Status line runs at session start, on each new assistant message, after `/compact`, on permission-mode change, and on an optional `refreshInterval` timer (min 1 s); debounced 300 ms; an in-flight run is cancelled by a newer one | statusline.md | freshness rule |
 | Only **one** `statusLine` command; a plugin's `settings.json` can set only `agent` and `subagentStatusLine`, **not** `statusLine` | plugins/components.md "Default settings" | installer must edit user settings |
 | On Windows, status line and shell-form hooks run through Git Bash if installed, else PowerShell | statusline.md, hooks.md | runtime choice |
-| Exec-form hooks (`command` + `args`) spawn directly with no shell | hooks.md | all Forge hooks use exec form |
+| Exec-form hooks (`command` + `args`) spawn directly with no shell | hooks.md | all JSPARK Forge hooks use exec form |
 | `PreToolUse` can return `permissionDecision` `allow` / `deny` / `ask` / `defer` with a reason; precedence deny > defer > ask > allow; `defer` only in `-p` | hooks.md | block list |
 | `PreToolUse`/`PostToolUse` hooks from plugins **fire inside subagents**, with `agent_id`/`agent_type` | hooks.md | blocks reach helpers |
 | `SubagentStart` accepts `hookSpecificOutput.additionalContext` (context only, no blocking) | hooks.md | rule injection [spike] |
@@ -82,7 +82,7 @@ never blocks it (spec principle 11).
 | `PreCompact` (trigger `manual`/`auto`), `Stop` (has `last_assistant_message`), `SessionEnd` (reasons `clear`, `resume`, `logout`, `prompt_input_exit`, `other`) exist | hooks.md | save triggers |
 | `PreCompact` can only block compaction (exit 2 or `decision: "block"`); its `systemMessage` and `continue` are discarded; it is not an `additionalContext` event | hooks.md "PreCompact" | notes reminder at compaction needs another route (5.3) |
 | `SessionEnd` hooks share a **1.5 s budget**, raised to the largest per-hook `timeout` up to 60 s | hooks.md | SessionEnd save must be fast |
-| Default `command` hook timeout is **600 s** (30 s on UserPromptSubmit) | hooks.md "Common fields" | every Forge hook sets a short `timeout` |
+| Default `command` hook timeout is **600 s** (30 s on UserPromptSubmit) | hooks.md "Common fields" | every JSPARK Forge hook sets a short `timeout` |
 | Common hook input: `session_id`, `prompt_id`, `transcript_path`, `cwd`, `scratchpad_dir`, `permission_mode` (`default`/`plan`/`acceptEdits`/`auto`/`dontAsk`/`bypassPermissions`; not on every event), `effort`, `hook_event_name`; SessionStart adds `source`, `model`, `agent_type`, `session_title` (+ resume cost fields) | hooks.md "Common input fields", "SessionStart input" | **no documented interactive/headless field**; `permission_mode` does not tell `-p` apart |
 | `-p` appears only as a behaviour condition: `defer` is honoured only with `-p`; `initialUserMessage` only with `-p`; `$CLAUDE_CODE_REMOTE` marks remote web only | hooks.md | headless detection is unproven → spike D; Q8 instructed only |
 | Plugin commands/skills are namespaced: `/jspark-forge:resume` | plugins/components.md | command names |
@@ -164,12 +164,12 @@ start for job tracking. [spike]
   SessionEnd only stamps the end reason and time; it stays inside the shared 1.5 s budget.
 - Other hooks keep 10 s: they run after the action, not in front of it.
 
-**Hook rules [builder]:** never raise; any internal error → no output, exit 0 (fail open, so a broken Forge never
+**Hook rules [builder]:** never raise; any internal error → no output, exit 0 (fail open, so a broken JSPARK Forge never
 stops work) and one `FORGE-ERROR` line in the log; the hook-fire test (section 13) catches silent breakage before each release. (The
 user-facing health check is `/jspark-forge:doctor`, spec 5.13c, not in v0.1.) Each run
 must finish in < 150 ms on a normal laptop (one `node` start ≈ 40–80 ms).
 
-### 3.1 Files Forge creates in the user's project [builder unless marked]
+### 3.1 Files JSPARK Forge creates in the user's project [builder unless marked]
 
 ```
 <project>/.jspark-forge/
@@ -208,7 +208,7 @@ A **save** = rewrite `.jspark-forge/handoff.md` from the current state (section 
 | c | When Claude finishes a reply | Stop | always |
 | d | Before the conversation is compacted | PreCompact | `manual` or `auto` |
 | e | When the session ends | SessionEnd | any reason; **minimal write** (end reason + time stamped into the handoff; Stop already saved the content); timeout 1 s, inside the 1.5 s budget [owner, 2026-11-03 review] |
-| f | Context or plan limit | any Forge hook | 80 %: quiet save + notes reminder (5.3); 95 %: forced save + message (section 7) |
+| f | Context or plan limit | any JSPARK Forge hook | 80 %: quiet save + notes reminder (5.3); 95 %: forced save + message (section 7) |
 
 The former "every 10 minutes of activity" trigger is **dropped** [owner, 2026-11-03 review]: Stop saves after every
 reply, so a timer adds nothing in v0.1.
@@ -217,7 +217,7 @@ reply, so a timer adds nothing in v0.1.
 d, e, f always save. A save takes < 50 ms (reads small JSON + git, writes one file atomically: temp file + rename).
 
 **Commit detection limits (documented):** commits made outside Claude (the user's own terminal) are seen at the next
-Forge hook through `git rev-parse HEAD` changing; the next save records them.
+JSPARK Forge hook through `git rev-parse HEAD` changing; the next save records them.
 
 ---
 
@@ -265,7 +265,7 @@ seven bold top fields. If several sessions are active in one project, the file h
 first, at most 3, still within the cap. [builder]
 
 ### 5.3 Claude's notes: how they stay current [owner, 2026-11-03 review; Q5 decided]
-**No Stop block in v0.1.** Instead of forcing an extra turn, Forge adds one line of `additionalContext`,
+**No Stop block in v0.1.** Instead of forcing an extra turn, JSPARK Forge adds one line of `additionalContext`,
 *"JSPARK Forge: update your notes now in .jspark-forge/state/notes.md (max 120 words: what you are doing, anything
 agreed with the user, what is next)."*, at the moments the notes matter:
 - **PreToolUse of a `git commit`** (Bash command matched as in trigger b): Claude reads it alongside the commit and
@@ -337,7 +337,7 @@ Treat it as a workaround, because it is one. [owner]
      Claude Code would use (Git Bash if present on Windows, else PowerShell; `sh -c` elsewhere), timeout 2 s;
   4. prints the original output unchanged, then the short part (`· JSPARK Forge saved 3m ago`; `JSPARK Forge on`
      before the first save; nothing in projects without `.jspark-forge/`) [builder 2026-11-19: brand rule, never
-     "Forge" alone], which the user can switch off. If the original command fails or times out, prints Forge's part only.
+     "JSPARK Forge" alone], which the user can switch off. If the original command fails or times out, prints JSPARK Forge's part only.
 - Spike B decides the exact shell call and whether a `refreshInterval` is needed. [spike]
 - **`refreshInterval` [owner 2026-11-19, spike A]:** when the user's status line has none, the installer sets
   `refreshInterval: 30` (disclosed in 7.4, removed on undo); a user's own value is kept. Re-test passed 2026-11-19 (7/7 fresh).
@@ -345,7 +345,7 @@ Treat it as a workaround, because it is one. [owner]
   the tool path); the 50 ms target stays for macOS/Linux; revisit only if users notice.
 
 ### 7.2 Hooks reading the figures [owner: thresholds and 2-minute rule]
-- Every Forge hook reads `.jspark-forge/usage/<session_id>.json`. Figures with `ts` older than **2 minutes** are ignored.
+- Every JSPARK Forge hook reads `.jspark-forge/usage/<session_id>.json`. Figures with `ts` older than **2 minutes** are ignored.
 - Highest of the available figures decides the band:
   - **≥ 80 %**: quiet save, once per band per window. No message.
   - **≥ 95 %**: forced save at once + the user sees (hook `systemMessage`):
@@ -361,12 +361,12 @@ Treat it as a workaround, because it is one. [owner]
 - **Plan-limit saves need a plan that reports usage: Pro, Max, Ultra or Team** (Team observed in spike A, re-checked
   each release; Claude Code shares plan usage only with plans that report it).
   Context-limit saves work on every plan.
-- Forge touches your status line (wrapper); how to undo it is printed at install.
+- JSPARK Forge touches your status line (wrapper); how to undo it is printed at install.
 
 ### 7.4 Installer disclosure and undo [owner: disclosure; builder: wording]
 `/jspark-forge:init` shows, before changing anything:
 > JSPARK Forge wants to wrap your status line so it can see context and plan usage (only shown to the status line).
-> Your current status line: `<command or "none">`. It will still show exactly as now; Forge adds a short "saved"
+> Your current status line: `<command or "none">`. It will still show exactly as now; JSPARK Forge adds a short "saved"
 > note after it. A backup of your settings goes to `~/.claude/jspark-forge/`.
 > Undo any time: `/jspark-forge:init --undo-statusline` (or run `node ~/.claude/jspark-forge/statusline.js --undo`).
 > Go ahead? (yes / no)
@@ -407,7 +407,7 @@ takes the same values in both, and `-p` shows up in the docs only as a condition
 (candidates: an entrypoint environment variable passed to hooks, the parent process command line, input field
 differences; see `spikes.md`). Only if it passes, v0.1.1 adds the guard, and the guard **skips itself whenever the
 session is non-interactive or the signal is missing** (when unsure, never block). If spike D fails, show-and-wait
-stays instructed, and the README claims only that Forge "asks before continuing".
+stays instructed, and the README claims only that JSPARK Forge "asks before continuing".
 
 **`/jspark-forge:handoff`** (skill): forces a full save now including Claude's notes; replies
 *"Handoff saved. Next session, JSPARK Forge shows where you were."* `/jspark-forge:handoff done` closes the task
@@ -549,7 +549,7 @@ is missing (hooks would fail open, so protection would be off). Single-file bund
 ---
 
 ## 12. Privacy [owner]
-- Nothing leaves the machine. No network calls, no telemetry, no update checks by Forge.
+- Nothing leaves the machine. No network calls, no telemetry, no update checks by JSPARK Forge.
 - Everything lives in `<project>/.jspark-forge/` (git-ignored except `rules.md`) and `~/.claude/jspark-forge/`.
 - The log redacts likely secrets (section 6). The handoff holds no file contents, only paths and short text.
 - Uninstall leaves the user's files; README says how to delete them.

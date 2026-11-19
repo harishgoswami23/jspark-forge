@@ -57,17 +57,17 @@ Claude remembers."* The pitch never asks the user to type a command (Claude Code
    documented: event, what it writes, what it blocks.
 3. **Nothing leaves the machine.** No network calls, no telemetry. The only exception is a dashboard the user
    chooses to publish, and then only summaries.
-4. **Lean.** Each piece does one job. If Forge starts over-engineering itself, it has failed.
+4. **Lean.** Each piece does one job. If JSPARK Forge starts over-engineering itself, it has failed.
 5. **Never act after a cutoff without the user.** Show and wait.
 6. **Freshness is mechanical.** Anything stored (map, decisions) is refreshed or flagged by hooks, with dates.
 7. **Soft coupling.** Other tools (superpowers, scanners, map engines) are detected and used if present, never
    required; any read failure is skipped silently and tested.
 8. **Honest output.** No invented numbers, no "all clear". Estimates are marked as estimates.
-9. **Local-first, account-independent [owner 2026-11-03].** Nothing the project depends on may live only inside one Claude account or one session's temporary folder. Every page, mockup, dashboard, decision or handoff Forge creates is written first as a file in the project (`.jspark-forge/` or the project's docs folder), committed where sensible; a published Artifact is only a *view* of that file, never the only copy. Forge keeps `.jspark-forge/artifacts.md` (title, local path, Artifact URL, account, date). On every publish it saves the source file locally first; at session start and in `/jspark-forge:check` it flags any referenced Artifact or temp-folder file with no local copy ("saved only on another account / in a deleted temp folder — export it now"). Reason: a design approved on one account became unreadable after a login switch.
-10. **Short by default [owner 2026-11-03].** Every status, answer and explanation Forge shows (and the instruction file asks Claude to give) leads with the answer, uses bullets or a table, keeps explanations to one line, and offers details only on request. Short never means missing: warnings, risks, decisions and blockers are always stated, one line each. Reason: users skip long paragraphs and miss what matters; shorter output also saves tokens now and on every later turn (history is re-read).
-11. **Store nothing Forge can re-derive from the repo [owner 2026-11-03].** Specs, schema and architecture are
+9. **Local-first, account-independent [owner 2026-11-03].** Nothing the project depends on may live only inside one Claude account or one session's temporary folder. Every page, mockup, dashboard, decision or handoff JSPARK Forge creates is written first as a file in the project (`.jspark-forge/` or the project's docs folder), committed where sensible; a published Artifact is only a *view* of that file, never the only copy. JSPARK Forge keeps `.jspark-forge/artifacts.md` (title, local path, Artifact URL, account, date). On every publish it saves the source file locally first; at session start and in `/jspark-forge:check` it flags any referenced Artifact or temp-folder file with no local copy ("saved only on another account / in a deleted temp folder — export it now"). Reason: a design approved on one account became unreadable after a login switch.
+10. **Short by default [owner 2026-11-03].** Every status, answer and explanation JSPARK Forge shows (and the instruction file asks Claude to give) leads with the answer, uses bullets or a table, keeps explanations to one line, and offers details only on request. Short never means missing: warnings, risks, decisions and blockers are always stated, one line each. Reason: users skip long paragraphs and miss what matters; shorter output also saves tokens now and on every later turn (history is re-read).
+11. **Store nothing JSPARK Forge can re-derive from the repo [owner 2026-11-03].** Specs, schema and architecture are
    indexed from their source files by the v0.3 map (5.4), never copied into memory. Users may still write whatever
-   they want into `decisions.md`; Forge never blocks it (it warns, points to a reference and counts locally, 5.3).
+   they want into `decisions.md`; JSPARK Forge never blocks it (it warns, points to a reference and counts locally, 5.3).
 12. **Hooks, not verdicts [owner 2026-11-03].** A proposal that needs Claude's judgment to produce a verdict or a
    plan is out; a hook that denies, saves or points is in. This is the test for every future addition.
 13. **Spike results override review decisions. [owner, 2026-11-03 review]** If a spike contradicts a reviewed
@@ -88,17 +88,17 @@ hooks.md on 2026-11-03. Re-check each release.
 | Context % (`context_window.used_percentage`) is given **only to the status line** | Hooks need a bridge: status line writes `.jspark-forge/usage/<session>.json`; hooks read it. May be `null` early and right after `/compact` |
 | Plan quota (`rate_limits.five_hour` / `seven_day` `.used_percentage`, `.resets_at`) is **status line only** | Present for Pro/Max/Ultra per the docs (or a gateway spend limit) and **observed on Team** (spike A, 2026-11-19), only after the first reply; each window may be absent. README first screen states this |
 | Status line refreshes on events (new assistant message, `/compact`, mode change) + optional `refreshInterval`; 300 ms debounce | The file is timestamped; hooks ignore figures older than ~2 min |
-| One `statusLine` command; plugins cannot set it (plugin settings take only `agent`, `subagentStatusLine`) | Forge installs a **wrapper** in user settings that chains the user's existing command, with disclosure and undo |
+| One `statusLine` command; plugins cannot set it (plugin settings take only `agent`, `subagentStatusLine`) | JSPARK Forge installs a **wrapper** in user settings that chains the user's existing command, with disclosure and undo |
 | Hook events used: SessionStart (`startup`/`resume`/`clear`/`compact`/`fork`), UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, Stop, PreCompact (`manual`/`auto`), SessionEnd, SubagentStart, SubagentStop | SessionEnd shares a 1.5 s budget (raised by per-hook `timeout`, max 60 s) |
 | `additionalContext` works on SessionStart, SubagentStart, UserPromptSubmit, Pre/PostToolUse, Stop | Used for re-loading rules after compaction and just-in-time reminders. PreCompact cannot inject (it can only block; its `systemMessage` is discarded) |
 | PreToolUse `permissionDecision`: `allow` / `deny` / `ask` / `defer` (`defer` only in `-p`) | Blocks = `deny`; override = typed confirmation then `ask` |
 | Hook input has **no documented field for interactive vs headless** (`claude -p`, CI, Agent SDK). Common fields: `session_id`, `prompt_id`, `transcript_path`, `cwd`, `scratchpad_dir`, `permission_mode` (`default`/`plan`/`acceptEdits`/`auto`/`dontAsk`/`bypassPermissions`), `effort`, `hook_event_name`; SessionStart adds `source`, `model`, `agent_type`, `session_title`. `-p` shows up in the docs only as a condition (`defer`, `initialUserMessage`) | SessionStart `startup` fires in `claude -p` too, so a deny-until-reply guard would stall headless runs. Show-and-wait is instructed-only until spike D finds a reliable signal (Q8) |
-| Default `command` hook timeout is 600 s | Every Forge hook sets its own short timeout (PreToolUse 3 s, SessionEnd 1 s) |
+| Default `command` hook timeout is 600 s | Every JSPARK Forge hook sets its own short timeout (PreToolUse 3 s, SessionEnd 1 s) |
 | Plugin PreToolUse/PostToolUse hooks **fire inside subagents** | Blocks apply to helpers |
 | SubagentStart can add context to a helper | "Rules reach every helper" claimed **only if spike C proves it** |
 | Plugin commands/skills are namespaced (`/jspark-forge:resume`); a built-in `/resume` exists | The pitch never says "type `/resume`" (Q1 decided) |
 | `${CLAUDE_PLUGIN_ROOT}` changes per update; `${CLAUDE_PLUGIN_DATA}` survives updates, deleted on uninstall | Machine-level files live in `~/.claude/jspark-forge/` |
-| Exec-form hooks (`command` + `args`) bypass shells | All Forge hooks use exec form with `node` |
+| Exec-form hooks (`command` + `args`) bypass shells | All JSPARK Forge hooks use exec form with `node` |
 | Rewriting a helper's prompt through the Agent tool input is not documented | Not used |
 | **Spikes 2026-11-19 (Windows, 2.1.328):** hook env has `CLAUDE_CODE_SESSION_ATTENDED` (1 interactive, 0 `-p`) and `CLAUDE_CODE_ENTRYPOINT` (`cli` / `sdk-cli`), both **undocumented**; Stop input has `background_tasks`; PreCompact rejects `hookSpecificOutput`; SubagentStop also fires for internal helpers | Re-check each release. Guard uses ATTENDED = 1 only (owner 2026-11-19); details in spikes.md and design section 16 |
 
@@ -118,16 +118,16 @@ branch, Claude's own notes. Enough to resume the work, not a map of the system. 
   (c) on Stop; (d) on PreCompact; (e) on SessionEnd (minimal write, 1 s); (f) at 80 % context/plan usage (quiet)
   and 95 % (forced + message). The 10-minute activity trigger is dropped: Stop already saves after every reply
   [owner, 2026-11-03 review].
-- **Usage-limit save [owner, hard rule]:** at 95 % of context **or** plan usage (5-hour or weekly), Forge forces a
+- **Usage-limit save [owner, hard rule]:** at 95 % of context **or** plan usage (5-hour or weekly), JSPARK Forge forces a
   full save and tells the user: *"Usage at 95 %. Handoff saved. Next session, JSPARK Forge shows where you were."*
   Plan figures only on plans that report usage (Pro/Max/Ultra; Team observed); elsewhere the step triggers + manual `/jspark-forge:handoff` cover it.
 - An **action log** (one line per action, secrets redacted) is the safety net for the step a crash cuts off.
-- **New session: show and wait [owner].** Forge shows "here's where we were: continue?" and Claude is told to wait.
+- **New session: show and wait [owner].** JSPARK Forge shows "here's where we were: continue?" and Claude is told to wait.
   **Instructed only in v0.1** (no hook enforcement) [owner, 2026-11-03 review; Q8 decided]: a deny-until-reply guard
-  would also fire in `claude -p` / CI runs and stall them. The hook guard ships only if spike D proves Forge can
-  detect non-interactive mode, and is then skipped there. After compaction Forge re-injects the handoff and rules
+  would also fire in `claude -p` / CI runs and stall them. The hook guard ships only if spike D proves JSPARK Forge can
+  detect non-interactive mode, and is then skipped there. After compaction JSPARK Forge re-injects the handoff and rules
   and carries on.
-- **Notes reminder [owner, 2026-11-03 review; Q5 decided]:** no Stop block. Forge adds `additionalContext` "update
+- **Notes reminder [owner, 2026-11-03 review; Q5 decided]:** no Stop block. JSPARK Forge adds `additionalContext` "update
   your notes now" at the moments notes matter: PreToolUse of a `git commit`, and the 80 % usage band (and at
   compaction, see design 5.3). No extra turn.
 - `/jspark-forge:resume` loads **only** the handoff, never the log [owner]. Target: back to work < 30 s.
@@ -203,7 +203,7 @@ try an equivalent command; tell the user and stop."* [owner, 2026-11-03 review];
 reason shown (Q6).
 
 **User rules:** `.jspark-forge/rules.md` with "Confirm" and "Never" lines (plain text or `re:` regex), `disable:` for
-built-ins, and Forge settings (notes reminder on/off, status-line segment on/off).
+built-ins, and JSPARK Forge settings (notes reminder on/off, status-line segment on/off).
 
 **Limits / failure modes:** a seatbelt, not a sandbox: obfuscated commands (`eval`, encoded scripts, a script file)
 can pass; README says so. False positives are overridable per action. Matching errors fail open and are logged.
@@ -235,7 +235,7 @@ Solves two problems: questions to the user get buried in long replies (visibilit
 
 ### 5.2b External code: guest mode, readonly sources (v0.1.1 → v0.3) [owner 2026-11-03]
 
-Forge assumed one owned project in one folder. Two other cases are common: reviewing someone else's repo, and
+JSPARK Forge assumed one owned project in one folder. Two other cases are common: reviewing someone else's repo, and
 migrating from an old system kept next to the new one.
 
 **Guest mode (v0.1.1) [owner 2026-11-03]**
@@ -325,19 +325,19 @@ as context **just before** Claude edits one of those files. It does not describe
 
 **Behaviour**
 - **Prompted, never silent:** at a **commit** and when a **plan is accepted** (plan-mode exit approved, or a new plan
-  file from superpowers if present), Forge asks *"Record the decision? (one line)"* with a drafted line; **default
+  file from superpowers if present), JSPARK Forge asks *"Record the decision? (one line)"* with a drafted line; **default
   yes**; the user can edit or skip.
 - **Kinds:** decision ("prices are stored in cents"), standing rule ("never edit generated files"), lesson from a
   mistake ("a test run without the test flag wrote to real data").
 - **Used before changes:** PreToolUse on Edit/Write/NotebookEdit of a path listed in an entry's `touches:` returns
   `additionalContext` listing the matching entries (just-in-time, ≤ 3 entries, one line each), e.g. *"Prices are
   stored in cents — don't change that."*
-- **Staleness:** when a commit changes files in an entry's `touches:`, Forge flags *"Decision #12 may be stale: still
+- **Staleness:** when a commit changes files in an entry's `touches:`, JSPARK Forge flags *"Decision #12 may be stale: still
   valid?"* (at most once per entry per day). Answer yes → `last verified` = today; no → the user edits or retires it.
 - At SessionStart only an index of titles is loaded (≤ 150 words); full entries just in time.
 - **Reference entries [owner 2026-11-03]:** `kind: reference` is a pointer to a file (e.g. `prisma/schema.prisma`,
   `docs/arch.md`); injected as the pointer only, the file read on demand.
-- **Long entries [owner 2026-11-03]:** an entry over ~80 words is accepted; Forge warns **once** that long entries
+- **Long entries [owner 2026-11-03]:** an entry over ~80 words is accepted; JSPARK Forge warns **once** that long entries
   go stale and cost tokens, and suggests a reference instead.
 - **No `touches:` [owner 2026-11-03]:** any entry without `touches:` is flagged at 30 days with *"still valid?"*.
 - **Demand measured locally [owner 2026-11-03]:** `/jspark-forge:decisions` shows a local count of reference
@@ -368,7 +368,7 @@ as context **just before** Claude edits one of those files. It does not describe
 `/jspark-forge:check` (memory check).
 **Hooks** PostToolUse (commit, plan accepted, plan file written), PreToolUse (Edit/Write/NotebookEdit just-in-time),
 SessionStart.
-**Limits** one-line decisions by default (long entries accepted, warned once); ≤ 3 injected per edit; stale flag once per entry per day; entries > 200 → Forge
+**Limits** one-line decisions by default (long entries accepted, warned once); ≤ 3 injected per edit; stale flag once per entry per day; entries > 200 → JSPARK Forge
 suggests archiving retired ones.
 **Failure modes** user skips everything → no memory, no nagging beyond the one prompt; `touches:` globs that match
 nothing → flagged at SessionStart; superpowers files unreadable → skipped silently.
@@ -555,10 +555,10 @@ Hidden command (never in the README top section).
 
 - **Installed with JSPARK Forge [owner 2026-11-19, supersedes "recommend, don't bundle or install"]:** `plugin.json`
   declares `"dependencies": ["superpowers"]`, resolved against the JSPARK Forge marketplace, so installing JSPARK
-  Forge installs superpowers (tested: "+ 1 dependency: superpowers"). Nothing is copied. A user who already had it from
+  JSPARK Forge installs superpowers (tested: "+ 1 dependency: superpowers"). Nothing is copied. A user who already had it from
   another marketplace has two copies: JSPARK Forge says once which to remove (a dependency on another marketplace's
   copy is not used: fresh setups name the official marketplace `anthropic-plugin-directory`, older ones
-  `claude-plugins-official`, and cross-marketplace dependencies need an allowlist). Forge builds no "how"
+  `claude-plugins-official`, and cross-marketplace dependencies need an allowlist). JSPARK Forge builds no "how"
   (plan/test/review) piece of its own.
 - **Listed in our marketplace [owner 2026-11-19]:** the JSPARK Forge marketplace lists superpowers from its own
   repository at a pinned commit (the same form Anthropic's official marketplace uses), so users install both from
@@ -569,17 +569,17 @@ Hidden command (never in the README top section).
   review notes as decision-memory sources. **v0.1 already reads one file [owner 2026-11-19]:** the plan's progress
   ledger (`.superpowers/sdd/<plan>/progress.md`), so the handoff shows "Task 3 of 8" for superpowers users.
 - Reads defensively: if the layout changes or a read fails, skip that source silently (covered by a test).
-- Forge works fully without it.
+- JSPARK Forge works fully without it.
 
 
-### 5.10 Build graph (v0.4, only if users ask [owner 2026-11-20]) [owner 2026-11-05: add; builder: runner]
+### 5.10 Build graph (v0.4; planned "only if users ask", built at the owner's request [owner 2026-11-19]) [owner 2026-11-05: add; builder: runner]
 
 **Built 2026-11-20 (v0.4)** at the owner's request to keep building; Claude runs the graph through `/jspark-forge:build`,
 JSPARK Forge keeps the record. What is enforced, evidenced, guarded or only instructed is stated in
 [`design-v0.4.md`](design-v0.4.md) section 1 (revision 3, after the code review); deviations in its section 8.
 
 **What.** A build is written down once as a graph: which steps exist, what each hands to the next, which steps can
-run side by side, and where a person must act. Forge runs the graph, saves where it is after every step, and resumes
+run side by side, and where a person must act. JSPARK Forge runs the graph, saves where it is after every step, and resumes
 from that point in a new session. Today this knowledge lives in the head of whoever drives the session.
 
 **Why [owner].** Prompts ask for one answer; an agent works a task; a loop keeps an agent going; a graph decides which
@@ -603,8 +603,8 @@ that the graph offers, never add nodes or edges while running.
 **Rules.**
 - One model per node, declared in the graph (cheap models for mechanical steps, strong ones for design and review).
   The run shows the estimated tokens and time per node before starting, and the actual after.
-- `human` nodes are first-class. Forge never performs them, never skips them, never asks a helper to.
-- State lives in `forge/graph-state.json` (`done`, `running`, `next`, outputs per node, "as of"). `/jspark-forge:resume`
+- `human` nodes are first-class. JSPARK Forge never performs them, never skips them, never asks a helper to.
+- State lives in `.jspark-forge/state/graph-<name>.json` (as built; the plan said `forge/graph-state.json`) (`done`, `running`, `next`, outputs per node, "as of"). `/jspark-forge:resume`
   shows the graph with the current node highlighted and waits (5.1 show-and-wait).
 - Principle 12 holds: the runner moves state and enforces gates; it produces no verdicts. A gate's checks are commands
   with exit codes, not judgments.
@@ -612,7 +612,7 @@ that the graph offers, never add nodes or edges while running.
   Below the limit the runner falls back to one node at a time; it never exceeds it.
 - A node is marked done on its first hand-back; a late or repeated report from the same helper is logged, not re-run.
 
-**What Forge ships.** Three templates, generic, no company words: *spec, plan, tasks, gate, release* (software),
+**What JSPARK Forge ships.** Four templates as built (the three below plus `ui`, spec 5.14), generic, no company words: *spec, plan, tasks, gate, release* (software),
 *research, draft, review, publish* (documents), *measure, decide, build* (a spike that gates a task). A runner that
 uses the platform's own workflow facility when present and otherwise runs nodes one by one through helpers; the graph
 file is the same either way. A `graph` view in the dashboard (5.8) when that ships.
@@ -763,7 +763,7 @@ step (Claude Code has no post-install hook); see `releases.md`.
 - `upgrade`: updates the plugin, keeps `.jspark-forge/` and the person's settings, and runs `doctor` afterwards.
 - The installer ends by running `doctor`, so a broken install is seen in the first minute.
 - Of the three this is the cheapest and the likeliest to be asked for; if one is pulled forward, it is this one
-  (candidate for v0.1.1).
+  (Built in v0.1.1 as `/jspark-forge:doctor`, `status` and `upgrade`.)
 
 ### 5.14 UI/UX companions (v0.2) [owner 2026-11-20]
 
@@ -846,12 +846,12 @@ strength of model does each job without the user choosing every time. Built with
 | **v0.2 Skill and brief templates (5.11)** | Skill template (trigger description, numbered parts with input → action → output path, skip-if-exists, non-overwriting outputs, verification step with evidence) and brief template (`CAN`/`CANNOT`, `Done`, `Setup` handshake, fixed-schema log, bounded retries, tie-break, `Stop`, declared `Outputs`); lint; plugin + plain instruction file from one source | ~1 week | Lint rejects a skill or brief missing any required field; a skill run twice makes no second fetch and no overwrite; a brief log survives a killed session; plugin and plain file carry the same rules (diff test) | Every helper brief in a build is written from the template without re-explaining scope |
 | **v0.2.1 Database guard (5.2c)** | Production databases read-only unless CONFIRM db-write; MCP, Bash and PowerShell forms; `database dev:` line in rules.md | ~1–1½ days | ≥ 5 positive / ≥ 5 negative tests per form; a SELECT is never blocked; a dev line relaxes only its own server | No unconfirmed write reaches a production database |
 | **v0.3 Map (the "what and where") + scope guard** | **Thin layer on an existing engine (5.4, integrate, don't build [owner 2026-11-20])**: freshness ("as of <commit>"), schema from source files, links to decisions, on top of the engine's index. Codebase map: local index of files, symbols, routes and call relations, plus `docs/`, ADRs and schema source, refreshed file by file as Claude edits (background, changed files only), after commits and at session start, queried instead of re-reading files, answers show last-refresh time (engine not chosen; trialled after v0.1 ships); `/jspark-forge:check` extended to the map; `.jspark-forge/launch.md` via init; scope facts; history-based range later; map of readonly sources (5.2b). **Caveat:** a stale map is worse than none; engine (Windows support, licence, refresh speed) unproven | ~1 week, **soft until the engine trial is done** (smaller: no engine is built) | File re-index never blocks the next tool call; map refresh < 10 s after commit on ~50k lines (or async with "as of"); answers always show last-refresh time; guard silent until launch.md exists; facts shown before any estimate; estimate only with ≥ 10 history items | **At least one feature shrunk or postponed** because the guard showed its cost |
-| **v0.4 Build graph (only if users ask [owner 2026-11-20])** | Graph file format + three templates; runner (platform workflow facility when present, else one node at a time); `graph-state.json`; resume lands on the running node; `human` and `gate` nodes; parallel cap by memory and usage; per-node cost shown before and after (5.10) | ~1½–2 weeks (soft: after v0.3 and the engine trial; built only if users ask, since multi-agent runs are the feature most likely to be absorbed by Claude Code) | State survives a killed session; human node blocks; gate stops on a failing command; cap never exceeded; three templates run end to end | A build of ≥ 5 tasks completed across ≥ 2 sessions without re-briefing |
+| **v0.4 Build graph (built at the owner's request [owner 2026-11-19])** | Graph file format + templates (four as built); runner (platform workflow facility when present, else one node at a time); `graph-state.json`; resume lands on the running node; `human` and `gate` nodes; parallel cap by memory and usage; per-node cost shown before and after (5.10) | ~1½–2 weeks (soft: after v0.3 and the engine trial; built only if users ask, since multi-agent runs are the feature most likely to be absorbed by Claude Code) | State survives a killed session; human node blocks; gate stops on a failing command; cap never exceeded; three templates run end to end | A build of ≥ 5 tasks completed across ≥ 2 sessions without re-briefing |
 | **Council mode (with 5.6, later)** | Several helpers answer a high-stakes review; blind shuffled rankings; chair with the label map; quorum; persisted rankings and aggregate (C1–C5) | — (sized with 5.6) | C1–C5 tests pass; 1 of 3 clean rankings stores no verdict; a reload shows the same rankings | — |
 | **Git view (with 5.8, later)** | "What was built" from the repo alone: per task label, per day, per model, test-run ids; G1–G5 | — (sized with 5.8) | G1–G5 tests pass; the page renders with the network off; a one-commit repo shows a message | — |
 | **Customer edition (5.12, later)** | The kit inside a customer's network on a local model, producing only a product's declared extension artifacts through the product's own gates; after the build graph and the signed-pack work; **only when a product built with the kit asks** | — (not sized) | Output limited to declared pack artifacts (test: any other write is denied); every output goes through the product's gates; no network egress; model licence recorded | — |
-| **Later, only if asked** | Security review prompts (incl. council mode), `/capacity`, dashboard (incl. the git view), `/jspark-forge:review`, migration mode (5.8a), customer edition (5.12), secrets by name, limit handover and the health check (5.13; the health check is a candidate for v0.1.1) | — | per section 5 | — |
-| **Total to v0.3** | | **~4–4½ weeks of build after v0.1.1, plus ~2 weeks of user feedback (soft: v0.3 depends on the engine trial; 5.11 adds ~1 week to v0.2; v0.4 only if users ask, ~1½–2 weeks more)** | | |
+| **Later, only if asked** | Security review prompts (incl. council mode), `/capacity`, dashboard (incl. the git view), `/jspark-forge:review`, migration mode (5.8a), customer edition (5.12), secrets by name, limit handover (5.13; the health check shipped in v0.1.1) | — | per section 5 | — |
+| **Total to v0.3** | | **~4–4½ weeks of build after v0.1.1, plus ~2 weeks of user feedback (soft: v0.3 depends on the engine trial; 5.11 adds ~1 week to v0.2; v0.4 ~1½–2 weeks more, built at the owner's request)** | | |
 
 **v0.1 cut list [owner, 2026-11-03 review]** (what left v0.1 and where it went):
 
@@ -880,7 +880,7 @@ strength of model does each job without the user choosing every time. Built with
   the user answers, and loads in < 30 s on a ~50k-line repo, measured on a cold machine (no warm node cache) [owner,
   2026-11-03 review].
 - **Grounding-rule test (v0.1):** the rule text is in the injected context after `startup`, `resume` and `compact`.
-- **Soft-coupling test:** superpowers missing, present, and with a changed layout: Forge keeps working.
+- **Soft-coupling test:** superpowers missing, present, and with a changed layout: JSPARK Forge keeps working.
 - **Template lint (v0.2):** skills and briefs missing a required field (trigger, verification, output path;
   `CAN`/`CANNOT`, `Done`, `Stop`, declared `Outputs`) are rejected before use; plugin and plain instruction file
   carry the same rules (5.11).
@@ -935,7 +935,7 @@ Credits: keep each used project's licence notice and credit.
 
 ## 11. Brand rules [owner]
 
-- Always the full name **JSPARK Forge**, never "Forge" alone in public text (other products use the word). Plugin id
+- Always the full name **JSPARK Forge**, never "JSPARK Forge" alone in public text (other products use the word). Plugin id
   `jspark-forge`.
 - Clearly **"by JSPARK AI"**, linking to the company site.
 - Say **"built for Claude Code"**. Never put "Anthropic" or "Claude" in the product name or logo, and never suggest

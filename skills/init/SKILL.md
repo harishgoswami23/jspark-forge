@@ -1,6 +1,6 @@
 ---
 name: init
-description: Use when the user runs /jspark-forge:init to set up JSPARK Forge in this project, or /jspark-forge:init --undo-statusline to restore their status line.
+description: Use when the user runs /jspark-forge:init to set up JSPARK Forge in this project, /jspark-forge:init --undo-statusline to restore their status line, or /jspark-forge:init --guest / --mine to mark a repo as someone else's or their own.
 disable-model-invocation: true
 ---
 Set up JSPARK Forge in this project. Arguments: $ARGUMENTS

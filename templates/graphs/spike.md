@@ -1,7 +1,7 @@
 # Graph: spike
 - max_parallel: 1
 
-<!-- A spike that gates a task: measure, decide, then build only if the decision says so. Copy with /jspark-forge:new-graph spike <name>. -->
+<!-- A spike that gates a task: measure, decide, then build only if the decision says so. Start one with /jspark-forge:build (it copies this template). -->
 
 ## measure (agent)
 - helper: checker

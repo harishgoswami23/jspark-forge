@@ -48,13 +48,35 @@ Everything stays on your machine. No network calls, no telemetry.
 | Dangerous actions blocked by hooks, with a published list and typed override | Permission prompts only | Instructions Claude may forget | Varies, many hooks | **Yes, every hook documented** |
 | Small: one job, a handful of hooks | n/a | Yes | No | **Yes** |
 
-This release carries only the handoff between sessions (task, step, files touched, branch, Claude's own notes):
-enough to pick up the work, not a map of your system. Later releases add decision memory (the "why": one-line
-decisions shown to Claude just before it edits the files they touch) and a codebase map (the "what and where"); they
-will join this table when they ship. The codebase map is the hardest part, so its date stays open until its engine
-is tested. v0.1.1 adds **guest mode** (review someone else's repo without writing anything into it) and **readonly
-sources** (keep an old system next to the new one, never edited), the **waiting on you** list and a health check
-(`/jspark-forge:doctor`).
+Beyond the handoff (where you were), JSPARK Forge keeps the **why** (decision memory), the **what and where** (a code
+map, with the optional codebase-memory-mcp), **long builds** that survive a cutoff (build graphs), and a **launch
+list** against scope creep. It also has **guest mode** (review someone else's repo without writing anything into it),
+**readonly sources** (keep an old system next to the new one, never edited) and a health check
+(`/jspark-forge:doctor`). Each is described below.
+
+## Decision memory (the why)
+
+Decisions, rules and lessons for a project live in `.jspark-forge/decisions.md` (commit it to share with your team).
+Each is one line, tied to the files it covers. Just before Claude edits one of those files, it sees the decisions that
+touch it (as data, not orders). When you settle something in conversation, JSPARK Forge offers *"Record the
+decision?"*; nothing is recorded without your yes. When a covered file changes, the decision is flagged for a look.
+
+- `/jspark-forge:decide` records, updates, verifies or retires a decision.
+- `/jspark-forge:decisions` lists what is on file. `/jspark-forge:check` asks whether each is still true.
+
+## Code map (the what and where)
+
+With [codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp) installed as an MCP server (JSPARK Forge
+never installs it), Claude can answer "who calls X" and "what breaks if I change Y" from a map of your code instead of
+reading file after file. JSPARK Forge switches on when the map is first used, keeps it fresh in the background after
+commits, and adds how fresh each answer is ("as of <commit>"). Without it, these features stay quiet and everything
+else works.
+
+## Skills and briefs for your project
+
+`/jspark-forge:new-skill <name>` creates a project skill from a checked template, and `/jspark-forge:new-brief <name>`
+a brief (one job for one helper: goal, what it may and may not change, when it is done). Both are checked for missing
+parts. `JSPARK-FORGE.md` in this repo is the whole method in plain words, for any AI tool.
 
 ## Database layout
 
@@ -100,7 +122,7 @@ launch date, 5 blank slots for what must work, a "Critical paths" line and an "A
 exists, JSPARK Forge does nothing here. Then, in your own projects only:
 
 - each session starts with the launch date and the open and done items (titles are passed to Claude as data);
-- a prompt that sounds like new scope ("can we add", "while we're at it", "new feature") gets one line suggesting
+- a prompt that sounds like new scope ("can we add", "while we're at it", "add a new feature") gets one line suggesting
   `/jspark-forge:scope`, at most every 30 minutes, only when someone is at the keyboard, never at 95 % usage;
 - `/jspark-forge:scope` shows the facts first (the list count, "this becomes #8", critical paths touched, and an
   estimate only after 10 finished items with dates), then asks: now, after launch, a smaller version, or drop;
@@ -134,11 +156,12 @@ blocks something, Claude is told: *"Do not try an equivalent command; tell the u
 | `git-clean-fdx` | `git clean -fdx` |
 | `git-stash-drop` | `git stash drop`, `git stash clear` |
 | `sql-destroy` | `DROP`, `TRUNCATE`, `DELETE` without `WHERE` (psql, mysql, sqlite3, sqlcmd, `Invoke-Sqlcmd`, database MCP tools) |
-| `db-write` | A write to a production database: any statement that is not a read (`SELECT`, `WITH … SELECT`, `EXPLAIN`, `SHOW`, `DESCRIBE`) through a database MCP server or a client (`psql`, `mysql`, `sqlite3` on a remote host, `mongosh`, `redis-cli`, `sqlcmd`, `Invoke-Sqlcmd`, `pg_restore`), a script file, redirect or pipe into a remote client (its content is unknown), `supabase db push`, `prisma db push` / `migrate deploy` / `migrate reset`, the write tools of Redis, DynamoDB and MongoDB servers, and migration-apply, merge, reset and restore tools of database MCP servers. Reads are never blocked. Production is every database MCP server and every host except localhost, `127.x.x.x`, `::1`, a Unix socket or a local file (a host in an unresolved variable, a `service=` or a `--login-path` counts as production); to mark one as dev, add `- database dev: host:*.dev.internal` (every host in the command must match), `- database dev: mcp:local_postgres` (an exact MCP server name, or `mcp:local_*` for a prefix) or a bare exact host or server name under `## Settings` in **your own** `~/.claude/jspark-forge/rules.md` (a project's `rules.md` cannot, like `disable:`). A seatbelt, not a sandbox: SQL inside a stored procedure is not seen, and JSPARK Forge never connects to a database |
+| `db-write` | A write to a production database: any statement that is not a read (`SELECT`, `WITH … SELECT`, `EXPLAIN`, `SHOW`, `DESCRIBE`) through a database MCP server or a client (`psql`, `mysql`, `sqlite3` on a remote host, `mongosh`, `redis-cli`, `sqlcmd`, `Invoke-Sqlcmd`, `pg_restore -d`), a script file, redirect or pipe into a remote client (its content is unknown), `supabase db push`, `prisma db push` / `migrate deploy` / `migrate reset`, the write tools of Redis, DynamoDB and MongoDB servers, and migration-apply, merge, reset and restore tools of database MCP servers. Reads are never blocked. Production is every database MCP server and every host except localhost, `127.x.x.x`, `::1`, a Unix socket or a local file (a host in an unresolved variable, a `service=` or a `--login-path` counts as production); to mark one as dev, add `- database dev: host:*.dev.internal` (every host in the command must match), `- database dev: mcp:local_postgres` (an exact MCP server name, or `mcp:local_*` for a prefix) or a bare exact host or server name under `## Settings` in **your own** `~/.claude/jspark-forge/rules.md` (a project's `rules.md` cannot, like `disable:`). A seatbelt, not a sandbox: SQL inside a stored procedure is not seen, and JSPARK Forge never connects to a database |
 | `secret-files` | Editing `.env*`, key, secret and credential files, also via `>`, `tee`, `Set-Content`, `Out-File` (templates such as `.env.example` and `.env.sample` are allowed) |
 | `chmod-wide` | `chmod 777`, `chmod -R`, `icacls … /grant Everyone:F` |
 | `pipe-to-shell` | `curl … \| sh`, `iwr … \| iex`, `iex (irm …)` and similar |
 | `readonly-source` | Any change to an old system listed under `## Sources` in `rules.md` (below). **Always refused** |
+| `forge-state` | Any change to a build graph's running record (`.jspark-forge/state/graph-*`). **Always refused**: only JSPARK Forge writes it |
 | `guest-quarantine` | In a repo you are reviewing, after `/jspark-forge:init --guest`: its install, build, test and run commands (see guest mode). One CONFIRM covers the rest of that session |
 
 Bash, Git Bash, PowerShell and cmd forms are all matched (PowerShell from v0.1.1), also when one shell starts another
@@ -168,8 +191,11 @@ Code starts (*"JSPARK Forge is off: it needs Node.js 18 or newer…"*) instead o
 That is all. superpowers comes with it, and there is no setup step:
 
 - **Each git project switches on by itself** the first time you open Claude Code in it: a hidden `.jspark-forge/`
-  folder appears (git-ignored except `rules.md` and `.gitignore`, which you can commit). Folders that are not git
-  projects are left alone.
+  folder appears. Commit `rules.md`, `decisions.md`, `launch.md` and `.gitignore` to share them; everything else
+  (handoff, log, build graphs and their state) stays local and git-ignored. Old archived handoffs and the files of
+  repos you reviewed are cleared after 30 days. Folders that are not git projects are left alone.
+- **Two switches** under `## Settings` in `rules.md`: `- notes: off` stops the "add a note" reminder before commits;
+  `- statusline-segment: off` hides JSPARK Forge's part of the status line.
 - **Status line.** Claude Code shows context and plan usage only to the status line, and JSPARK Forge needs those
   figures for the 80 % / 95 % saves. If you have no status line, JSPARK Forge adds its own and tells you how to undo
   it (`/jspark-forge:init --undo-statusline`). If you have your own, it is never touched: run `/jspark-forge:init`
@@ -210,8 +236,8 @@ guidance, not a lock: superpowers chooses a model for each helper it starts.
 
 ## Build graphs (long builds that survive a cutoff)
 
-Write a build once as steps in `.jspark-forge/graphs/<name>.md` (start from a template: software, documents, or
-spike): which helper does each step, what it hands to the next, which steps run side by side, which checks must
+Write a build once as steps in `.jspark-forge/graphs/<name>.md` (start from a template: software, documents, spike or
+ui; graphs stay local to your machine): which helper does each step, what it hands to the next, which steps run side by side, which checks must
 pass, and where you must act. `/jspark-forge:build <name>` runs it; JSPARK Forge keeps the record, so a crash, a usage
 limit or a new session picks up at the running step.
 
@@ -238,6 +264,11 @@ What JSPARK Forge checks, what it guards, and what it can only ask for:
 | `/jspark-forge:waiting` | The questions waiting on you, with Claude's recommendations; answer, accept the recommendations, or drop them |
 | `/jspark-forge:status` | What is saved now: the handoff, what is waiting on you, usage as of when |
 | `/jspark-forge:doctor` | Is JSPARK Forge working here? One line per check, each problem with its fix. Changes nothing |
+| `/jspark-forge:decide` | Record, update, verify or retire a decision (only after your yes) |
+| `/jspark-forge:decisions` | List the decisions, rules and lessons on file. Changes nothing |
+| `/jspark-forge:check` | Are the recorded decisions still true? Asks you about each one that may not be |
+| `/jspark-forge:new-skill` | Create a project skill from the template, checked for missing parts |
+| `/jspark-forge:new-brief` | Write a brief (one job for one helper) from the template, checked for missing parts |
 | `/jspark-forge:schema` | The database layout from your migration files, with file and line and the decisions that touch them. Never reads a database |
 | `/jspark-forge:upgrade` | Update JSPARK Forge (asks first); run the doctor after the restart |
 | `/jspark-forge:launch` | Create the launch list (launch date, 5 blank slots), or show and update it |
@@ -268,7 +299,7 @@ Details per feature: [design-v0.1.md](docs/design-v0.1.md), [design-v0.1.1.md](d
 | Hook (time limit) | What it does | What it writes | Can it block? |
 |---|---|---|---|
 | SessionStart (10 s; a Node check first, 5 s) | Switches JSPARK Forge on in a git project; shows where you were and waits; questions waiting on you; the grounding rule; decision index; code map freshness; launch list; a running build graph; one-time tips | the handoff state, the action log, `state/` files | No |
-| UserPromptSubmit (10 s) | Your `CONFIRM <name>`, `TRUST GRAPH <name>`, `DONE <step>`; clears a question you answered; offers to record a decision; the launch-scope nudge | confirm tokens, session state | No |
+| UserPromptSubmit (10 s) | Switches JSPARK Forge on if session start missed it; your `CONFIRM <name>`, `TRUST GRAPH <name>`, `DONE <step>`; clears a question you answered; offers to record a decision; the launch-scope nudge | confirm tokens, session state, graph trust and state | No |
 | PreToolUse (3 s; shell, edits, the question tool, MCP tools) | The block list (asks or denies); files a question you are asked; the decisions about a file just before Claude edits it; the notes reminder before a commit | waiting list, "already shown" ids | **Yes**: deny or ask |
 | PostToolUse (10 s) | Saves after file changes and commits; offers to record a decision; stale-decision flags; code map freshness on map answers; build graph evidence (gate results, helper tokens); "recorded" notices | handoff, task and session state, map and graph state | No |
 | PostToolUseFailure (10 s) | Logs the failure; a failed gate command stops a build graph | log, graph state | No |

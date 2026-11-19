@@ -11,15 +11,15 @@ that date; **[spike]** depends on a spike. Spike results override review decisio
 |---|---|---|
 | v0.1 | Resume + hooks: back to work after any cutoff; dangerous actions blocked | ~1 week (real build) |
 | v0.1.1 | "Waiting on you" list (spec 5.2a); PowerShell command forms; ~~hook-enforced show-and-wait~~ (dropped 2026-11-19, design-v0.1.1 section 1); guest mode + quarantine, readonly sources (spec 5.2b) | ~4–5½ days |
-| Real users (gate) | 20–50 users and ~2 weeks of feedback before v0.2; the roadmap below is reordered from it (spec 7) | ~2 weeks, calendar |
+| Real users (gate) | Planned: 20–50 users and ~2 weeks of feedback before v0.2. Changed [owner 2026-11-19]: the owner is the first user and asked for the complete product through v0.4; checks run at the end | — |
 | v0.2 | Decision memory, the "why" (the centrepiece); `/jspark-forge:check`; migration mappings, licence check | ~4½–5 days |
 | v0.2 | Skill and brief templates with lint; plugin + plain instruction file from one source (spec 5.11) | ~1 week |
 | v0.2 | UI/UX companions: frontend-design listed as a recommended companion; Playwright MCP and shadcn/ui recommended; one-time tip in front-end projects (spec 5.14) | ~½ day |
 | v0.2 | Model map: four helper agents (planner, reviewer: strongest; builder: standard; checker: light), each with its reason (spec 5.15) | ~1 day |
 | v0.2.1 | Database guard: production read-only unless `CONFIRM db-write` (spec 5.2c) | ~1–1½ days |
 | v0.3 | Codebase map as a thin layer on an existing engine (integrate, don't build): freshness, schema from source files, links to decisions; launch-scope guard; map of readonly sources | ~1 week, **soft** |
-| v0.4 (only if users ask) | Build graph: a build as a fixed graph of nodes, saved after every node, resumed on the running node (spec 5.10) | ~1½–2 weeks, **soft** |
-| Later, only if asked | Security review prompts (incl. council mode), `/capacity`, dashboard (incl. git view), `/jspark-forge:review`, migration mode, customer edition, secrets by name, limit handover, `/jspark-forge:doctor` (spec 5.6–5.8a, 5.12, 5.13) | not estimated |
+| v0.4 | Build graph: a build as a fixed graph of nodes, saved after every node, resumed on the running node (spec 5.10) | ~1½–2 weeks, **soft** |
+| Later, only if asked | Security review prompts (incl. council mode), `/capacity`, dashboard (incl. git view), `/jspark-forge:review`, migration mode, customer edition, secrets by name, limit handover (spec 5.6–5.8a, 5.12, 5.13) | not estimated |
 | **Total to v0.3** | | ~4–4½ weeks of build after v0.1.1, plus ~2 weeks of feedback, **soft** (v0.4 ~1½–2 weeks more, only if asked) |
 
 ---
@@ -127,7 +127,7 @@ If spike D passed, makes show-and-wait hook-enforced in interactive sessions.
 **User-visible behaviour** `Remove-Item -Recurse -Force`, `rmdir /s`, `iwr … | iex`, `Set-Content .env`, `icacls …
 /grant Everyone:F` are blocked like their Bash equivalents. If the guard ships: after a cutoff, file changes and
 commands for the old task are refused until the user's first reply (read-only look-ups allowed); never in
-non-interactive runs or when Forge cannot tell (it skips itself).
+non-interactive runs or when JSPARK Forge cannot tell (it skips itself).
 
 **Files in `.jspark-forge/`** `waiting.md`; `rules.md` gains `## Sources`; `state/session-<id>.json` gains
 `awaiting_user` if the guard ships. Machine level: `~/.claude/jspark-forge/guests/<repo-hash>/` (guest mode).
@@ -228,7 +228,7 @@ describe code structure (that is v0.3).
 - superpowers design docs, plans and review notes read as decision sources if present.
 - **[owner 2026-11-03]** `kind: reference` entries point to a file (e.g. `prisma/schema.prisma`, `docs/arch.md`);
   injected as the pointer only, the file read on demand.
-- An entry over ~80 words is accepted; Forge warns **once** that long entries go stale and cost tokens, and suggests
+- An entry over ~80 words is accepted; JSPARK Forge warns **once** that long entries go stale and cost tokens, and suggests
   a reference instead. Never blocked.
 - Any entry without `touches:` is flagged at 30 days: *"still valid?"*.
 - `/jspark-forge:decisions` shows a local count of reference and long entries: demand for a real knowledge feature,
@@ -347,10 +347,12 @@ spec 5.4).
 ## v0.4: Build graph (spec 5.10) [owner 2026-11-05]
 
 **Status (2026-11-20): built** on `dev/v0.4` (graph file, runner, protected state, gates through Claude's tools,
-`DONE` / `TRUST GRAPH`, five templates including `ui`, `/jspark-forge:build`, a real-Claude end-to-end run); design
-and code reviews done, review fixes being merged.
+`DONE` / `TRUST GRAPH`, four templates (software, documents, spike, ui), `/jspark-forge:build`, a real-Claude end-to-end run); design
+and code reviews done; review fixes merged on `dev/v0.4`. As built, the plan below changed: graphs live in
+`.jspark-forge/graphs/<name>.md` (local, git-ignored), the run record in `.jspark-forge/state/graph-<name>.json`;
+saving after every step is automatic (no `save` kind); four templates. Exact behaviour: `docs/design-v0.4.md`.
 
-**Only if users ask [owner 2026-11-20].** Multi-agent runs are the feature most likely to be absorbed by Claude Code;
+**Originally "only if users ask"; built at the owner's request [owner 2026-11-19].** Multi-agent runs are the feature most likely to be absorbed by Claude Code;
 built only on user demand after v0.3.
 
 **What it does.** A build is written down once as a graph (`forge/graphs/<name>.md`): which steps exist, what each
