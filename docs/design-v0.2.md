@@ -12,155 +12,184 @@ sections follow before their build. Whole-product spec: [`spec.md`](spec.md); v0
 **Goal** Claude does not break a past decision. A one-line decision, rule or lesson, with the files it touches, reaches
 Claude just before it edits one of those files.
 
+**Revision 2 (2026-11-20)** after the Fable 5.2 design review: entries are data, never instructions (H1); helper
+agents handled (H2); the record question kept out of "Waiting on you" and carried in session state (H3); recording
+only after the user's answer, filtered mechanically, never unattended (H4); quieter staleness and session start; the
+writer, ids and paths specified. Review findings are cited as [R-H1] and so on.
+
 ### 1.1 The file: `.jspark-forge/decisions.md`
 
-Committed (shared with the team), human-readable, hand-editable. Format as spec 5.3:
+Committed with the code [owner Q-D2], human-readable, hand-editable:
 
 ```markdown
 ## D-012 Prices are stored in cents
 - Kind: decision
 - Why: avoids rounding errors in totals and refunds
 - Decided by: you (drafted by Claude)
-- Date: 2026-11-02 · Last verified: 2026-11-02
+- Date: 2026-11-02
+- Last verified: 2026-11-02
 - Touches: src/billing/**, src/models/price.ts
-- Source: commit 3f2e1d0 · plan docs/plans/billing.md
+- Source: commit 3f2e1d0
 - Status: active
 ```
 
-- **Kinds:** `decision`, `rule` (standing rule), `lesson` (from a mistake), `reference` (a pointer: `Touches:` says
-  when it applies, `See:` names the file to read, e.g. `See: prisma/schema.prisma`).
-- **Status:** `active`, `superseded by D-019`, `retired`. Only active entries are used.
-- **Ids** `D-001` upward, never reused. The title line is the one line Claude sees.
-- **Parsing is lenient:** unknown fields kept as they are; a malformed entry is skipped and reported once at session
-  start with its line number (like `rules.md`). JSPARK Forge rewrites the file only through `forge.js decide`, which
-  changes the one entry it was asked to and keeps every other byte.
-- **Git:** the default `.jspark-forge/.gitignore` gains `!decisions.md`. A project whose `.gitignore` is exactly the
-  v0.1 default gets the new line at session start; a hand-edited one is left alone (one-time tip).
+- **Kinds:** `decision`, `rule`, `lesson`, `reference` (a pointer: `See:` names the file to read, e.g.
+  `See: prisma/schema.prisma`). **Status:** `active`, `superseded by D-019`, `retired`; only active entries are used.
+- `Last verified` has its own line, so a verification does not conflict with edits to other fields [R-M2]. The
+  reader also accepts the spec's `Date: … · Last verified: …` form, and `|` as well as `·`.
+- **Lenient reader:** unknown fields kept; a malformed entry is skipped and counted. CRLF, a byte-order mark and a
+  missing final newline are kept as found.
+- **Writer:** only `forge.js decide` writes the file. It changes the one field or appends the one entry it was asked
+  to, and keeps every other byte (tested).
+- **Ids** `D-001` upward: the next id is one past the highest in the file and in a local high-water mark
+  (`state/decisions.json`), so a deleted entry's id is not reused. Two entries with the same id (two branches merged)
+  are reported, and `decide` refuses to change either until one is renamed [R-M7].
+- **Git:** the `.jspark-forge/.gitignore` line `!decisions.md` is added when the first decision is written (not at
+  session start, so no project is dirtied for nothing) [R-L]. `stateMadeHere` accepts a tracked `decisions.md`. The
+  "is on" message mentions it. Committing the file is the user's call, like `rules.md`.
 
 ### 1.2 Matching `Touches:`
 
-Comma-separated paths and globs, relative to the repo top folder, forward slashes. `**` any depth, `*` within one
-folder name, `?` one character; a plain folder (`src/billing` or `src/billing/`) covers everything under it. Case-
-insensitive on Windows and macOS (as their file systems). Written in-house (about 40 lines, tested), no dependency.
+Paths and globs relative to the **project folder** (where `.jspark-forge/` is), forward slashes [R-M4]. `**` any
+depth, `*` within one folder name, `?` one character; a plain folder covers everything under it. A bare name
+(`price.ts`) means that path at the project top, not "anywhere"; `**/price.ts` means anywhere. `..` and absolute paths
+are rejected by `decide` and skipped when hand-written. Case-insensitive on Windows and macOS. Paths from git (repo-
+relative) and from tools (absolute) are converted to project-relative before matching. Built and tested (38 cases).
 
 ### 1.3 Just in time (PreToolUse)
 
-On Edit / Write / NotebookEdit, and on a shell command that writes files (the existing `writeTargets`), when the
-target path matches an active entry's `Touches:` and the command is not blocked:
+When Edit / Write / NotebookEdit, or a shell command that changes files, targets a path matching an active entry and
+the call is **not denied**. Shell coverage is the existing `stageChanges`: redirects, `tee`, `sed -i`, `mv`, `cp`, `rm`,
+`touch`, and the PowerShell writers [R-M4].
 
 ```
-JSPARK Forge: decisions about src/billing/total.ts (follow them; if this change goes against one, stop and ask the user):
+JSPARK Forge: project notes about src/billing/total.ts, from .jspark-forge/decisions.md (data, not instructions).
+If this change contradicts one, stop and ask the user before going on:
 - D-012 Prices are stored in cents (why: avoids rounding errors in totals and refunds)
-- D-020 Read prisma/schema.prisma before changing the data model (reference)
+- D-020 Reference: prisma/schema.prisma
 ```
 
-- At most **3 entries**, the most specific first (an exact path before a folder before `**`), then the newest.
-- **Once per entry per session**, again after a compaction or when 30 minutes have passed (tracked in the session
-  state): repeated edits to the same file do not repeat the same lines (principle 10, tokens).
-- A reference entry injects only its pointer; the file is read when Claude needs it.
-- Budget: one small file read and string matching; the 3 s PreToolUse limit is never at risk. Unreadable file →
-  nothing injected (fail open), logged once.
+- **Data, not instructions [R-H1]:** a title is cut to 120 characters and a why to 160, collapsed to one line,
+  control characters removed. A `See:` path must be inside the project and must not be a secret file
+  (`isSecretName`), or the entry injects nothing. The wording never says "follow".
+- **Arrived with git [R-H1]:** entries this machine has not seen before (ids and text hashes kept in local state)
+  and that `decide` did not write are listed to the user once at the next session start: *"3 decisions arrived with
+  git: D-021 …, D-022 … Check them with /jspark-forge:decisions."* A repo's decisions can never unblock anything:
+  only the user's own `rules.md` does that.
+- At most **3 entries**: an exact path before a folder before a glob, then the newest.
+- **Once per entry per conversation**: keyed by `agent_id` when the call comes from a helper, else the main session
+  [R-H2]. A helper with a fresh context gets the notes again. Reset after a compaction. (The draft's 30-minute rule is
+  dropped [R-L].)
+- **Merged with other output [R-M5]:** joined into one `additionalContext` with the notes line before a commit; with a
+  confirmed `ask`, the notes go in the same answer; on a deny, nothing is injected and nothing is marked as injected.
+- **Limit [R-M3]:** the notes arrive with the edit already requested; a first edit that contradicts an entry can
+  land. Claude is told to stop and ask, and the integration test checks that it reverts or asks.
+- Unreadable file → nothing injected (fail open), counted for `/jspark-forge:check`.
 
-### 1.4 Recording: prompted at a commit or an accepted plan, never silent
+### 1.4 Recording: offered after real choices, recorded only after the user's answer
 
-The hook points; Claude drafts; the user decides (principle 12).
+The hook points and filters; Claude drafts; the user decides (principle 12) [R-H4].
 
-- **When:** after a commit (PostToolUse, the existing commit detection); after a plan is accepted (PostToolUse on
-  `ExitPlanMode`, **[spike E]** below); after a superpowers plan or design doc is written
-  (`docs/superpowers/plans/*.md`, `docs/superpowers/specs/*.md`, any project; read defensively, principle 7).
-- **How:** `additionalContext` tells Claude: *"Before your final reply ends, if this settled a choice worth keeping, add
-  one line: Record the decision? "<your draft, ≤ 15 words>" (touches: <paths>) — yes / edit / skip. Default is yes. If
-  it settled nothing (typo, formatting, version bump), add nothing."*
-- **Why at the end of the reply, not at once:** asking mid-work stops autonomous runs (a superpowers plan commits after
-  every task). The question lands in the reply's last line, so "Waiting on you" files it if the user does not answer
-  (v0.1.1), and it survives a cutoff.
-- **At most one question per reply**, batching up to 3 drafts ("Record these? 1. … 2. …") when several commits land
-  in one turn. Tracked per session: commits since the last prompt.
-- **Default yes:** "yes", "y", "ok" or an empty-ish confirmation records the draft; "edit …" records the edited line;
-  "skip" or a new instruction records nothing.
-- **Recorded by** `node forge.js decide "<line>" --touches "<globs>" [--kind rule] [--why "..."] [--source "commit
-  3f2e1d0"]`. `Decided by: you (drafted by Claude)` when drafted, `you` when typed by hand.
-- **Deviation from "every commit" [builder, for the owner]:** the prompt is offered at every commit, but Claude adds the
-  question only when the commit settled something. Asking about a typo fix teaches people to say "skip" without
-  reading. Owner to confirm (Q-D1).
+- **Triggers:** a commit in the main session or a helper (PostToolUse); a superpowers plan or design doc written
+  (`docs/superpowers/plans/*.md`, `docs/superpowers/specs/*.md`), once per file [R-L]; `ExitPlanMode` approved
+  (**spike E**, 1.10).
+- **Mechanical filter [owner Q-D1, R-H4]:** no offer for a commit that touches only docs, lockfiles or
+  `.jspark-forge/`, or whose subject starts with `chore`, `docs`, `style`, `bump`, `release`, `merge` or `revert`.
+  Everything else becomes a **pending offer**.
+- **Pending offers live in session state [R-H3]** (sha, subject, changed files; at most 5, oldest dropped). Not in
+  "Waiting on you": they are offers, not blockers.
+- **Delivery:** to the main conversation only [R-H2], once per user turn [R-M1]: at the next main-session tool call
+  after the commit (PostToolUse `additionalContext`), and again at the next UserPromptSubmit and after a compaction
+  if still pending:
+  *"JSPARK Forge: commits that may have settled a choice: 3f2e1d0 'Store prices in cents' (src/billing/total.ts). When
+  this piece of work is done, end your reply by offering, in one line each: Record the decision? "<draft, ≤ 15
+  words>" (touches: <paths>). Record only after the user says yes or gives an edit; if they skip or move on, record
+  nothing."*
+- An offer is dropped when it has been delivered twice, or when `decide` records or skips it.
+- **Never unattended:** no offer when `CLAUDE_CODE_SESSION_ATTENDED` is not `1` (headless runs) or at the 95 % usage
+  band.
+- **Recorded by** `forge.js decide`, reading the entry from a file, never from the command line, so quotes and the
+  user's own rules cannot mangle or block it [R-M6]: Claude writes `.jspark-forge/state/decide.json`
+  (`{ "title", "touches", "kind", "why", "source", "skip": ["3f2e1d0"] }`) with the Write tool, then runs
+  `node forge.js decide --from .jspark-forge/state/decide.json`.
+- **Visible every time [R-H4]:** PostToolUse on that command adds a system message *"JSPARK Forge recorded D-021:
+  Sessions use signed cookies (touches src/auth.ts)."* so a recording without the user's yes cannot go unseen.
+- **From "Waiting on you" (spec 5.2a):** when `/jspark-forge:waiting` settles a question, the skill offers to record
+  the answer as a decision (same rules).
 
 ### 1.5 Staleness
 
-- **At a commit:** the files it changed (`git diff-tree --no-commit-id --name-only -r HEAD`, inside the hook's git
-  budget) are matched against active entries. A match not flagged today adds: *"D-012 may be stale: this commit
-  changed src/billing/total.ts. At the end of your reply ask: still valid? (yes / update / retire)"*. At most once per
-  entry per day (state file).
-- **Answers:** yes → `forge.js decide --verify D-012` (Last verified = today); update → `--update D-012 "<line>"`;
-  retire → `--retire D-012 [--by D-019]`.
-- **No `Touches:`:** at session start, an active entry without `Touches:` whose Last verified is over 30 days old is
-  listed once with "still valid?".
-- **Globs that match nothing:** checked at session start at most once a day (`git ls-files`, inside the git budget),
-  listed with the entry id.
+- **At a commit**, its changed files (one `git log -1 --name-only` call that replaces the current `lastCommit` call
+  and handles a first commit, inside the git budget [R-L]) are matched against active entries. Flagged only if the
+  entry was recorded or verified more than 14 days ago and not flagged in the last day [R-M2]. At most 2 flags, added
+  to the same pending block as the offers: *"D-012 may be stale: this commit changed src/billing/total.ts. In the same
+  closing lines, ask: still valid? (yes / update / retire)"*.
+- **Answers:** yes → `decide --verify D-012` (Last verified = today); update → `--update D-012` with the new title from
+  the file; retire → `--retire D-012 [--by D-019]`.
 
-### 1.6 Session start
+### 1.6 Session start [R-M8]
 
-- An index of active entry titles, at most 150 words: *"Decisions on file: D-012 Prices are stored in cents; D-013 …
-  Full entries arrive just before you edit the files they touch."* Over 150 words → the newest titles, then "(and 14
-  more: /jspark-forge:decisions)".
-- Parse errors, stale flags (no touches, globs matching nothing) as one system-message line each.
+- An index of active titles, at most 150 words, framed as data: *"Project notes on file (details arrive just before
+  you edit the files they cover): D-012 Prices are stored in cents; …"*. Over 150 words → the newest titles, then
+  "(and 14 more)".
+- **One line for everything else:** *"JSPARK Forge: 4 decisions need a look: /jspark-forge:check"*. Entries younger
+  than 14 days are not checked for missing files (a plan can name files not written yet).
+- Plus the once-only "arrived with git" line (1.3).
 
 ### 1.7 Commands
 
-- **`/jspark-forge:decisions`**: lists active entries (id, title, touches), then counts: reference entries, long
-  entries (> 80 words), knowledge-base requests declined. Retired and superseded only on request.
-- **`/jspark-forge:decide "<line>"`**: adds one by hand; the skill asks only for what is missing (touches, kind).
-- **`/jspark-forge:check`** ("is my memory still true?"): `forge.js check` lists, read-only:
-  - missing or renamed paths;
-  - globs that match nothing;
-  - entries whose touched files changed since Last verified (`git log --since`);
-  - entries without `Touches:` older than 30 days.
+- **`/jspark-forge:decisions`:** active entries (id, title, touches); counts of reference entries, long entries
+  (> 80 words) and declined knowledge-base requests; over 200 entries, a suggestion to archive retired ones (spec
+  5.3); how to promote a rule to a hard block in `rules.md` (spec 5.3).
+- **`/jspark-forge:decide "<line>"`:** adds one by hand; the skill asks only for what is missing. A long entry is
+  accepted with one warning suggesting a reference. When a read-only source exists, it offers the migration-mapping
+  shape (*"sessions: legacy/session.php → src/auth.ts, cookie format kept"*).
+- **`/jspark-forge:check`:** `forge.js check` lists, read-only: unreadable entries, duplicate ids, missing paths, globs
+  that match nothing, entries whose files changed since Last verified (`git log --since`), entries without `Touches:`
+  older than 30 days. Each with "still valid? / update / retire"; changes only through `decide` after the user answers.
+- **Knowledge-base requests (spec):** `forge.js decisions --kb-request "<one line>"` counts them locally
+  (`state/declined.json`).
 
-  Each comes with "still valid? / update / retire". Changes happen only through `forge.js decide` after the user
-  answers.
-- **Long entries:** an entry over ~80 words is accepted; the first time, one line suggests a reference entry instead.
-  Never blocked.
-- **Knowledge-base requests:** when the user asks to store large documents or "a knowledge base" in decisions, the
-  skill runs `forge.js decisions --kb-request "<one line>"` (local count in `state/declined.json`, revisit at 500
-  users) and explains decisions stay one line each.
+### 1.8 Guest repos
 
-### 1.8 External code (spec 5.2b)
-
-- **Guest repos: decision memory is off.** The repo's own `decisions.md` is someone else's text: never injected (it
-  would be instructions from a stranger), never written.
-- **Migration mappings** are ordinary decisions with both paths in `Touches:` (*"sessions: legacy/session.php →
-  src/auth.ts, cookie format kept"*); the decide skill offers that shape when a read-only source exists.
-- **Licence check:** at the first session in a guest repo and for each read-only source, one file read (`LICENSE*`,
-  `COPYING*`, the `license` field of `package.json`) classified in plain words: permissive (MIT, Apache-2.0, BSD,
-  ISC), copyleft (GPL, AGPL, LGPL, MPL), non-commercial (CC-BY-NC, PolyForm Noncommercial, BSL), or none found
-  ("all rights reserved by default"). Shown once per repo or source; a hint, not legal advice.
+Decision memory is **off**: the repo's own `decisions.md` is never read, injected or written.
 
 ### 1.9 State
 
-`state/decisions.json` (local): flags raised per entry per day, injections per session, long-entry warnings given,
-the glob check date. Never committed.
+`state/decisions.json` (machine-local, per project): the id high-water mark, known entry hashes, flags per entry with
+dates, plan files already offered, long-entry warnings given, the last check date. Per conversation (the session
+file): injected entry ids per `agent_id`, pending offers, delivery counts.
 
-### 1.10 Spike E (before building 1.4's plan trigger)
+### 1.10 Spike E (before the plan-mode trigger)
 
-Does PostToolUse fire for `ExitPlanMode` when the user approves a plan, and what does its input hold? Run interactively
-once (headless runs cannot approve a plan). If it does not fire, the plan trigger is only the superpowers plan or
-spec file, and the spec's "plan-mode exit" becomes a known gap.
+Does PostToolUse fire for `ExitPlanMode` when the user approves a plan, and what does its input hold? One interactive
+run. If not, the trigger is only the superpowers files, and plan-mode approval is a known gap.
 
 ### 1.11 Tests
 
-- Parser and writer: round trip keeps every byte except the changed entry; malformed entries reported with line
-  numbers; ids never reused.
-- Glob matching: ≥ 30 cases (`**`, `*`, folders, case rules per platform, Windows backslashes).
-- PreToolUse: a touched path injects ≤ 3 lines, most specific first; once per session; again after compaction or 30
-  minutes; a reference injects only its pointer; a blocked command injects nothing; guest repos inject nothing.
-- PostToolUse: commit → the record prompt (one per reply, batched); a stale flag once per entry per day; superpowers
-  plan or spec written → the prompt; superpowers absent or reshaped → nothing breaks.
-- `forge.js decide`: add, verify, update, retire (with supersede), long-entry warning once; `check` changes nothing.
-- Licence classification on ≥ 10 real licence texts.
-- Integration (real Claude, headless): an edit to a touched file shows the decision in Claude's reply ("I kept prices
-  in cents"); a commit ends the reply with "Record the decision?".
+- Reader and writer: byte-exact round trips (LF, CRLF, BOM, no final newline); malformed entries counted; ids from the
+  high-water mark; duplicates refused.
+- Matching: ≥ 30 cases; project-relative conversion from repo-relative and absolute paths.
+- PreToolUse: ≤ 3 lines, most specific first; data framing; cut and cleaned text; a secret or outside `See:` injects
+  nothing; once per conversation per `agent_id`; reset after compaction; a denied call injects and marks nothing;
+  merged with the notes line and with `ask`; shell `sed -i` / `mv` covered; guest repos inject nothing.
+- Recording: the filter; offers to the main conversation only, once per user turn, at most twice; none when
+  unattended or at 95 %; `decide --from` adds, verifies, updates, retires, skips; the "recorded" system message.
+- Staleness: 14-day grace, once a day, at most 2.
+- Session start: the index ≤ 150 words; one summary line; "arrived with git" once.
+- Integration (real Claude, headless): an edit to a touched file is followed by Claude keeping the decision or asking;
+  a compliance probe: the offer still appears after 10 more tool calls [R-M1].
 
-### 1.12 Open questions for the owner
+### 1.12 Owner decisions (2026-11-20)
 
-- **Q-D1:** the record prompt only when a commit settled something (1.4), instead of literally every commit?
-- **Q-D2:** should `decisions.md` be committed by default (shared with a team) or kept local like the handoff?
-  Recommendation: committed, as the spec says; a solo founder loses nothing, and a cloned project keeps its "why".
+- **Q-D1 [owner]:** offer to record only after a real choice, not every commit (filtered mechanically, 1.4).
+- **Q-D2 [owner]:** `decisions.md` is committed with the code.
+
+---
+
+## 2. Licence check for external code (spec 5.2b, v0.2)
+
+At the first session in a guest repo and for each read-only source: one file read (`LICENSE*`, `COPYING*`, the
+`license` field of `package.json`), classified in plain words: permissive (MIT, Apache-2.0, BSD, ISC), copyleft (GPL,
+AGPL, LGPL, MPL), non-commercial (CC-BY-NC, PolyForm Noncommercial, BSL), or none found ("all rights reserved by
+default"). Shown once per repo or source, as a hint, not legal advice. Tests: ≥ 10 real licence texts.
