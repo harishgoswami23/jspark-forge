@@ -43,6 +43,38 @@ test('LGPL and AGPL are not mistaken for plain GPL (they quote it)', () => {
   assert.equal(lic.classifyText(`${TEXTS['LGPL-2.1'][0]}\nthe GNU General Public License`).name, 'LGPL-2.1');
 });
 
+// ---- full official texts (they mention other licences, mostly near the end) ----
+const FIX = path.join(__dirname, 'fixtures', 'licences');
+const full = f => fs.readFileSync(path.join(FIX, f), 'utf8');
+const FULL = [['GPL-3.0.txt', 'copyleft', /^GPL-3\.0$/], ['GPL-2.0.txt', 'copyleft', /^GPL-2\.0$/], ['AGPL-3.0.txt', 'copyleft', /^AGPL-3\.0$/],
+  ['LGPL-3.0.txt', 'copyleft', /^LGPL-3\.0$/], ['LGPL-2.1.txt', 'copyleft', /^LGPL-2\.1$/], ['MPL-2.0.txt', 'copyleft', /^MPL-2\.0$/],
+  ['Apache-2.0.txt', 'permissive', /^Apache-2\.0$/]];
+for (const [f, kind, nameRe] of FULL) {
+  test(`full text ${f} is ${kind} ${nameRe}`, () => {
+    const c = lic.classifyText(full(f));
+    assert.equal(c.kind, kind);
+    assert.match(c.name, nameRe);
+  });
+  test(`full text ${f} read from a folder (64 KB head)`, () => {
+    const d = tmp(); put(d, 'COPYING', full(f));
+    assert.match(lic.readLicence(d).name, nameRe);
+  });
+}
+test('a dual-licence README notice: both named, the permissive option counts', () => {
+  const c = lic.classifyText(full('README-dual.md'));
+  assert.equal(c.kind, 'permissive');
+  assert.match(c.name, /Apache-2\.0/); assert.match(c.name, /MIT/);
+});
+test('a BSD text that mentions MIT later is BSD; an MIT text that mentions the GPL is MIT', () => {
+  const bsd = `${TEXTS['BSD-3-Clause'][0]}\n\nPortions derived from code under the MIT License.`;
+  assert.equal(lic.classifyText(bsd).name, 'BSD-3-Clause');
+  assert.equal(lic.classifyText(`${TEXTS.MIT[0]}\n\nThis is compatible with the GNU General Public License.`).name, 'MIT');
+});
+test('a short notice naming one licence and mentioning another elsewhere is not read as dual', () => {
+  const c = lic.classifyText('Licensed under the GNU General Public License, version 3.\nBundled font under the Apache License 2.0.');
+  assert.equal(c.name, 'GPL-3.0');
+});
+
 // ---- package.json "license" ----
 const PKG = [['MIT', 'permissive'], ['(MIT OR Apache-2.0)', 'permissive'], ['Apache-2.0', 'permissive'], ['GPL-3.0-only', 'copyleft'],
   ['AGPL-3.0-or-later', 'copyleft'], ['LGPL-2.1', 'copyleft'], ['MPL-2.0', 'copyleft'], ['BUSL-1.1', 'noncommercial'],
