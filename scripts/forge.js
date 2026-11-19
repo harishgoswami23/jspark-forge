@@ -545,7 +545,14 @@ const cliMemory = fn => args => {
 // `forge.js lint [paths...]` (design-v0.2 section 3): check skills and briefs; default is the project's own.
 const cliLint = args => process.stdout.write(require('./lib/lint').run(cliProject() || process.cwd(), args));
 
-const CLI = { lint: cliLint, save: cliSave, show: cliShow, where: cliWhere, waiting: cliWaiting, doctor: cliDoctor, status: cliStatus, decide: cliDecide,
+// `forge.js schema [table]` (design-v0.3 1.3): the database layout from migration files; read-only, never a live database.
+function cliSchema(args) {
+  const dir = cliProject();
+  if (!dir) { process.stdout.write(NOT_SET_UP); return; }
+  process.stdout.write(require('./lib/schema').run(dir, args));
+}
+
+const CLI = { schema: cliSchema, lint: cliLint, save: cliSave, show: cliShow, where: cliWhere, waiting: cliWaiting, doctor: cliDoctor, status: cliStatus, decide: cliDecide,
   decisions: cliMemory('list'), check: cliMemory('check') };
 if (CLI[event]) {
   try { CLI[event](process.argv.slice(3)); } catch (e) { process.stdout.write(`JSPARK Forge could not ${event}: ${e.message}\n`); }

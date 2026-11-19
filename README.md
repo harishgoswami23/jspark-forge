@@ -56,6 +56,13 @@ is tested. v0.1.1 adds **guest mode** (review someone else's repo without writin
 sources** (keep an old system next to the new one, never edited), the **waiting on you** list and a health check
 (`/jspark-forge:doctor`).
 
+## Database layout
+
+`/jspark-forge:schema [table]` shows the tables, columns, keys and foreign keys your SQL migration files describe,
+with the file and line each came from, the commit it was read at, and the decisions that touch each migration file.
+It reads the files in `migrations/`, `db/migrations/`, `supabase/migrations/` or `prisma/migrations/` (one layout per
+folder, never merged) and never connects to a database. What it cannot read is marked "uncertain", never guessed.
+
 ## Works best with superpowers
 
 JSPARK Forge does not teach Claude *how* to build. [superpowers](https://github.com/obra/superpowers) by Jesse
@@ -184,6 +191,7 @@ guidance, not a lock: superpowers chooses a model for each helper it starts.
 | `/jspark-forge:waiting` | The questions waiting on you, with Claude's recommendations; answer, accept the recommendations, or drop them |
 | `/jspark-forge:status` | What is saved now: the handoff, what is waiting on you, usage as of when |
 | `/jspark-forge:doctor` | Is JSPARK Forge working here? One line per check, each problem with its fix. Changes nothing |
+| `/jspark-forge:schema` | The database layout from your migration files, with file and line and the decisions that touch them. Never reads a database |
 | `/jspark-forge:upgrade` | Update JSPARK Forge (asks first); run the doctor after the restart |
 | `/jspark-forge:init` | Optional. Wrap your own status line (asks first); `--undo-statusline` restores it exactly; `--guest` / `--mine` for someone else's repo or your own |
 
