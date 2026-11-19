@@ -499,3 +499,14 @@ test('init uses CLAUDE_CONFIG_DIR when --claude-home is not given', () => {
   const out = spawnSync(process.execPath, [INIT, '--project', dir], { encoding: 'utf8', env: Object.assign({}, process.env, { CLAUDE_CONFIG_DIR: home }) }).stdout;
   assert.match(out, /Status line: wrapped by JSPARK Forge/);
 });
+
+// design-v0.2 1.1 [R-L]: decisions.md is committed with the code, like rules.md, so it never makes a project a guest.
+test('a v0.1.0 project whose committed files include decisions.md is still adopted as yours', () => {
+  const dir = repo({ files: { 'a.js': 'a\n', '.jspark-forge/rules.md': '## Confirm\n', '.jspark-forge/.gitignore': '*\n!.gitignore\n!rules.md\n!decisions.md\n',
+    '.jspark-forge/decisions.md': '## D-001 Prices in cents\n- Kind: decision\n- Status: active\n' } });
+  fs.mkdirSync(path.join(dir, '.jspark-forge', 'state'), { recursive: true });
+  const home = cfg();
+  hook(dir, home, 'SessionStart');
+  assert.ok(marked(dir), 'marker added');
+  assert.equal(guestDirs(home).length, 0);
+});
