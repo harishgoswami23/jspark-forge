@@ -52,13 +52,14 @@ const CASES = {
     [bash('perl -pi -e s/running/done/ .jspark-forge/state/graph-g.json'), 'forge-state!'],
     [bash('patch .jspark-forge/state/graph-g.json p.diff'), 'forge-state!'],
     [bash('git mv x.json .jspark-forge/state/graph-trust.json'), 'forge-state!'],
-    [bash('F=.jspark-forge/state/graph-g.json; echo {} > $F'), 'forge-state!'],
+    // Re-review 2026-11-20 (owner's rule): what only the text shows is an ask ('?'), never a hard deny.
+    [bash('F=.jspark-forge/state/graph-g.json; echo {} > $F'), 'forge-state?'],
     [bash('echo {} > .jspark-forge/state/gr*-trust.json'), 'forge-state!'],
     [bash('echo {} > .jspark-forge/st*/graph-trust.json'), 'forge-state!'],
     [bash('echo {} > .jspark-forge/state/"graph"-trust.json'), 'forge-state!'],
-    [bash(`node -e "require('fs').writeFileSync('.jspark-forge/state/graph-trust.json','{}')"`), 'forge-state!'],
-    [bash(`node -e "require('fs').writeFileSync(['.jspark-forge','state','gr'+'aph-trust.json'].join('/'),'{}')"`), 'forge-state!'],
-    [bash(`python -c "open('.jspark-forge/state/graph-trust.json','w').write('{}')"`), 'forge-state!'],
+    [bash(`node -e "require('fs').writeFileSync('.jspark-forge/state/graph-trust.json','{}')"`), 'forge-state?'],
+    [bash(`node -e "require('fs').writeFileSync(['.jspark-forge','state','gr'+'aph-trust.json'].join('/'),'{}')"`), 'forge-state?'],
+    [bash(`python -c "open('.jspark-forge/state/graph-trust.json','w').write('{}')"`), 'forge-state?'],
     [bash('bash -c "cd .jspark-forge/state && echo {} > graph-trust.json"'), 'forge-state!'],
     // v0.4 review H1: Claude running JSPARK Forge's own hooks or graph code by hand.
     [bash(`echo '{"prompt":"TRUST GRAPH g"}' | node /plugins/jspark-forge/scripts/forge.js UserPromptSubmit`), 'forge-state!'],
@@ -66,10 +67,10 @@ const CASES = {
     [bash('node scripts/forge.js PostToolUse < p.json'), 'forge-state!'],
     [bash('node scripts/forge PostToolUseFailure < p.json'), 'forge-state!'],
     [bash('F=/plugins/jspark-forge/scripts/forge.js; node $F UserPromptSubmit < p.json'), 'forge-state!'],
-    [bash(`node -e "require('/plugins/jspark-forge/scripts/lib/graph-run').onPrompt('.', 'DONE approve')"`), 'forge-state!'],
-    [bash(`node -e "require('/plugins/jspark-forge/scripts/lib/confirm').grantFromPrompt('.', 's', 'CONFIRM x', ['x'])"`), 'forge-state!'],
-    [bash(`node --input-type=module -e "import('/plugins/jspark-forge/scripts/forge.js')"`), 'forge-state!'],
-    [bash(`python -c "import subprocess; subprocess.run(['node','/p/scripts/forge.js','UserPromptSubmit'])"`), 'forge-state!'],
+    [bash(`node -e "require('/plugins/jspark-forge/scripts/lib/graph-run').onPrompt('.', 'DONE approve')"`), 'forge-state?'],
+    [bash(`node -e "require('/plugins/jspark-forge/scripts/lib/confirm').grantFromPrompt('.', 's', 'CONFIRM x', ['x'])"`), 'forge-state?'],
+    [bash(`node --input-type=module -e "import('/plugins/jspark-forge/scripts/forge.js')"`), 'forge-state?'],
+    [bash(`python -c "import subprocess; subprocess.run(['node','/p/scripts/forge.js','UserPromptSubmit'])"`), 'forge-state?'],
     // and what stays free
     [bash('node /plugins/jspark-forge/scripts/forge.js graph next g'), null],
     [bash('node /plugins/jspark-forge/scripts/forge.js graph done g build --from .jspark-forge/state/report-build.json'), null],
@@ -82,6 +83,124 @@ const CASES = {
     [bash('rm .jspark-forge/state/report-*.json'), null],
     [bash(`node -e "console.log(require('fs').readFileSync('.jspark-forge/graphs/g.md','utf8'))"`), null],
     [bash('cd .jspark-forge/state && cat graph-g.json'), null],
+  ],
+  // Security re-review 2026-11-20. H4: hook events run from the shell, decided on parsed stages: hard.
+  'forge-state hook runs (re-review H4)': [
+    [bash("echo '{}' | node /p/scripts/forge.js \\\n SubagentStart"), 'forge-state!'],
+    [bash("echo '{}' | node \"/p/scripts/forge.js\" \\\r\n  UserPromptSubmit"), 'forge-state!'],
+    [bash("E=SubagentStart; echo '{\"agent_type\":\"jspark-forge:builder\"}' | node /p/scripts/forge.js $E"), 'forge-state!'],
+    [bash("echo '{}' | node /p/scripts/forge.js -- SubagentStart"), 'forge-state!'],
+    [bash('echo SubagentStart | xargs node /p/scripts/forge.js'), 'forge-state!'],
+    [bash("echo '{}' | node --no-warnings /p/scripts/forge.js   SubagentStart"), 'forge-state!'],
+    [bash("echo '{}' | node /p/scripts/forge.js Subagent\"\"Start"), 'forge-state!'],
+    [bash("echo '{}' | nodejs /p/scripts/forge.js subagentstart"), 'forge-state!'],
+    [bash("$e='UserPromptSubmit'; '{}' | node C:\\p\\scripts\\forge.js $e", { tool: 'PowerShell' }), 'forge-state!'],
+    [bash("'{}' | & node C:\\p\\scripts\\forge.js 'SubagentStart'", { tool: 'PowerShell' }), 'forge-state!'],
+    [bash("Start-Process node -ArgumentList 'C:\\p\\scripts\\forge.js','SubagentStart'", { tool: 'PowerShell' }), 'forge-state!'],
+    // a copied or renamed script, or JSPARK Forge's code loaded by hand: only the text shows it, so ask
+    [bash("echo '{}' | node /tmp/f.js SubagentStart"), 'forge-state?'],
+    [bash("node -e \"process.argv[1]='SubagentStart'; require('/p/scripts/forge')\""), 'forge-state?'],
+    [bash("node - <<'EOF'\nconst g=require('/p/scripts/lib/graph-run.js');g.onPrompt('.','DONE ok','s1')\nEOF"), 'forge-state?'],
+    // H3: the plugin's own instructed commands, whatever words their messages hold
+    [bash('node "C:/p/scripts/forge.js" graph fail demo build "could not import the module"'), null],
+    [bash('node "C:/p/scripts/forge.js" graph fail demo build "tests require a database"'), null],
+    [bash('node "C:/p/scripts/forge.js" graph next import'), null],
+    [bash('node "C:/p/scripts/forge.js" graph fail demo build "PreToolUse hook blocked the write"'), null],
+    [bash('node "$CLAUDE_PLUGIN_ROOT/scripts/forge.js" graph fail demo build "Stop: the helper returned nothing"'), null],
+    [bash('node "C:/p/scripts/forge.js" decide add "SessionStart shows the graph"'), null],
+    [bash('node -r dotenv/config scripts/forge.js doctor'), null],
+    [bash('node --require ./tests/helpers/isolate.js --test tests/graph-run.test.js'), null],
+    [bash("node -e \"console.log(require('./package.json').version)\""), null],
+    [bash('node forge.js build'), null],
+    [bash('node --import tsx src/forge.js'), null],
+    // low (d): working on the plugin itself
+    [bash('git commit -m "fix: forge.js Stop hook no longer saves twice"'), null],
+    [bash('grep -n "forge.js PreToolUse" hooks/hooks.json'), null],
+    [bash('gh pr create --title "Protect state/graph-* files" --body "forge.js PreToolUse now refuses writes"'), null],
+    [bash('echo "Run: node forge.js SessionStart" >> docs/hooks.md'), null],
+    [bash('git commit -m "node forge.js Stop is the save hook"', { tool: 'PowerShell' }), null],
+  ],
+  // H2, M5, M7, low (c): resolved targets decide; the text only asks, and reads never do.
+  'forge-state record (re-review H2 M5 M7)': [
+    [bash('cp -t .jspark-forge/state /tmp/graph-demo.json'), 'forge-state!'],
+    [bash('install -D /tmp/graph-demo.json -t .jspark-forge/state'), 'forge-state!'],
+    [bash('cp /tmp/x.json "$PWD/.jspark-forge/state/graph-demo.json"'), 'forge-state!'],
+    [bash('cd "$CLAUDE_PROJECT_DIR/.jspark-forge/state" && cp /tmp/x graph-demo.json'), 'forge-state!'],
+    [bash('rm -rf .jspark*'), 'forge-state!'],
+    [bash('rm -rf .jspark-forge'), 'forge-state!'],
+    [bash('cp /tmp/graph-demo.json .jspark-forge/state/.'), 'forge-state!'],
+    [bash('git rm -r .jspark-forge/state'), 'forge-state!'],
+    [edit('.jspark-forge\\state\\GRAPH-trust.json'), 'forge-state!'],
+    // M5: ordinary idioms that reach the record only through text: ask
+    [bash("D=.jspark-forge/state; echo '{}' > $D/graph-demo.json"), 'forge-state?'],
+    [bash("find .jspark-forge -name 'graph-*.json' -exec sed -i 's/running/done/' {} \\;"), 'forge-state?'],
+    [bash('grep -rl running .jspark-forge | xargs sed -i s/running/done/'), 'forge-state?'],
+    [bash('for f in .jspark-forge/state/*.json; do sed -i s/running/done/ "$f"; done'), 'forge-state?'],
+    [bash("python3 - <<'EOF'\nimport json,os\np=os.path.join('.jspark-forge','state','graph-demo.json')\ns=json.load(open(p))\njson.dump(s,open(p,'w'))\nEOF"), 'forge-state?'],
+    [bash("node <<'EOF'\nconst fs=require('fs'),path=require('path');fs.writeFileSync(path.join('.jspark-forge','state','graph-demo.json'),'{}')\nEOF"), 'forge-state?'],
+    [bash("cat > /tmp/fix.js <<'EOF'\nrequire('fs').writeFileSync(require('path').join('.jspark-forge','state','graph-demo.json'),'{}')\nEOF\nnode /tmp/fix.js"), 'forge-state?'],
+    [bash("node -e \"require('fs').writeFileSync('graph-demo.json','{}')\"", { cwd: path.join(PROJECT, '.jspark-forge', 'state') }), 'forge-state?'],
+    [bash("python -c \"open('graph-demo.json','w').write('{}')\"", { cwd: path.join(PROJECT, '.jspark-forge', 'state') }), 'forge-state?'],
+    [bash("$p = Join-Path .jspark-forge state; Set-Content \"$p\\graph-demo.json\" '{}'", { tool: 'PowerShell' }), 'forge-state?'],
+    [bash("Get-ChildItem .jspark-forge\\state | ForEach-Object { Set-Content $_.FullName '{}' }", { tool: 'PowerShell' }), 'forge-state?'],
+    [bash("gci .jspark-forge -r -fi *.json | % { (gc $_) -replace 'running','done' | sc $_ }", { tool: 'PowerShell' }), 'forge-state?'],
+    [bash("[IO.File]::WriteAllText((Join-Path $PWD '.jspark-forge\\state\\graph-demo.json'), '{}')", { tool: 'PowerShell' }), 'forge-state?'],
+    [bash('tar -xf /tmp/forged.tar -C .jspark-forge/state'), 'forge-state?'],
+    [bash("printf '{}' | sponge .jspark-forge/state/graph-demo.json"), 'forge-state?'],
+    [bash("ln -s .jspark-forge/state s && echo '{}' > s/graph-demo.json"), 'forge-state?'],
+    [bash('cp /tmp/x.json .jspark-forge/state/{graph-demo.json,}'), 'forge-state?'],
+    [bash("node -e \"const g=require(process.env.CLAUDE_PLUGIN_ROOT+'/scripts/lib/graph-'+'run');g.onPrompt('.','DONE ok','s1')\""), 'forge-state?'],
+    // H2: other projects' state/graph-* files are ordinary files
+    [bash('git add src/state/graph-store.ts src/state/graph-slice.ts'), null],
+    [bash('npx eslint src/state/graph-store.ts --fix'), null],
+    [bash('npx vitest run src/state/graph-store.test.ts'), null],
+    [bash('rm src/state/graph-old.ts'), null],
+    [bash("sed -i 's/foo/bar/' app/state/graph-model.py"), null],
+    [bash('git mv src/state/graph-old.ts src/state/graph-new.ts'), null],
+    [bash('mkdir -p src/state && touch src/state/graph-selectors.ts'), null],
+    [bash('git add src\\state\\graph-store.ts', { tool: 'PowerShell' }), null],
+    [bash('Remove-Item src\\state\\graph-old.ts', { tool: 'PowerShell' }), null],
+    [bash('git commit -m "docs: explain .jspark-forge/state/graph-trust.json"'), null],
+    [bash('git add -A && git commit -m "Ignore .jspark-forge/state/graph-*.json lock files"'), null],
+    [bash("echo '.jspark-forge/state/graph-*' >> .gitignore"), null],
+    [bash('git check-ignore -v .jspark-forge/state/graph-demo.json'), null],
+    // M7: reads
+    [bash('node "C:/p/scripts/forge.js" graph status demo && cat .jspark-forge/state/graph-demo.json'), null],
+    [bash('cat .jspark-forge/state/graph-demo.json | python -m json.tool'), null],
+    [bash('sed -n 1,40p .jspark-forge/state/graph-demo.json'), null],
+    [bash("awk 'NR<20' .jspark-forge/state/graph-trust.json"), null],
+    [bash('diff .jspark-forge/state/graph-demo.json /tmp/before.json'), null],
+    [bash('sha1sum .jspark-forge/state/graph-demo.json'), null],
+    [bash('test -f .jspark-forge/state/graph-active.json && echo running'), null],
+    [bash('[ -f .jspark-forge/state/graph-active.json ] && echo yes'), null],
+    [bash('cat .jspark-forge/state/graph-demo.json || echo none'), null],
+    [bash("cat .jspark-forge/state/graph-demo.json | node -e \"let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).steps))\""), null],
+    [bash("python3 -c \"print(open('.jspark-forge/handoff.md').read()[:500])\""), null],
+    [bash("node -e \"const fs=require('fs');console.log(fs.readdirSync('.jspark-forge').map(f=>f.replace('.md','')))\""), null],
+    [bash("node -e \"const s=JSON.parse(require('fs').readFileSync('.jspark-forge/state/graph-demo.json','utf8'));console.log(s.steps)\""), null],
+    [bash("find . -path './.jspark-forge/state/graph-*' -newer package.json"), null],
+    [bash('for f in .jspark-forge/state/*.json; do cat "$f"; done'), null],
+    [bash('Get-Content .jspark-forge\\state\\graph-demo.json | ConvertFrom-Json | Select-Object -ExpandProperty steps', { tool: 'PowerShell' }), null],
+    [bash('(Get-Content .jspark-forge\\state\\graph-demo.json | ConvertFrom-Json).steps', { tool: 'PowerShell' }), null],
+    [bash('Get-ChildItem .jspark-forge\\state | Format-Table Name, Length', { tool: 'PowerShell' }), null],
+    [bash("if (Test-Path .jspark-forge\\state\\graph-active.json) { 'running' }", { tool: 'PowerShell' }), null],
+    [bash('Get-Content .jspark-forge\\state\\graph-demo.json | Out-Host', { tool: 'PowerShell' }), null],
+    [bash('Get-Content .jspark-forge\\state\\graph-demo.json | Measure-Object -Line', { tool: 'PowerShell' }), null],
+    [bash("[System.IO.File]::ReadAllText('.jspark-forge\\rules.md')", { tool: 'PowerShell' }), null],
+    // the plugin's own report files and folders stay free
+    [bash('mkdir -p .jspark-forge/state && echo \'{"summary":"ok"}\' > .jspark-forge/state/report-build.json'), null],
+    [bash('cp /tmp/report-build.json .jspark-forge/state/'), null],
+    [bash('rm -f .jspark-forge/state/*.lock'), null],
+    [bash("Set-Content .jspark-forge\\state\\report-build.json '{\"summary\":\"ok\"}'", { tool: 'PowerShell' }), null],
+    // low (c): only this project's own record counts for the hard deny
+    [bash('mkdir .jspark-forge'), null],
+    [bash('mkdir -p .jspark-forge/state'), null],
+    [bash('chmod -R u+w .jspark-forge'), 'chmod-wide'],
+    [bash('git rm -r --cached .jspark-forge'), null],
+    [bash('cp -r .jspark-forge /tmp/forge-backup'), null],
+    [bash('tar czf /tmp/backup.tgz .jspark-forge'), null],
+    [edit('tests/fixtures/.jspark-forge/state/graph-x.json', 'Write'), null],
+    [edit('backup/.jspark-forge/state/graph-demo.json', 'Write'), null],
   ],
   'rm-rf-outside': [
     [bash('rm -rf /'), 'rm-rf-outside!'],
@@ -416,10 +535,14 @@ if (WIN) {
     [bash('rm -rf /c/work/other'), 'rm-rf-outside'],
     [bash('rm -rf /c/work/proj/build'), null],
     [bash('rm -rf "C:\\work\\proj\\dist"'), null],
+    // Windows drops trailing dots and spaces and reads "name::$DATA" as the file itself
+    [edit('.jspark-forge/state/graph-demo.json::$DATA'), 'forge-state!'],
+    [edit('.jspark-forge/state/./graph-demo.json.', 'Write'), 'forge-state!'],
   ];
 }
 
-function expectOf(r) { return r ? (r.hard ? `${r.id}!` : r.id) : null; }
+// 'id!' hard deny, 'id' typed confirm, 'id?' Claude Code's own permission prompt (an ask), null allowed.
+function expectOf(r) { return r ? (r.hard ? `${r.id}!` : r.ask ? `${r.id}?` : r.id) : null; }
 
 for (const [group, cases] of Object.entries(CASES)) {
   for (const [input, want] of cases) {
@@ -435,7 +558,7 @@ test('every published entry has >= 5 positive and >= 5 negative cases', () => {
   for (const id of Object.keys(BUILTINS)) {
     if (id === 'readonly-source') continue; // covered, Bash and PowerShell, in tests/readonly.test.js
     const cases = CASES[id] || [];
-    const pos = cases.filter(([, w]) => w && w.replace('!', '') === id).length;
+    const pos = cases.filter(([, w]) => w && w.replace(/[!?]$/, '') === id).length;
     const neg = cases.filter(([, w]) => w === null).length;
     assert.ok(pos >= 5, `${id}: ${pos} positive`);
     assert.ok(neg >= 5, `${id}: ${neg} negative`);
@@ -454,6 +577,59 @@ test('a forge-state refusal names the allowed way to report a build-graph step',
     assert.match(h.reason, /Write tool/);
     assert.match(h.reason, /graph done/);
   }
+});
+
+// Re-review 2026-11-20, owner's rule: a text heuristic is an ask (Claude Code's normal prompt), not a hard deny and no
+// CONFIRM; the reason still names the allowed route.
+test('a forge-state text match is an ask: not hard, no CONFIRM, names the route and says to allow only if expected', () => {
+  const h = check(bash("D=.jspark-forge/state; echo '{}' > $D/graph-demo.json"), ctx());
+  assert.equal(h.id, 'forge-state');
+  assert.equal(h.hard, false);
+  assert.equal(h.ask, true);
+  assert.ok(!/CONFIRM/.test(h.reason), h.reason);
+  assert.match(h.reason, /allow (it )?only if you expect/i);
+  assert.match(h.reason, /Write tool/);
+  assert.match(h.reason, /JSPARK Forge/);
+  const all = check(bash("git reset --hard && D=.jspark-forge/state; echo '{}' > $D/graph-demo.json"), ctx(), { all: true });
+  assert.deepEqual(all.map(x => expectOf(x)), ['git-reset-hard', 'forge-state?'], 'a typed-confirm hit comes before an ask');
+});
+
+// Re-review H1: a network path made one check take 42 s, so the hook gave no answer and every rule failed open.
+test('a network path never stalls the check: the other rules still answer within 1 s (re-review H1)', () => {
+  const cases = [
+    [bash('git push --force origin main; cp a.txt //192.0.2.1/share/x.txt'), 'git-force-push-main'],
+    [bash('git push --force origin main; echo x > \\\\\\\\192.0.2.1\\\\share\\\\x.txt'), 'git-force-push-main'],
+    [bash('git push --force origin main; Copy-Item a.txt \\\\192.0.2.1\\share\\x.txt', { tool: 'PowerShell' }), 'git-force-push-main'],
+    [edit('//192.0.2.7/share/x.txt', 'Write'), null],
+    [edit('\\\\192.0.2.7\\share\\x.txt', 'Write'), null],
+    [edit('\\\\?\\UNC\\192.0.2.7\\share\\x.txt', 'Write'), null],
+  ];
+  for (const [input, want] of cases) {
+    const t = Date.now();
+    assert.equal(expectOf(check(input, ctx(input._o))), want);
+    assert.ok(Date.now() - t < 1000, `${input.tool_input.command || input.tool_input.file_path}: ${Date.now() - t} ms`);
+  }
+});
+
+// Re-review M9: thousands of targets in one command, against a real folder (realpath runs).
+test('thousands of targets are checked fast: touch of 20000 files and rm of 3000 deep paths (re-review M9)', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const real = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-perf-'));
+  try {
+    fs.mkdirSync(path.join(real, '.jspark-forge', 'state'), { recursive: true });
+    const c = ctx({ projectDir: real });
+    const deep = Array.from({ length: 60 }, (_, i) => `d${i}`).join('/');
+    for (const [label, command] of [
+      ['touch 20000', `touch ${Array.from({ length: 20000 }, (_, i) => `f${i}`).join(' ')}`],
+      ['rm 3000 deep', `rm ${Array.from({ length: 3000 }, (_, i) => `${deep}/f${i}.txt`).join(' ')}`],
+      ['rm 3000', `rm ${Array.from({ length: 3000 }, (_, i) => `f${i}.txt`).join(' ')}`],
+    ]) {
+      const t = Date.now();
+      assert.equal(check({ tool_name: 'Bash', tool_input: { command }, cwd: real }, c), null);
+      assert.ok(Date.now() - t < 500, `${label}: ${Date.now() - t} ms`);
+    }
+  } finally { fs.rmSync(real, { recursive: true, force: true }); }
 });
 
 test('the table holds at least 150 commands', () => {

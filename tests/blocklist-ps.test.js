@@ -26,20 +26,27 @@ const CASES = {
     [ps('Get-ChildItem .jspark-forge/state'), null],
     [ps("Set-Content notes/graph-ship.json 'x'"), null],
     // v0.4 review H3 and H1, PowerShell and cmd forms.
-    [ps('[IO.File]::WriteAllText(".jspark-forge/state/graph-trust.json","{}")'), 'forge-state!'],
-    [ps('[System.IO.File]::WriteAllText((Join-Path .jspark-forge "state\\gr" + "aph-trust.json"),"{}")'), 'forge-state!'],
+    // re-review 2026-11-20: what only the text shows is an ask ('?')
+    [ps('[IO.File]::WriteAllText(".jspark-forge/state/graph-trust.json","{}")'), 'forge-state?'],
+    [ps('[System.IO.File]::WriteAllText((Join-Path .jspark-forge "state\\gr" + "aph-trust.json"),"{}")'), 'forge-state?'],
     [ps('cmd /c "echo {} > .jspark-forge\\state\\graph-trust.json"'), 'forge-state!'],
     [ps('Rename-Item .jspark-forge/state s2'), 'forge-state!'],
     [ps('Rename-Item -Path .jspark-forge -NewName old'), 'forge-state!'],
     [ps('cd .jspark-forge/state; Set-Content graph-trust.json x'), 'forge-state!'],
     [ps('Set-Location .jspark-forge\\state; Set-Content graph-trust.json x'), 'forge-state!'],
-    [ps('$f=".jspark-forge/state/graph-trust.json"; Set-Content $f x'), 'forge-state!'],
+    [ps('$f=".jspark-forge/state/graph-trust.json"; Set-Content $f x'), 'forge-state?'],
     [ps('Copy-Item graph-trust.json .jspark-forge/state'), 'forge-state!'],
     [ps('Copy-Item x.json -Destination .jspark-forge/state/graph-trust.json'), 'forge-state!'],
     [ps('Set-Content graph-trust.json x', { cwd: path.join(PROJECT, '.jspark-forge', 'state') }), 'forge-state!'],
     [ps('Get-Content p.json | node C:/plugins/jspark-forge/scripts/forge.js UserPromptSubmit'), 'forge-state!'],
     [ps('& node $forge SubagentStart'), 'forge-state!'],
-    [ps("node -e \"require('C:/plugins/jspark-forge/scripts/lib/graph-run.js').onCommand('.', {}, true)\""), 'forge-state!'],
+    [ps("node -e \"require('C:/plugins/jspark-forge/scripts/lib/graph-run.js').onCommand('.', {}, true)\""), 'forge-state?'],
+    [ps("$e='UserPromptSubmit'; '{}' | node C:\\p\\scripts\\forge.js $e"), 'forge-state!'],
+    [ps("Get-Content .jspark-forge\\state\\graph-demo.json -Raw | ConvertFrom-Json"), null],
+    [ps('Get-ChildItem .jspark-forge\\state\\graph-* | Select-Object Name'), null],
+    [ps("Select-String -Path scripts\\*.js -Pattern 'state/graph-'"), null],
+    [ps('node "C:\\p\\scripts\\forge.js" graph done demo build --from .jspark-forge\\state\\report-build.json'), null],
+    [ps('npx eslint src\\state\\graph-store.ts'), null],
     [ps('Get-Content .jspark-forge\\state\\graph-g.json | Select-String running'), null],
     [ps('Get-ChildItem .jspark-forge\\state\\graph-*'), null],
     [ps('node C:/plugins/jspark-forge/scripts/forge.js graph status g'), null],
@@ -252,7 +259,7 @@ if (WIN) {
   ];
 }
 
-const expectOf = r => (r ? (r.hard ? `${r.id}!` : r.id) : null);
+const expectOf = r => (r ? (r.hard ? `${r.id}!` : r.ask ? `${r.id}?` : r.id) : null); // '?': an ask
 
 for (const [group, cases] of Object.entries(CASES)) {
   for (const [input, want] of cases) {
@@ -266,7 +273,7 @@ test('every published entry has >= 5 positive and >= 5 negative PowerShell cases
   for (const id of Object.keys(BUILTINS)) {
     if (id === 'readonly-source') continue; // covered, Bash and PowerShell, in tests/readonly.test.js
     const cases = (CASES[id] || []).filter(([i]) => i.tool_name === 'PowerShell');
-    const pos = cases.filter(([, w]) => w && w.replace('!', '') === id).length;
+    const pos = cases.filter(([, w]) => w && w.replace(/[!?]$/, '') === id).length;
     const neg = cases.filter(([, w]) => w === null).length;
     assert.ok(pos >= 5, `${id}: ${pos} positive`);
     assert.ok(neg >= 5, `${id}: ${neg} negative`);

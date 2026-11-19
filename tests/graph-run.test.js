@@ -161,6 +161,25 @@ test('Claude cannot complete a human step or write the run state', () => {
   }
 });
 
+// Security re-review 2026-11-20, owner's rule: what only the text shows reaches Claude Code's own permission prompt
+// (ask), with no CONFIRM; a resolved target or a hook event run by hand stays a deny; reads pass without a prompt.
+test('PreToolUse: a forge-state text match asks (no CONFIRM), a resolved one denies, a read passes', () => {
+  const dir = project({ g: SIMPLE });
+  const pre = command => hook(dir, 'PreToolUse', { tool_name: 'Bash', tool_input: { command } });
+  const ask = pre("D=.jspark-forge/state; echo '{}' > $D/graph-g.json");
+  assert.equal(ask.hookSpecificOutput.permissionDecision, 'ask');
+  assert.doesNotMatch(ask.hookSpecificOutput.permissionDecisionReason, /CONFIRM/);
+  assert.match(ask.hookSpecificOutput.permissionDecisionReason, /JSPARK Forge.*allow it only if you expect it/);
+  assert.match(ask.hookSpecificOutput.permissionDecisionReason, /Write tool/);
+  assert.equal(pre("echo '{}' > .jspark-forge/state/graph-g.json").hookSpecificOutput.permissionDecision, 'deny');
+  assert.equal(pre(`echo '{}' | node "${FORGE.replace(/\\/g, '/')}" \\\n SubagentStart`).hookSpecificOutput.permissionDecision, 'deny');
+  const both = pre("git reset --hard && D=.jspark-forge/state; echo '{}' > $D/graph-g.json");
+  assert.equal(both.hookSpecificOutput.permissionDecision, 'deny', 'a typed-confirm block still denies until CONFIRM');
+  assert.match(both.hookSpecificOutput.permissionDecisionReason, /CONFIRM git-reset-hard/);
+  const read = pre('cat .jspark-forge/state/graph-g.json | python -m json.tool');
+  assert.ok(!read || !read.hookSpecificOutput || !read.hookSpecificOutput.permissionDecision, JSON.stringify(read));
+});
+
 test('gates: the commands run through Claude\'s tools; exit codes decide; a failing command stops the run and is named', () => {
   const G = '# Graph: g\n## checks (gate)\n- run: npm test\n- run: npm run lint\n';
   const dir = project({ g: G });

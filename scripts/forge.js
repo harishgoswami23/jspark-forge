@@ -265,6 +265,14 @@ const handlers = {
         lines.push(['CONFIRM', `${id} used :: ${String((input.tool_input || {}).command || '')}`]);
       }
     }
+    // An ask hit (forge-state's text matches, re-review 2026-11-20) needs no CONFIRM: Claude Code's own permission
+    // prompt decides. It is said alongside any other hit's reason.
+    const asks = hits.filter(h => h.ask);
+    hits = hits.filter(h => !h.ask);
+    const askNote = asks.length ? ` Also: ${asks[0].reason}` : '';
+    if (!hits.length && asks.length) {
+      return { lines: lines.concat([['ASK', `${asks[0].id} :: ${String(asks[0].matched || '')}`]]), out: preTool('ask', asks[0].reason) };
+    }
     const r = hits[0]; // hard hits first
     if (r) {
       const what = String(r.matched || '');
@@ -274,7 +282,7 @@ const handlers = {
       const plains = ids.map(id => hits.find(h => h.id === id).plain);
       if (!r.hard && ids.every(id => confirm.has(dir, input.session_id, id))) {
         for (const id of ids) confirm.consume(dir, input.session_id, id);
-        const out = preTool('ask', `JSPARK Forge: you typed ${ids.map(id => `CONFIRM ${id}`).join(' and ')}, so this is allowed once: ${plains.join('; and ')}.`);
+        const out = preTool('ask', `JSPARK Forge: you typed ${ids.map(id => `CONFIRM ${id}`).join(' and ')}, so this is allowed once: ${plains.join('; and ')}.${askNote}`);
         const n = decisionNotes(dir, input); // allowed: the decisions about its files come with it (design-v0.2 1.3)
         if (n) out.hookSpecificOutput.additionalContext = n.text;
         return { lines: lines.concat(ids.map(id => ['CONFIRM', `${id} used :: ${what}`]), n ? [['DECISION', n.ids.join(',')]] : []), out };
