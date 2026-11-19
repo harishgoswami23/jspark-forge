@@ -17,28 +17,65 @@ const N = name => ({ kind: 'noncommercial', name });
 const NONE = { kind: 'none' };
 const UNKNOWN = { kind: 'unknown' };
 
-// Licence texts: the first matching rule wins, so the specific (LGPL, AGPL, non-commercial) come before the general.
-const gnuVersion = (text, re) => { const m = text.match(re); return m ? m[1] : ''; };
+// Licence texts. A full GPL text mentions the Affero and Lesser licences near its end, an MPL text mentions the GPL, a
+// BSD file may thank an MIT project: so a rule never wins just by being first in a list. Two tiers, and in each the
+// match that appears EARLIEST in the text wins (ties go to the rule listed first):
+//   1. titles ([re, make, true]): the licence's own name, looked for in the first TITLE_LEN characters only;
+//   2. any rule (titles and wording-only rules like the MIT permission sentence) over the whole text.
+// make(w) gets the text from the match on (about 300 characters), where "Version 3, 29 June 2007" sits.
+const TITLE_LEN = 400;
+const WINDOW = 300;
+const verOf = (w, re, dflt) => { const m = w.match(re); return m ? m[1] : dflt; };
+const dotted = v => (/\./.test(v) ? v : `${v}.0`);
 const TEXT_RULES = [
-  [/polyform\s+noncommercial/i, () => N('PolyForm-Noncommercial')],
-  [/business\s+source\s+license/i, () => N('BSL-1.1')],
-  [/attribution-noncommercial|cc\s*by-nc/i, t => N(/sharealike/i.test(t) ? 'CC-BY-NC-SA-4.0' : 'CC-BY-NC-4.0')],
-  [/gnu\s+affero\s+general\s+public\s+license/i, t => C(`AGPL-${gnuVersion(t, /version\s+(\d)/i) || '3'}.0`)],
-  [/gnu\s+lesser\s+general\s+public\s+license|gnu\s+library\s+general\s+public\s+license/i, t => C(`LGPL-${gnuVersion(t, /version\s+(\d(?:\.\d)?)/i) || '3.0'}`)],
-  [/gnu\s+general\s+public\s+license/i, t => C(`GPL-${gnuVersion(t, /version\s+(\d)/i) || '3'}.0`)],
-  [/mozilla\s+public\s+license/i, () => C('MPL-2.0')],
-  [/eclipse\s+public\s+license/i, t => C(/version\s+2\.0/i.test(t) ? 'EPL-2.0' : 'EPL-1.0')],
-  [/apache\s+license/i, () => P('Apache-2.0')],
+  [/polyform\s+noncommercial/i, () => N('PolyForm-Noncommercial'), true],
+  [/business\s+source\s+license/i, () => N('BSL-1.1'), true],
+  [/attribution-noncommercial|cc\s*by-nc/i, w => N(/sharealike/i.test(w) ? 'CC-BY-NC-SA-4.0' : 'CC-BY-NC-4.0'), true],
+  [/gnu\s+affero\s+general\s+public\s+license/i, w => C(`AGPL-${dotted(verOf(w, /version\s+(\d)/i, '3'))}`), true],
+  [/gnu\s+lesser\s+general\s+public\s+license|gnu\s+library\s+general\s+public\s+license/i, w => C(`LGPL-${dotted(verOf(w, /version\s+(\d(?:\.\d)?)/i, '3'))}`), true],
+  [/gnu\s+general\s+public\s+license/i, w => C(`GPL-${dotted(verOf(w, /version\s+(\d)/i, '3'))}`), true],
+  [/mozilla\s+public\s+license/i, w => C(`MPL-${dotted(verOf(w, /version\s+(\d(?:\.\d)?)/i, '2'))}`), true],
+  [/eclipse\s+public\s+license/i, w => C(/v(?:ersion)?\s*2\.0/i.test(w) ? 'EPL-2.0' : 'EPL-1.0'), true],
+  [/apache\s+licen[cs]e/i, w => P(`Apache-${dotted(verOf(w, /version\s+(\d(?:\.\d)?)/i, '2'))}`), true],
+  [/\bmit\s+licen[cs]e/i, () => P('MIT'), true],
+  [/\bisc\s+licen[cs]e/i, () => P('ISC'), true],
+  [/\bbsd\s+([23])-clause/i, w => P(`BSD-${verOf(w, /bsd\s+([23])-clause/i, '2')}-Clause`), true],
   [/permission\s+is\s+hereby\s+granted,?\s+free\s+of\s+charge/i, () => P('MIT')],
   [/permission\s+to\s+use,\s+copy,\s+modify,?\s+(and\/or\s+)?distribute\s+this\s+software\s+for\s+any\s+purpose\s+with\s+or\s+without\s+fee/i, () => P('ISC')],
-  [/redistribution\s+and\s+use\s+in\s+source\s+and\s+binary\s+forms/i, t => P(/neither\s+the\s+name/i.test(t) ? 'BSD-3-Clause' : 'BSD-2-Clause')],
+  [/redistribution\s+and\s+use\s+in\s+source\s+and\s+binary\s+forms/i, w => P(/neither\s+the\s+name/i.test(w) ? 'BSD-3-Clause' : 'BSD-2-Clause')],
   [/free\s+and\s+unencumbered\s+software\s+released\s+into\s+the\s+public\s+domain/i, () => P('Unlicense')],
   [/altered\s+source\s+versions\s+must\s+be\s+plainly\s+marked/i, () => P('zlib')],
 ];
+// The BSD wording rule reads "neither the name" over the whole licence body, so it gets a longer window.
+const windowFor = (t, idx, re) => t.slice(idx, idx + (/redistribution/.test(re.source) ? 1500 : WINDOW));
+function matches(t, onlyTitles, limit) {
+  const hay = limit ? t.slice(0, limit) : t;
+  const out = [];
+  TEXT_RULES.forEach(([re, make, isTitle], order) => {
+    if (onlyTitles && !isTitle) return;
+    const m = re.exec(hay);
+    if (m) out.push({ idx: m.index, order, c: make(windowFor(t, m.index, re)) });
+  });
+  return out.sort((a, b) => a.idx - b.idx || a.order - b.order);
+}
+const DUAL_RE = /dual[- ]licen[cs]|at your (option|choice)|either of|\bor\b[^.]{0,40}\bat your/i;
+const BEST = { permissive: 0, copyleft: 1, noncommercial: 2 };
 function classifyText(text) {
-  const t = String(text || '').replace(/\s+/g, ' ');
-  for (const [re, make] of TEXT_RULES) if (re.test(t)) return make(t);
-  return UNKNOWN;
+  const t = String(text || '').replace(/\s+/g, ' ').trim();
+  // A short README-style notice that offers a choice: you may pick, so the most permissive named option counts.
+  if (t.length < 2500 && DUAL_RE.test(t)) {
+    const seen = new Map();
+    for (const m of matches(t, false)) if (!seen.has(m.c.name)) seen.set(m.c.name, m.c);
+    const all = [...seen.values()];
+    if (all.length > 1) {
+      const best = all.reduce((a, b) => (BEST[b.kind] < BEST[a.kind] ? b : a));
+      return { kind: best.kind, name: all.map(c => c.name).join(' OR ') };
+    }
+  }
+  const title = matches(t, true, TITLE_LEN);
+  if (title.length) return title[0].c;
+  const any = matches(t, false);
+  return any.length ? any[0].c : UNKNOWN;
 }
 
 // package.json "license" (an SPDX id or expression). OR: you may pick, so the most permissive part counts;
