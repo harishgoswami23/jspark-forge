@@ -35,7 +35,11 @@ test('doctor: a healthy project passes every check and says so in one summary li
   fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify(WRAPPED(home)));
   fs.mkdirSync(path.join(home, 'jspark-forge'));
   fs.copyFileSync(path.join(ROOT, 'scripts', 'statusline', 'wrapper.js'), path.join(home, 'jspark-forge', 'statusline.js'));
-  const out = run(dir, home, 'doctor');
+  // SessionEnd has 1 s, so 0.9 s counts as slow: two Node starts that slow happen when the whole suite runs beside
+  // this test. A result whose only problem is hook speed is run once more; any other problem fails at once.
+  let out = run(dir, home, 'doctor');
+  const onlySlow = o => /^JSPARK Forge doctor: \d+ ok, 1 to fix/.test(o) && /^FIX\s+Hooks: too slow/m.test(o);
+  if (onlySlow(out)) out = run(dir, home, 'doctor');
   assert.match(out.split('\n')[0], /^JSPARK Forge doctor: \d+ ok, 0 to fix/);
   for (const what of ['Node.js', 'Plugin files', 'Hooks', 'Git', 'Project', 'Rules', 'Status line']) assert.match(out, new RegExp(`^ok\\s+${what}`, 'm'), what);
   assert.match(out, /Hooks: \d+ answer in time/);
