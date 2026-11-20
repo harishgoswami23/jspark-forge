@@ -186,14 +186,64 @@ test('a project path with a space works', () => {
   assert.match(mapAnswer(dir), /Code map current/);
 });
 
-test('the tip names the engine once, in an own project with code, when it is not installed', () => {
+const PLUGIN_TOOL = 'mcp__plugin_jspark-forge_codebase-memory__search_graph';
+const withoutOverride = fn => {
+  const prev = process.env.JSPARK_FORGE_MAP_CMD;
+  delete process.env.JSPARK_FORGE_MAP_CMD;
+  try { return fn(); } finally { if (prev !== undefined) process.env.JSPARK_FORGE_MAP_CMD = prev; }
+};
+
+test("the plugin's tool name switches the map on", () => {
+  const map = require('../scripts/lib/map');
+  const dir = project();
+  assert.equal(map.isEngineTool(PLUGIN_TOOL), true);
+  assert.equal(map.noteTool(dir, PLUGIN_TOOL), true);
+  assert.equal(mapState(dir).prefix, 'mcp__plugin_jspark-forge_codebase-memory__');
+});
+
+test("refresh runs the launcher when the plugin's engine is in use", () => {
+  const map = require('../scripts/lib/map');
+  const bundled = require('../scripts/lib/bundled');
+  const dir = project();
+  const want = [process.execPath, bundled.LAUNCHER, 'codebase-memory'];
+  withoutOverride(() => {
+    assert.deepEqual(map.engineCmd(dir), want, 'no prefix recorded yet');
+    map.noteTool(dir, PLUGIN_TOOL);
+    assert.deepEqual(map.engineCmd(dir), want);
+  });
+});
+
+test("the user's own engine still runs from PATH", () => {
+  const map = require('../scripts/lib/map');
+  const dir = project();
+  switchOn(dir); // prefix mcp__codebase-memory__
+  withoutOverride(() => assert.deepEqual(map.engineCmd(dir), ['codebase-memory-mcp']));
+});
+
+test('map.engines says which engines are set up (plugin and own)', () => {
+  const map = require('../scripts/lib/map');
   const dir = project();
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-map-home-'));
-  const extra = { CLAUDE_CONFIG_DIR: home, USERPROFILE: home, HOME: home, JSPARK_FORGE_AUTO_STATUSLINE: 'off' };
+  const prev = process.env.JSPARK_FORGE_CODE_MAP;
+  delete process.env.JSPARK_FORGE_CODE_MAP;
+  try {
+    assert.deepEqual(map.engines(dir, home), { bundled: true, own: false });
+    fs.writeFileSync(path.join(home, '.claude.json'), '{"mcpServers":{"codebase-memory":{"command":"x"}}}');
+    assert.equal(map.engines(dir, home).own, true);
+    fs.unlinkSync(path.join(home, '.claude.json'));
+    fs.writeFileSync(path.join(dir, '.mcp.json'), '{"mcpServers":{"codebase-memory":{}}}');
+    assert.equal(map.engines(dir, home).own, true);
+    process.env.JSPARK_FORGE_CODE_MAP = 'off';
+    assert.equal(map.engines(dir, home).bundled, false);
+  } finally { if (prev === undefined) delete process.env.JSPARK_FORGE_CODE_MAP; else process.env.JSPARK_FORGE_CODE_MAP = prev; }
+});
+
+test('SessionStart no longer shows the "add codebase-memory-mcp" tip', () => {
+  const dir = project();
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-map-home-'));
+  const extra = { CLAUDE_CONFIG_DIR: home, USERPROFILE: home, HOME: home, JSPARK_FORGE_AUTO_STATUSLINE: 'off', JSPARK_FORGE_AUTO_SETUP: 'off' };
   const first = hook(dir, 'SessionStart', {}, extra).systemMessage || '';
-  assert.match(first, /codebase-memory-mcp/);
-  assert.match(first, /github\.com\/DeusData\/codebase-memory-mcp/);
-  assert.ok(!/codebase-memory-mcp/.test(hook(dir, 'SessionStart', {}, extra).systemMessage || ''), 'once');
+  assert.ok(!/codebase-memory-mcp [(]/.test(first), first);
 });
 
 test('forge.js map status and /check show a map that is behind or failing', () => {

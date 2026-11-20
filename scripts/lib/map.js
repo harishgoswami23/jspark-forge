@@ -7,13 +7,14 @@ const fs = require('fs');
 const path = require('path');
 const { spawn, spawnSync } = require('child_process');
 const paths = require('./paths');
+const bundled = require('./bundled');
 
 const ENGINE = /codebase-memory/i;
 const QUERY_TOOLS = /(search_graph|trace_path|detect_changes|get_file_outline|get_architecture|get_code_snippet|search_code|query_graph)$/;
 const BACKOFF_MIN = [1, 5, 30];
 const RUNNER = path.join(__dirname, '..', 'map-refresh.js');
 const FORGE_JS = path.join(__dirname, '..', 'forge.js').replace(/\\/g, '/');
-const INSTALL_PAGE = 'https://github.com/DeusData/codebase-memory-mcp';
+const PLUGIN_PREFIX = /^mcp__plugin_jspark-forge_/; // tool names of the engine server that ships with the plugin
 
 const stateFile = dir => path.join(paths.forgeDir(dir), 'state', 'map.json');
 const lockFile = dir => path.join(paths.forgeDir(dir), 'state', 'map.lock');
@@ -95,19 +96,22 @@ function touchLock(dir, token) {
 function releaseLock(dir, token) { if (ownsLock(dir, token) === true) { try { fs.unlinkSync(lockFile(dir)); } catch { /* gone */ } } }
 
 // The engine command: JSPARK_FORGE_MAP_CMD (a JSON array, for tests and unusual installs), else the absolute path
-// recorded by `forge.js map engine <path>`, else the program on PATH.
+// recorded by `forge.js map engine <path>`, else the plugin's own engine through the launcher (when the plugin's tools
+// are the ones in use, or none seen yet), else the user's own codebase-memory-mcp on PATH.
 function engineCmd(dir) {
   try { const a = JSON.parse(process.env.JSPARK_FORGE_MAP_CMD || 'null'); if (Array.isArray(a) && a.length) return a.map(String); } catch { /* fall back */ }
   if (dir) {
     const e = readState(dir).engine;
     if (typeof e === 'string' && path.isAbsolute(e) && fs.existsSync(e)) return [e];
   }
+  const prefix = dir && readState(dir).prefix;
+  if (!prefix || PLUGIN_PREFIX.test(prefix)) return [process.execPath, bundled.LAUNCHER, 'codebase-memory'];
   return ['codebase-memory-mcp'];
 }
 // `forge.js map engine [<absolute path>]`: record (or show) the engine program the refresh runs.
 function setEngine(dir, p) {
   if (!paths.isOwn(dir)) return 'The code map layer is off in a repo you are reviewing.\n';
-  if (!p) { const e = readState(dir).engine; return e ? `Code map engine: ${e}\n` : 'No code map engine path recorded; the refresh runs codebase-memory-mcp from PATH.\n'; }
+  if (!p) { const e = readState(dir).engine; return e ? `Code map engine: ${e}\n` : 'No code map engine path recorded; the refresh runs the engine that ships with JSPARK Forge.\n'; }
   if (!path.isAbsolute(p)) return 'Give the absolute path of the codebase-memory-mcp program.\n';
   try { if (!fs.statSync(p).isFile()) throw new Error('not a file'); } catch { return `Not found (or not a file): ${p}\n`; }
   updateState(dir, s => { s.engine = p; s.nextTryAt = 0; });
@@ -388,7 +392,7 @@ function onTool(dir, input) {
   return parts.filter(Boolean).join('\n');
 }
 
-// Session start: one line when on (and a refresh when HEAD moved); the tip once when off.
+// Session start: one line when on (and a refresh when HEAD moved); nothing when off.
 function sessionLine(dir) {
   if (!isOn(dir)) return null;
   const own = projectLine(dir);
@@ -404,31 +408,20 @@ function projectLine(dir) {
   return head === st.sha ? `JSPARK Forge: code map current (as of ${st.sha.slice(0, 7)}).`
     : `JSPARK Forge: code map as of ${st.sha.slice(0, 7)}; HEAD has moved (${refreshNote(dir)}). Map answers say how far behind they are.`;
 }
-function engineInstalled() {
-  const home = require('./setup').claudeHome();
+// For the doctor: is the plugin's engine on, and has the user also set up their own (a yes/no from two files).
+function engines(dir, home) {
   const mention = f => { try { return /codebase-memory/i.test(fs.readFileSync(f, 'utf8')); } catch { return false; } };
-  if (mention(path.join(home, 'plugins', 'installed_plugins.json'))) return true;
-  return mention(path.join(require('os').homedir(), '.claude.json')); // a yes/no, nothing else is read or kept
-}
-function tip(dir) {
-  if (!paths.isOwn(dir) || isOn(dir)) return null;
-  const tipsFile = path.join(paths.forgeDir(dir), 'state', 'tips.json');
-  let st = {};
-  try { st = JSON.parse(fs.readFileSync(tipsFile, 'utf8')) || {}; } catch { /* none */ }
-  if (st.mapEngine) return null;
-  const code = ['package.json', 'pyproject.toml', 'go.mod', 'Cargo.toml', 'pom.xml', 'Gemfile', 'composer.json', 'src'].some(f => fs.existsSync(path.join(dir, f)));
-  if (!code) return null;
-  st.mapEngine = true;
-  try { fs.mkdirSync(path.dirname(tipsFile), { recursive: true }); fs.writeFileSync(tipsFile, `${JSON.stringify(st, null, 1)}\n`); } catch { return null; }
-  if (engineInstalled()) return null;
-  return `JSPARK Forge tip (once): for "where is X" and "what breaks if I change this" answers from a code map, add codebase-memory-mcp (${INSTALL_PAGE}). JSPARK Forge then keeps it tied to your commits. It installs nothing itself.`;
+  const h = home || require('os').homedir();
+  let on = false;
+  try { on = bundled.mode('codebase-memory', dir) === 'run'; } catch { /* off */ }
+  return { bundled: on, own: mention(path.join(h, '.claude.json')) || (!!dir && mention(path.join(dir, '.mcp.json'))) };
 }
 
 // `forge.js map status` and /check lines.
 function status(dir) {
   if (!paths.isOwn(dir)) return 'The code map layer is off in a repo you are reviewing.\n';
   const st = readState(dir);
-  if (!st.prefix) return 'No code map engine seen yet in this project. It switches on the first time Claude uses codebase-memory-mcp.\n';
+  if (!st.prefix) return 'No code map engine seen yet in this project. It switches on the first time Claude uses the code map engine that ships with JSPARK Forge.\n';
   const L = [];
   const head = headSha(dir);
   if (!st.sha) L.push('Code map: not indexed by JSPARK Forge yet.');
@@ -452,6 +445,6 @@ function checkLines(dir) {
   return out;
 }
 
-module.exports = { isEngineTool, isOn, noteTool, startRefresh, freshness, onTool, sessionLine, tip, status, checkLines,
+module.exports = { isEngineTool, isOn, noteTool, startRefresh, freshness, onTool, sessionLine, engines, status, checkLines,
   readState, writeState, updateState, lockFile, engineCmd, setEngine, headSha, filesIn, clearList, BACKOFF_MIN,
   takeLock, ownsLock, touchLock, releaseLock, HEARTBEAT_MS };

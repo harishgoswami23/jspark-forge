@@ -220,7 +220,7 @@ const handlers = {
       if (setup.superpowersInstalled(setup.claudeHome())) rc.context = `${rc.context}\n\n${MODEL_MAP_LINE}`;
     } catch { /* never break a session start */ }
     // Code map (design-v0.3 1.1, 1.2): one line for Claude when the engine is in use (a refresh starts when HEAD moved);
-    // otherwise, once per own project with code, a tip naming the engine (owner Q-M1: name it, install nothing).
+    // the engine ships with the plugin, so there is no install tip.
     try { // a running build graph (design-v0.4 3); its own try, so a broken record never drops the code-map line
       const gr = graphRun.current(dir);
       if (gr) rc.context = `${rc.context}\n\nJSPARK Forge: ${gr.text} Show it to the user and wait before continuing it (node "${path.join(__dirname, 'forge.js').replace(/\\/g, '/')}" graph next ${gr.task.replace('Build graph ', '')}).`;
@@ -228,8 +228,6 @@ const handlers = {
     try {
       const ml = mapLayer.sessionLine(dir);
       if (ml) rc.context = `${rc.context}\n\n${ml}`;
-      const mt = mapLayer.tip(dir);
-      if (mt) msgs.push(mt);
     } catch { /* never break a session start */ }
     // Decision memory (design-v0.2 1.6): the index of titles for Claude; for the user, entries that arrived with git
     // (once) and one line when some need a look. Off in guest repos (the functions check).
