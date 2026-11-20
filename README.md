@@ -66,6 +66,15 @@ The handoff then shows superpowers plan progress ("Task 3 of 8").
 Already had superpowers from another marketplace? Then it is installed twice and its skills show twice; JSPARK Forge
 tells you once which copy to remove.
 
+## Building a UI?
+
+In your own front-end project, JSPARK Forge says one line, once, naming the companions you have not installed. It
+never installs anything. For top-quality UI work:
+
+- **frontend-design** (Anthropic's plugin): `/plugin install frontend-design@claude-plugins-official`
+- **Playwright MCP**, so Claude can check its own screens: `claude mcp add playwright npx @playwright/mcp@0.0.86`
+- **shadcn MCP** (React projects): `npx shadcn@4.23.0 mcp init --client claude`
+
 ## When it saves (published list)
 
 1. After any tool call that writes or edits a file.
@@ -92,6 +101,7 @@ blocks something, Claude is told: *"Do not try an equivalent command; tell the u
 | `git-clean-fdx` | `git clean -fdx` |
 | `git-stash-drop` | `git stash drop`, `git stash clear` |
 | `sql-destroy` | `DROP`, `TRUNCATE`, `DELETE` without `WHERE` (psql, mysql, sqlite3, sqlcmd, `Invoke-Sqlcmd`, database MCP tools) |
+| `db-write` | A write to a production database: any statement that is not a read (`SELECT`, `WITH … SELECT`, `EXPLAIN`, `SHOW`, `DESCRIBE`) through a database MCP server or a client (`psql`, `mysql`, `sqlite3` on a remote host, `mongosh`, `redis-cli`, `sqlcmd`, `Invoke-Sqlcmd`, `pg_restore`), a script file, redirect or pipe into a remote client (its content is unknown), `supabase db push`, `prisma db push` / `migrate deploy` / `migrate reset`, the write tools of Redis, DynamoDB and MongoDB servers, and migration-apply, merge, reset and restore tools of database MCP servers. Reads are never blocked. Production is every database MCP server and every host except localhost, `127.x.x.x`, `::1`, a Unix socket or a local file (a host in an unresolved variable, a `service=` or a `--login-path` counts as production); to mark one as dev, add `- database dev: host:*.dev.internal` (every host in the command must match), `- database dev: mcp:local_postgres` (an exact MCP server name, or `mcp:local_*` for a prefix) or a bare exact host or server name under `## Settings` in **your own** `~/.claude/jspark-forge/rules.md` (a project's `rules.md` cannot, like `disable:`). A seatbelt, not a sandbox: SQL inside a stored procedure is not seen, and JSPARK Forge never connects to a database |
 | `secret-files` | Editing `.env*`, key, secret and credential files, also via `>`, `tee`, `Set-Content`, `Out-File` (templates such as `.env.example` and `.env.sample` are allowed) |
 | `chmod-wide` | `chmod 777`, `chmod -R`, `icacls … /grant Everyone:F` |
 | `pipe-to-shell` | `curl … \| sh`, `iwr … \| iex`, `iex (irm …)` and similar |
@@ -149,6 +159,21 @@ the block list) works as usual. A wrong guess costs nothing: only where the file
 
 A repo's own `.jspark-forge/rules.md` is never read in guest mode. Like the block list, the hold is a seatbelt, not a
 sandbox.
+
+## Which model does what (helpers)
+
+JSPARK Forge ships four helpers, each on the model strength its job needs:
+
+| Helper | Model | For | Why |
+|---|---|---|---|
+| `jspark-forge:planner` | strongest | specs, designs, plans, data-model choices | a mistake here is expensive and found late |
+| `jspark-forge:reviewer` | strongest | design and code reviews, security, migrations, release go/no-go | it must catch what others missed (it cannot edit) |
+| `jspark-forge:builder` | standard | building from a reviewed plan, small fixes | the plan carries the judgement; tests catch slips |
+| `jspark-forge:checker` | light | tests, logs, mechanical checks | cheap and visible mistakes (it cannot edit) |
+
+Each works from a brief (goal, what it may and may not change, when it is done, when to stop) and ends with evidence.
+With superpowers, JSPARK Forge asks Claude to use these helpers for its implementers, reviewers and checks. That is
+guidance, not a lock: superpowers chooses a model for each helper it starts.
 
 ## Commands
 

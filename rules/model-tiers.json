@@ -1,0 +1,14 @@
+{
+  "strongest": {
+    "model": "fable",
+    "why": "a mistake here is expensive or invisible until late: specs, designs, plans, architecture and data-model choices, reviews, security, migrations, the release go/no-go"
+  },
+  "standard": {
+    "model": "sonnet",
+    "why": "building from a reviewed plan: the plan carries the judgement and the tests catch slips"
+  },
+  "light": {
+    "model": "haiku",
+    "why": "mechanical work where a mistake is cheap and visible: running tests, reading logs, renames, moves, version bumps, formatting"
+  }
+}

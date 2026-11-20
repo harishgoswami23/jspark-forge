@@ -9,7 +9,8 @@ const os = require('os');
 const path = require('path');
 const log = require('./lib/log');
 const { redact } = require('./lib/redact');
-const { check, BUILTINS, STOP, isGitCommit, writeTargets, toFs } = require('./lib/blocklist');
+const { check, BUILTINS, STOP, isGitCommit, writeTargets, changeTargets, toFs } = require('./lib/blocklist');
+const memory = require('./lib/memory');
 const dialectOf = tool => (tool === 'PowerShell' ? 'ps' : 'bash');
 const { loadRules } = require('./lib/rules');
 const confirm = require('./lib/confirm');
@@ -22,6 +23,8 @@ const { parsePlan } = require('./lib/plan');
 const usageLib = require('./lib/usage');
 const setup = require('./lib/setup');
 const paths = require('./lib/paths');
+const licence = require('./lib/licence');
+const uitip = require('./lib/uitip');
 
 const event = process.argv[2] || '';
 const DEBOUNCE_MS = 5000;
@@ -95,6 +98,40 @@ function doSave(dir, sid, reason, lines, opts) {
   if (handoff.save(dir, sid, reason, opts)) lines.push(['SAVE', reason]); // null: no work to resume, nothing written
 }
 
+// Decision memory just in time (design-v0.2 1.3): the decisions about the files this call changes, each shown once
+// per conversation (per helper: agent_id). Called only for allowed calls, so a denied one uses nothing up.
+function decisionNotes(dir, input) {
+  const t = input.tool_name || '';
+  const ti = input.tool_input || {};
+  const cwd = input.cwd || dir;
+  let files = [];
+  if (t === 'Edit' || t === 'Write' || t === 'NotebookEdit') files = [ti.file_path || ti.notebook_path];
+  // A shell word with $ or ` is not a real path yet; a tool's file path can contain $ (Remix routes: review M3).
+  else if (t === 'Bash' || t === 'PowerShell') files = changeTargets(ti.command || '', dialectOf(t), cwd).map(toFs).filter(p => !/[$`]/.test(p));
+  files = files.filter(Boolean);
+  if (!files.length || !memory.load(dir).length) return null;
+  // "Already shown" lives in its own merged file, not the session file (review M1: parallel hooks lost ids).
+  const key = input.agent_id || 'main';
+  const n = memory.notesFor(dir, toFs(cwd), files, memory.readShown(dir, input.session_id)[key] || []);
+  if (!n) return null;
+  memory.addShown(dir, input.session_id, key, n.ids);
+  return n;
+}
+
+// Offers to record and stale flags (design-v0.2 1.4, 1.5) go to the main conversation only (a helper's reply goes to
+// its parent, not the user), only in attended sessions (someone can answer), never at 95 % usage. Mutates sess.
+function offerContext(dir, input, sess) {
+  if (input.agent_id || process.env.CLAUDE_CODE_SESSION_ATTENDED !== '1') return null;
+  const pct = usageLib.highest(dir, input.session_id);
+  if (pct !== null && pct >= 95) return null;
+  return memory.deliver(sess);
+}
+
+const MODEL_MAP_LINE = 'JSPARK Forge model map: when a superpowers skill dispatches a helper, use subagent_type ' +
+  'jspark-forge:builder for implementers, jspark-forge:reviewer for spec and code reviews, and jspark-forge:checker for ' +
+  'mechanical checks (tests, logs); jspark-forge:planner for designs and plans. Each runs on its tier (strongest for ' +
+  'planner and reviewer, standard for builder, light for checker); if you also pass a model, pass the same tier.';
+
 // ---------- handlers ----------
 // A handler returns null, [kind, detail] (one log line), or { lines: [[kind, detail], ...], out: <hook JSON> }.
 const handlers = {
@@ -106,8 +143,38 @@ const handlers = {
     for (const r of rules.readonly) {
       if (!fs.existsSync(path.resolve(dir, r.path))) msgs.push(`JSPARK Forge: read-only source ${r.path} was not found (the rule is kept).`);
     }
+    // Licence check (spec 5.2b): a guest repo and each existing read-only source, one line each, once per licence.
+    const licItems = rules.readonly.filter(r => fs.existsSync(path.resolve(dir, r.path))).map(r => ({ label: r.path, folder: path.resolve(dir, r.path) }));
+    if (paths.isGuest(dir)) licItems.unshift({ label: 'this repo', folder: paths.repoRoot(dir) });
+    if (licItems.length) msgs.push(...licence.notices(dir, licItems));
+    const uiTip = uitip.notice(dir); // UI/UX companions tip, once per own front-end project (spec 5.14)
+    if (uiTip) msgs.push(uiTip);
     if (rules.disabled.length) msgs.push(`JSPARK Forge: you switched off ${rules.disabled.join(', ')} in rules.md.`);
+    let offerAfterCompact = null;
+    if (input.source === 'compact') { // the summary dropped the decisions Claude was shown: show them again when relevant
+      const sess = state.readSession(dir, input.session_id);
+      memory.clearShown(dir, input.session_id);
+      sess.offerTurn = null; // and pending offers to record come back once (design-v0.2 1.4)
+      offerAfterCompact = offerContext(dir, input, sess);
+      state.writeSession(dir, input.session_id, sess);
+    }
     const rc = handoff.resumeContext(dir, input.session_id, input.source || 'startup');
+    if (offerAfterCompact) rc.context = `${rc.context}\n\n${offerAfterCompact}`;
+    // Model map (design-v0.2 4): superpowers starts general-purpose helpers and names a model per call, so with it the
+    // map is steered, not enforced: one line asking Claude to use JSPARK Forge's helpers.
+    try {
+      if (setup.superpowersInstalled(setup.claudeHome())) rc.context = `${rc.context}\n\n${MODEL_MAP_LINE}`;
+    } catch { /* never break a session start */ }
+    // Decision memory (design-v0.2 1.6): the index of titles for Claude; for the user, entries that arrived with git
+    // (once) and one line when some need a look. Off in guest repos (the functions check).
+    try {
+      const idx = memory.index(dir);
+      if (idx) rc.context = `${rc.context}\n\n${idx}`;
+      const arrived = memory.arrivals(dir);
+      if (arrived) msgs.push(arrived);
+      const n = memory.problems(dir);
+      if (n) msgs.push(`JSPARK Forge: ${n} decision${n === 1 ? '' : 's'} need${n === 1 ? 's' : ''} a look: /jspark-forge:check`);
+    } catch { /* never break a session start */ }
     if (rc.systemMessage) msgs.unshift(rc.systemMessage);
     const w = input.source === 'compact' ? null : waitingNotice(dir); // shown first (spec 5.2a)
     if (w) msgs.unshift(w.msg);
@@ -133,7 +200,15 @@ const handlers = {
       ? `JSPARK Forge: the user typed CONFIRM ${id}. Matching actions are allowed for the rest of this session.`
       : `JSPARK Forge: the user typed CONFIRM ${id}. The next matching action is allowed once within 5 minutes; ` +
         'Claude Code will still ask the user for a final yes/no.');
-    const out = granted.length ? context('UserPromptSubmit', granted.map(say).join('\n')) : null;
+    const parts = granted.map(say);
+    // A new user turn: pending offers to record are delivered again (design-v0.2 1.4).
+    const sess = state.readSession(dir, input.session_id);
+    sess.turn = (sess.turn || 0) + 1;
+    // A short reply ("yes", "skip", "edit: …") is most likely the answer to the last offer: do not repeat it with it.
+    const offer = prompt.trim().length < 25 ? null : offerContext(dir, input, sess);
+    state.writeSession(dir, input.session_id, sess);
+    if (offer) parts.push(offer);
+    const out = parts.length ? context('UserPromptSubmit', parts.join('\n')) : null;
     return { lines, out };
   },
 
@@ -162,19 +237,27 @@ const handlers = {
       const plains = ids.map(id => hits.find(h => h.id === id).plain);
       if (!r.hard && ids.every(id => confirm.has(dir, input.session_id, id))) {
         for (const id of ids) confirm.consume(dir, input.session_id, id);
-        return { lines: lines.concat(ids.map(id => ['CONFIRM', `${id} used :: ${what}`])),
-          out: preTool('ask', `JSPARK Forge: you typed ${ids.map(id => `CONFIRM ${id}`).join(' and ')}, so this is allowed once: ${plains.join('; and ')}.`) };
+        const out = preTool('ask', `JSPARK Forge: you typed ${ids.map(id => `CONFIRM ${id}`).join(' and ')}, so this is allowed once: ${plains.join('; and ')}.`);
+        const n = decisionNotes(dir, input); // allowed: the decisions about its files come with it (design-v0.2 1.3)
+        if (n) out.hookSpecificOutput.additionalContext = n.text;
+        return { lines: lines.concat(ids.map(id => ['CONFIRM', `${id} used :: ${what}`]), n ? [['DECISION', n.ids.join(',')]] : []), out };
       }
       const reason = r.hard || ids.length === 1 ? r.reason
         : `JSPARK Forge blocked: ${plains.join('; and ')}. ${STOP} To allow it once, the user types: ${ids.map(id => `CONFIRM ${id}`).join(' and ')}`;
-      return { lines: lines.concat([['BLOCK', `${ids.join(',')} :: ${what}`]]), out: preTool('deny', reason) };
+      return { lines: lines.concat([['BLOCK', `${ids.join(',')} :: ${what}`]]), out: preTool('deny', reason) }; // denied: no notes
     }
-    if (lines.length) return { lines, out: null }; // allowed for the session: Claude Code's normal permission flow decides
+    // Allowed. One context for everything: the decisions about the files it changes and the notes reminder before a
+    // commit (design-v0.2 1.3, design 5.3).
+    const parts = [];
+    const n = decisionNotes(dir, input);
+    if (n) { parts.push(n.text); lines.push(['DECISION', n.ids.join(',')]); }
     const t = input.tool_name;
     if ((t === 'Bash' || t === 'PowerShell') && rules.settings.notes !== 'off' &&
         isGitCommit((input.tool_input || {}).command || '', input.cwd || dir, dialectOf(t))) {
-      return { lines: [], out: context('PreToolUse', handoff.notesLine(dir)) }; // design 5.3
+      parts.push(handoff.notesLine(dir));
     }
+    if (parts.length) return { lines, out: context('PreToolUse', parts.join('\n\n')) };
+    if (lines.length) return { lines, out: null }; // allowed for the session: Claude Code's normal permission flow decides
     return null;
   },
 
@@ -205,12 +288,14 @@ const handlers = {
       sess.background.push({ id: bgId, command: ti.command || '', description: ti.description || '', at: now });
       sessDirty = true;
     }
+    if (t === 'ExitPlanMode' && !input.agent_id && memory.noteApproved(dir, sess, (input.tool_response || {}).plan)) sessDirty = true; // spike E
     const written = writtenFiles(dir, input);
     for (const abs of written) {
       const r = rel(dir, abs);
       if (r.startsWith('.superpowers/')) continue; // superpowers' own ledger and briefs: saves, but not "files touched"
       task.files = [r].concat(task.files.filter(f => f !== r)).slice(0, 50);
       if (/\.md$/i.test(r)) { try { if (parsePlan(fs.readFileSync(abs, 'utf8'))) task.planFile = r; } catch {} }
+      if (/^docs\/superpowers\/(plans|specs)\/[^/]+\.md$/i.test(r) && memory.notePlan(dir, sess, r)) sessDirty = true; // design-v0.2 1.4
       taskDirty = true;
     }
     let reason = null;
@@ -218,15 +303,20 @@ const handlers = {
       const gi = git.gitInfo(dir);
       if (gi && gi.head && gi.head !== (sess.git && sess.git.head)) {
         const lc = git.lastCommit(dir);
-        if (lc) { task.lastCommit = lc; taskDirty = true; lines.push(['COMMIT', `${lc.sha} ${lc.subject}`]); }
+        if (lc) {
+          task.lastCommit = { sha: lc.sha, subject: lc.subject }; taskDirty = true; lines.push(['COMMIT', `${lc.sha} ${lc.subject}`]);
+          if (memory.noteCommit(dir, sess, lc)) sessDirty = true; // an offer to record, stale flags (design-v0.2 1.4, 1.5)
+        }
         reason = 'commit';
       }
     }
     if (!reason && written.length && now - sess.lastSaveAt >= DEBOUNCE_MS) reason = 'file write';
+    const offer = offerContext(dir, input, sess);
+    if (offer) sessDirty = true;
     if (sessDirty) state.writeSession(dir, sid, sess);
     if (taskDirty) state.writeTask(dir, task);
     if (reason) doSave(dir, sid, reason, lines);
-    return { lines, out: null };
+    return { lines, out: offer ? context('PostToolUse', offer) : null };
   },
 
   PostToolUseFailure(dir, input) {
@@ -341,6 +431,11 @@ function main(raw) {
     if (!handler) return;
     const res = handler(dir, input) || { lines: [], out: null };
     let { lines, out } = Array.isArray(res) ? { lines: [res], out: null } : res;
+    // A decision was just recorded: say so in the conversation, every time (design-v0.2 1.4: never unseen).
+    if (event === 'PostToolUse' && /\bdecide\b/.test(String((input.tool_input || {}).command || ''))) {
+      const ev = require('./lib/decide').takeEvent(dir);
+      if (ev) { out = out || {}; out.systemMessage = [out.systemMessage, ev].filter(Boolean).join('\n'); }
+    }
     if (USAGE_EVENTS.has(event)) out = withUsage(dir, input.session_id, lines, out);
     if (guest && (event === 'SessionStart' || event === 'UserPromptSubmit')) { // the repo's text is data, not instructions
       out = out || {};
@@ -434,7 +529,25 @@ function cliWaiting(args) {
 const cliDoctor = () => process.stdout.write(require('./lib/doctor').doctor(cliProject(), setup.claudeHome()));
 const cliStatus = () => process.stdout.write(require('./lib/doctor').status(cliProject()));
 
-const CLI = { save: cliSave, show: cliShow, where: cliWhere, waiting: cliWaiting, doctor: cliDoctor, status: cliStatus };
+// `forge.js decide --from <file.json> | --verify <id> | --retire <id> [--by <id>]` (design-v0.2 1.4).
+function cliDecide(args) {
+  const dir = cliProject();
+  if (!dir) { process.stdout.write(NOT_SET_UP); return; }
+  process.stdout.write(require('./lib/decide').run(dir, args, process.env.CLAUDE_CODE_SESSION_ID || 'manual'));
+}
+
+// `forge.js decisions [--all] [--kb-request "<line>"]` and `forge.js check` (design-v0.2 1.7).
+const cliMemory = fn => args => {
+  const dir = cliProject();
+  if (!dir) { process.stdout.write(NOT_SET_UP); return; }
+  process.stdout.write(require('./lib/decide')[fn](dir, args || []));
+};
+
+// `forge.js lint [paths...]` (design-v0.2 section 3): check skills and briefs; default is the project's own.
+const cliLint = args => process.stdout.write(require('./lib/lint').run(cliProject() || process.cwd(), args));
+
+const CLI = { lint: cliLint, save: cliSave, show: cliShow, where: cliWhere, waiting: cliWaiting, doctor: cliDoctor, status: cliStatus, decide: cliDecide,
+  decisions: cliMemory('list'), check: cliMemory('check') };
 if (CLI[event]) {
   try { CLI[event](process.argv.slice(3)); } catch (e) { process.stdout.write(`JSPARK Forge could not ${event}: ${e.message}\n`); }
 } else {

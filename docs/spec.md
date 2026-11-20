@@ -305,6 +305,10 @@ Postgres and others) and command-line clients. Reading data is not JSPARK Forge'
   `localhost` / `127.0.0.1` / a Unix socket, **unless** `rules.md` names it as dev: `- database dev: <server name or
   host pattern>`. Safe by default; one line to relax. A repo's own `rules.md` cannot mark a database as dev in guest
   mode (5.2b).
+- [code review H1/M7, 2026-11-20] Reads are listed and every other statement is held (literals and comments removed;
+  only the SQL sent to that client; a script file, `<` or a pipe into a remote client is held); an unresolved
+  variable, `service=` or `--login-path` is production; `database dev:` takes `host:<glob>` (every host in the
+  command must match), `mcp:<server>` or `mcp:<prefix>*`, and a bare name matches one host or server exactly.
 - `sql-destroy` (5.2) stays as it is: `DROP` / `TRUNCATE` / `DELETE` without `WHERE` are blocked on dev databases too.
 
 **Tests** ≥ 5 positive / ≥ 5 negative per form (MCP, Bash, PowerShell), like every block-list entry; a `SELECT` is
@@ -772,6 +776,30 @@ install line for each. Never installs anything by itself; shown once per project
 commit like superpowers. **Limit** a tip, not a guarantee of good design; the check that matters is Claude looking at
 the running UI (Playwright).
 
+### 5.15 Model map: which model does what, and why (v0.2) [owner 2026-11-20]
+
+**What.** JSPARK Forge ships four helper agents, each pinned to a model **tier** with a one-line reason, so the right
+strength of model does each job without the user choosing every time. Built with the skill and brief templates
+(5.11): a brief is one job for one helper, and the helper decides the model.
+
+| Helper | Tier | Does | Why that tier |
+|---|---|---|---|
+| `planner` | strongest | specs, designs, plans, architecture and data-model choices | a mistake here is expensive and invisible until late |
+| `reviewer` | strongest | design and code reviews, security and permission reviews, migrations, the release go/no-go | its job is to catch what others missed |
+| `builder` | standard | builds from a reviewed plan, small well-tested fixes | the plan carries the judgement; tests catch slips |
+| `checker` | light | runs tests, reads logs, renames, moves, version bumps, formatting | mechanical; a mistake is cheap and visible |
+
+- **Tiers, not names:** the plugin maps each tier to a current model (strongest = the top model of the day) and is
+  updated when Anthropic releases models; briefs and plans never name a model.
+- **Visible and overridable:** each helper's tier and reason show when it is used; the user can name another helper
+  or model for any job. Advice the user can see, not a hidden rule (principle 12).
+- **Soft coupling (principle 7):** works beside superpowers; when superpowers hands a task to a helper, its briefs can
+  name these helpers. Checked before building: if superpowers cannot be pointed at them, they stay available by name.
+- **Source of the reasons:** the model-choice advice of 5.7, made concrete.
+- **Tests:** each helper file declares its tier's model and a description that says when to use it; a lint fails a
+  helper without a tier or reason; the tier map has one entry per tier.
+- **Estimate:** ~1 day, in v0.2 with 5.11.
+
 ---
 
 ## 6. Plugin shape and platforms [builder unless marked]
@@ -797,7 +825,7 @@ the running UI (Playwright).
 | **0. Design** | This spec + v0.1 design + spikes run, owner approval. Before-code order [owner, 2026-11-03 review]: (1) fix headless guard, hidden folder, PostToolUse matcher + timeouts in the design; (2) cut v0.1 to one week (cut list below); (3) run spikes A–C + D (headless); (4) build | ~½ day + 1 day spikes | Spikes A–D recorded; facts table updated; deviations from review recorded (principle 13) | n/a |
 | **v0.1 Resume + hooks** | Handoff + save triggers (no 10-minute trigger) + usage bridge + show-and-wait (instructed only) + notes reminder (`additionalContext`, no extra turn) + action log; grounding rule at SessionStart (5.1a); block list (Bash / Git Bash forms) + typed confirm + rules.md; helper rule injection only if spike C passes; every hook documented; demo GIF; Win/Mac/Linux | **~1 week (real build)** | **Ship gate [owner 2026-11-03]:** ships only when the kill-and-resume test passes on Windows, macOS and Linux (after spikes A–D); grounding rule present after startup/resume/compact; resume < 30 s on ~50k-line repo, measured on a cold machine; no file changed before the user answers; a `claude -p` run with a handoff present is never stalled; every published block has tests; uninstall/undo leaves the status line as before; `claude plugin validate --strict` passes | Back to work **< 2 min** after a cutoff with no re-explaining |
 | **v0.1.1** | **Waiting on you** list (5.2a); PowerShell command forms for the block list and write detection; ~~hook-enforced show-and-wait guard~~ (dropped 2026-11-19 after design review: it would release before the turn it guards; show-and-wait stays instructed, design-v0.1.1 section 1) (skipped in non-interactive runs); **guest mode + quarantine, readonly sources** (5.2b) | ~4–5½ days (base ~2–3 + Waiting on you ~1 + external code ~1–1½) | PowerShell forms have the same ≥ 5 positive / ≥ 5 negative tests per entry; guard never fires in a detected headless run; guest mode writes nothing inside the repo (file-tree diff test); `readonly-source` and `guest-quarantine` have ≥ 5 positive / ≥ 5 negative tests | as v0.1 |
-| **Real users (gate) [owner 2026-11-20]** | After v0.1.1 ships and before v0.2 starts: put JSPARK Forge in front of 20–50 users (official plugin directory, superpowers community, a short demo); fix what they hit; reorder the rest of this table from their feedback | ~2 weeks of feedback (calendar time, not build time) | Measured without telemetry (principle 3): installs, GitHub issues and stars, direct replies | Users who come back after a cutoff in a second week |
+| **First user (gate) [owner 2026-11-20, revised]** | The owner is the first user: each release is used on the owner's real work before the next one starts; what the owner hits is fixed first. Build continues to v0.3 (owner: "I am the first user, so I need a complete product"); v0.4 is decided after v0.3 is in use. The outside launch (20–50 users: plugin directory, superpowers community, a short demo) follows v0.3 | Calendar time between releases | Measured without telemetry (principle 3): installs, GitHub issues and stars, direct replies | Users who come back after a cutoff in a second week |
 | **v0.2 Decision memory (the "why")** (the centrepiece [owner 2026-11-20]) | One-line decisions, rules and lessons with the files they touch; prompted at commit/plan; injected just before Claude edits a touched file (PreToolUse `additionalContext`); stale flags; last verified; `/jspark-forge:check` memory check (read-only unless confirmed); superpowers sources; `kind: reference` pointers; long-entry warning; 30-day flag for entries without `touches:`; local counts in `/jspark-forge:decisions`. Not a description of code structure. Plus (5.2b): migration mappings as decisions, licence check | ~4½–5 days | Prompt appears at every commit and accepted plan, default yes, never silent; editing a touched file injects the entry; changed touched files raise one flag/day; `/jspark-forge:check` changes nothing without confirmation; superpowers absence or layout change does not break anything (test); a reference entry injects only its pointer; an entry over ~80 words is accepted with one warning, never blocked; an entry without `touches:` is flagged at 30 days; `/jspark-forge:decisions` shows reference and long-entry counts; a knowledge-base request is logged with a count, not refused | Claude **does not break a past decision** |
 | **v0.2 Skill and brief templates (5.11)** | Skill template (trigger description, numbered parts with input → action → output path, skip-if-exists, non-overwriting outputs, verification step with evidence) and brief template (`CAN`/`CANNOT`, `Done`, `Setup` handshake, fixed-schema log, bounded retries, tie-break, `Stop`, declared `Outputs`); lint; plugin + plain instruction file from one source | ~1 week | Lint rejects a skill or brief missing any required field; a skill run twice makes no second fetch and no overwrite; a brief log survives a killed session; plugin and plain file carry the same rules (diff test) | Every helper brief in a build is written from the template without re-explaining scope |
 | **v0.2.1 Database guard (5.2c)** | Production databases read-only unless CONFIRM db-write; MCP, Bash and PowerShell forms; `database dev:` line in rules.md | ~1–1½ days | ≥ 5 positive / ≥ 5 negative tests per form; a SELECT is never blocked; a dev line relaxes only its own server | No unconfirmed write reaches a production database |

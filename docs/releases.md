@@ -15,6 +15,7 @@ that date; **[spike]** depends on a spike. Spike results override review decisio
 | v0.2 | Decision memory, the "why" (the centrepiece); `/jspark-forge:check`; migration mappings, licence check | ~4½–5 days |
 | v0.2 | Skill and brief templates with lint; plugin + plain instruction file from one source (spec 5.11) | ~1 week |
 | v0.2 | UI/UX companions: frontend-design listed as a recommended companion; Playwright MCP and shadcn/ui recommended; one-time tip in front-end projects (spec 5.14) | ~½ day |
+| v0.2 | Model map: four helper agents (planner, reviewer: strongest; builder: standard; checker: light), each with its reason (spec 5.15) | ~1 day |
 | v0.2.1 | Database guard: production read-only unless `CONFIRM db-write` (spec 5.2c) | ~1–1½ days |
 | v0.3 | Codebase map as a thin layer on an existing engine (integrate, don't build): freshness, schema from source files, links to decisions; launch-scope guard; map of readonly sources | ~1 week, **soft** |
 | v0.4 (only if users ask) | Build graph: a build as a fixed graph of nodes, saved after every node, resumed on the running node (spec 5.10) | ~1½–2 weeks, **soft** |
@@ -154,7 +155,13 @@ before continuing".
 
 ---
 
-## Real users (gate) [owner 2026-11-20]
+## First user (gate) [owner 2026-11-20, revised the same day]
+
+**Revised [owner]:** "I am the first user, so I need a complete product." The owner uses each release on real
+work before the next starts; build continues to v0.3; v0.4 is decided after v0.3 is in use; the outside launch below
+follows v0.3.
+
+**Outside launch (after v0.3):**
 
 **What.** After v0.1.1 ships and before v0.2 starts, JSPARK Forge goes in front of 20–50 real users: the official
 Claude Code plugin directory, the superpowers community, a short demo. What they hit is fixed first; the order of
@@ -168,6 +175,9 @@ everything below is then revisited from their feedback.
 
 ## v0.2.1: Database guard (spec 5.2c) [owner 2026-11-20]
 
+**Status: built** (2026-11-20, in dev/v0.2). The `database dev:` line is honoured only from the user's own
+`~/.claude/jspark-forge/rules.md`; a project's line is ignored and reported at SessionStart, like `disable:`.
+
 **What it does.** Guards databases instead of reading them: a write to a production database is denied until the
 user types `CONFIRM db-write` (one-shot, 5 minutes). Reads are never blocked.
 
@@ -177,7 +187,8 @@ user types `CONFIRM db-write` (one-shot, 5 minutes). Reads are never blocked.
 - Checked in MCP tool calls and in Bash / PowerShell database clients (`psql`, `mysql`, `sqlite3`, `mongosh`,
   `supabase db`, `prisma migrate deploy`, …).
 - Production by default: every database MCP server and every non-local host. One line in `rules.md` relaxes it:
-  `- database dev: <server name or host pattern>` (ignored in a guest repo's own rules).
+  `- database dev: host:<glob> | mcp:<server or prefix*> | <exact host or server>` under `## Settings` (honoured only in the user's own rules.md; a
+  repo's own line is ignored, in guest mode or not).
 - `sql-destroy` keeps blocking `DROP` / `TRUNCATE` / `DELETE` without `WHERE` everywhere.
 
 **Acceptance criteria** ≥ 5 positive / ≥ 5 negative tests per form (MCP, Bash, PowerShell); a `SELECT` is never
@@ -190,7 +201,17 @@ connects to a database.
 
 ---
 
+## v0.2: UI/UX companions tip (spec 5.14)
+
+**Status: built** (2026-11-20, in dev/v0.2). Once per project (`state/tips.json`), own projects only, front-end
+projects only: one SessionStart line naming only the missing companions (frontend-design, Playwright MCP, shadcn MCP
+for React) with pinned install lines. Installs nothing. Code: `scripts/lib/uitip.js`; tests: `tests/uitip.test.js`.
+
 ## v0.2: Decision memory (the "why")
+
+**Status (2026-11-20): built** on `dev/v0.2` with the licence check, the database guard (v0.2.1, released together),
+the skill and brief templates with lint, the model map and the UI/UX tip; design and review record in
+[`design-v0.2.md`](design-v0.2.md). Release after the Fable 5.2 code review, spike E and the owner's first-user check.
 
 **What it does.** Keeps one-line decisions, standing rules and lessons, each with the files it touches, and injects
 the matching ones as context **just before** Claude edits one of those files [owner, 2026-11-03]. It does not
@@ -216,6 +237,9 @@ describe code structure (that is v0.3).
 - **External code (spec 5.2b) [owner 2026-11-03; licence check: coordinator]:** migration mappings recorded as
   decisions (*"sessions: legacy/session.php → src/auth.ts, cookie format kept"*); licence check of guest repos and
   readonly sources (one file read) in plain words (permissive / restrictive / non-commercial / none found).
+  **Licence check built (2026-11-20, in dev/v0.2):** `scripts/lib/licence.js`; one line in the SessionStart message per
+  guest repo or read-only source, once per licence text (state in `licences.json` under the JSPARK Forge folder); a
+  hint, not legal advice; reads only, failures silent. Tests: `tests/licence.test.js`.
 
 **Files in `.jspark-forge/`** adds `decisions.md` (committed; human-readable).
 

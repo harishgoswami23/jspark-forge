@@ -233,6 +233,105 @@ const CASES = {
     [bash('make -n', { quarantine: true }), null],
     [bash('npm audit', { quarantine: true }), null],
   ],
+  // v0.2.1 database guard (spec 5.2c): a write to a non-local database needs CONFIRM db-write; reads never do.
+  'db-write': [
+    [bash('psql -h db.prod.example.com -c "INSERT INTO users VALUES (1)"'), 'db-write'],
+    [bash('psql postgres://app:pw@db.example.com:5432/app -c "UPDATE users SET admin = true WHERE id = 1"'), 'db-write'],
+    [bash('mysql -h 10.0.0.5 -u root -e "ALTER TABLE orders ADD COLUMN note text"'), 'db-write'],
+    [bash('mysql --host=shop.rds.amazonaws.com -e "insert into t values (1)"'), 'db-write'],
+    [bash('PGHOST=prod.example.com psql -c "delete from sessions where id = 3"'), 'db-write'],
+    [bash('echo "INSERT INTO t VALUES (1);" | psql -h prod.example.com app'), 'db-write'],
+    [bash('psql -h $DB_HOST -c "create table x (id int)"'), 'db-write'],
+    [bash('psql "$DATABASE_URL" -c "update t set a = 1 where id = 2"'), 'db-write'],
+    [bash('sqlcmd -S prod-sql.database.windows.net -Q "UPDATE t SET a = 1 WHERE id = 2"'), 'db-write'],
+    [bash("mongosh 'mongodb+srv://cluster0.mongodb.net/app' --eval 'db.users.insertOne({a: 1})'"), 'db-write'],
+    [bash('supabase db push'), 'db-write'],
+    [bash('supabase db reset --linked'), 'db-write'],
+    [bash('npx prisma migrate deploy'), 'db-write'],
+    [bash('bash -c "psql -h prod.example.com -c \\"insert into t values (1)\\""'), 'db-write'],
+    [bash('psql -h prod.example.com -c "SELECT * FROM users"'), null],
+    [bash('psql -h prod.example.com -c "select 1; select 2"'), null],
+    [bash('psql -h prod.example.com -c "WITH x AS (SELECT 1) SELECT * FROM x"'), null],
+    [bash('psql -h prod.example.com -c "EXPLAIN SELECT * FROM users"'), null],
+    [bash('mysql -h 10.0.0.5 -e "SHOW TABLES"'), null],
+    [bash('mysql -h 10.0.0.5 -e "DESCRIBE orders"'), null],
+    [bash('psql -h prod.example.com -c "\\dt"'), null],
+    [bash('psql -h localhost -c "INSERT INTO t VALUES (1)"'), null],
+    [bash('psql -h 127.0.0.1 -c "UPDATE t SET a = 1 WHERE id = 2"'), null],
+    [bash('psql -h ::1 -c "insert into t values (1)"'), null],
+    [bash('psql -h /var/run/postgresql -c "insert into t values (1)"'), null],
+    [bash('psql mydb -c "insert into t values (1)"'), null],
+    [bash('mysql -e "update t set a = 1 where id = 2"'), null],
+    [bash('sqlite3 app.db "INSERT INTO t VALUES (1)"'), null],
+    [bash('mongosh mongodb://localhost:27017/app --eval "db.users.insertOne({a: 1})"'), null],
+    [bash('mongosh "mongodb+srv://cluster0.mongodb.net/app" --eval "db.users.find()"'), null],
+    [bash('supabase db reset'), null],
+    [bash('supabase db push --local'), null],
+    [bash('supabase db diff'), null],
+    [bash('echo "INSERT INTO t VALUES (1)"'), null],
+    [bash('git commit -m "update users set admin"'), null],
+    // Code review H1: the guard holds every statement that is not a read, not a list of known writes.
+    [bash("psql -h prod.example.com -c \"UPDATE users u SET name = 'x' WHERE u.id = 1\""), 'db-write'],
+    [bash("psql -h prod.example.com -c \"update users as u set name = 'x' where u.id = 1\""), 'db-write'],
+    [bash('psql -h prod.example.com -f migrate.sql'), 'db-write'],
+    [bash('psql -h prod.example.com --file=migrate.sql app'), 'db-write'],
+    [bash('psql -h prod.example.com app < dump.sql'), 'db-write'],
+    [bash("psql -h prod.example.com app <<'EOF'\ninsert into t values (1)\nEOF"), 'db-write'],
+    [bash('cat migrate.sql | psql -h prod.example.com app'), 'db-write'],
+    [bash('psql -h prod.example.com -c "DELETE users WHERE id = 1"'), 'db-write'],
+    [bash('mysql -h prod.example.com -e "insert t values (1)"'), 'db-write'],
+    [bash('sqlcmd -S prod.example.com -Q "EXEC sp_purge"'), 'db-write'],
+    [bash('psql -h prod.example.com -c "SELECT * INTO backup FROM users"'), 'db-write'],
+    [bash('psql -h prod.example.com -c "vacuum full"'), 'db-write'],
+    [bash('psql -h prod.example.com -c "refresh materialized view sales_mv"'), 'db-write'],
+    [bash('psql -h prod.example.com -c "WITH d AS (DELETE FROM t WHERE id = 1 RETURNING *) SELECT * FROM d"'), 'db-write'],
+    [bash('psql -h prod.example.com -c "EXPLAIN ANALYZE UPDATE t SET a = 1 WHERE id = 2"'), 'db-write'],
+    [bash('psql -h prod.example.com -c "select 1; insert into t values (2)"'), 'db-write'],
+    [bash('mysql -h prod.example.com -e "/*!50000 INSERT INTO t VALUES (1) */"'), 'db-write'],
+    [bash('psql -h prod.example.com -c "$SQL"'), 'db-write'],
+    [bash('pg_restore -h prod.example.com -d app dump.backup'), 'db-write'],
+    [bash('redis-cli -h prod.example.com FLUSHALL'), 'db-write'],
+    [bash('redis-cli -h prod.example.com set k v'), 'db-write'],
+    [bash('echo FLUSHALL | redis-cli -h prod.example.com'), 'db-write'],
+    [bash('mongosh prod.example.com:27017/app --eval "db.users.deleteMany({a: 1})"'), 'db-write'],
+    [bash('mongosh prod.example.com:27017/app --eval "db.users.findAndModify({query: {a: 1}, update: {b: 2}})"'), 'db-write'],
+    [bash('mongosh --host prod.example.com app migrate.js'), 'db-write'],
+    [bash('npx prisma db push --accept-data-loss'), 'db-write'],
+    [bash('prisma db push'), 'db-write'],
+    [bash('prisma migrate reset'), 'db-write'],
+    [bash('pnpm dlx prisma migrate reset --force'), 'db-write'],
+    [bash('bunx prisma db push'), 'db-write'],
+    [bash('psql "$PROD_DB" -c "insert into t values (1)"'), 'db-write'],
+    [bash('export PGHOST=prod.example.com; psql -c "insert into t values (1)"'), 'db-write'],
+    [bash('psql service=prod -c "insert into t values (1)"'), 'db-write'],
+    [bash('PGSERVICE=prod psql -c "insert into t values (1)"'), 'db-write'],
+    [bash('mysql --login-path=prod -e "insert into t values (1)"'), 'db-write'],
+    [bash('psql -h 127.evil.com -c "insert into t values (1)"'), 'db-write'],
+    [bash('psql -h /cloudsql/proj:us-central1:main -c "insert into t values (1)"'), 'db-write'],
+    [bash('psql -h prod.example.com -c "show create table t"'), null],
+    [bash('mysql -h prod.example.com -e "show create table t"'), null],
+    [bash("psql -h prod.example.com -c \"select * from notes where note = 'call me (now); update x set a = 1'\""), null],
+    [bash('psql -h prod.example.com -c "-- create table x\nselect 1"'), null],
+    [bash('psql -h prod.example.com -c "/* drop it later */ select 1"'), null],
+    [bash('git commit -m "update users set flow" && psql -h prod.example.com -c "select 1"'), null],
+    [bash('echo "select 1" | psql -h prod.example.com app'), null],
+    [bash('psql -h prod.example.com -c "EXPLAIN UPDATE t SET a = 1"'), null],
+    [bash('psql -h prod.example.com -c "select * from t for update"'), null],
+    [bash('psql -h prod.example.com -c "values (1), (2)"'), null],
+    [bash('psql -h 127.0.0.2 -c "insert into t values (1)"'), null],
+    [bash('psql -h prod.example.com -c "\\copy t to stdout"'), null],
+    [bash('redis-cli -h prod.example.com GET k'), null],
+    [bash('redis-cli -h localhost FLUSHALL'), null],
+    [bash('mongosh prod.example.com:27017/app --eval "db.users.find({a: 1})"'), null],
+    [bash('mongosh app --eval "db.users.deleteMany({a: 1})"'), null],
+    [bash('pg_restore -l dump.backup'), null],
+    [bash('pg_restore -d app dump.backup'), null],
+    [bash('prisma migrate dev'), null],
+    [bash('npx prisma generate'), null],
+    [bash('psql "$PROD_DB" -c "select 1"'), null],
+    [bash('export PGHOST=localhost; psql -c "insert into t values (1)"'), null],
+    [bash('PGHOST=prod.example.com psql -c "select 1"; psql -c "insert into t values (1)"'), null],
+  ],
   'chained and quoted': [
     [bash('npm test && git reset --hard'), 'git-reset-hard'],
     [bash('cd /tmp; rm -rf ~'), 'rm-rf-outside!'],
@@ -243,7 +342,40 @@ const CASES = {
     [bash("printf 'rm -rf /'"), null],
     [bash('npm test && git push origin main'), null],
   ],
+  // Git Bash turns "//c" into "/c" for cmd (MSYS path conversion), and winpty runs the command after it.
+  'Git Bash cmd //c and winpty': [
+    [bash('cmd //c "rd /s /q %USERPROFILE%"'), 'rm-rf-outside!'],
+    [bash('cmd //c "git push --force origin main"'), 'git-force-push-main'],
+    [bash('cmd.exe //c git reset --hard'), 'git-reset-hard'],
+    [bash('cmd //k git reset --hard'), 'git-reset-hard'],
+    [bash('CMD //C git reset --hard'), 'git-reset-hard'],
+    [bash('winpty git reset --hard'), 'git-reset-hard'],
+    [bash('winpty cmd //c "git clean -fdx"'), 'git-clean-fdx'],
+    [bash('cmd //c "git status"'), null],
+    [bash('echo cmd //c git reset --hard'), null],
+    [bash('winpty node app.js'), null],
+  ],
+  // Bash removes backslash-newline before it splits words, outside single quotes, comments and heredoc bodies.
+  'line continuations': [
+    [bash('git push --fo"\\\n"rce origin main'), 'git-force-push-main'],
+    [bash('git push --fo\\\nrce origin main'), 'git-force-push-main'],
+    [bash('psql -c "DROP \\\nTABLE users"'), 'sql-destroy'],
+    [bash('cat <<E\\\nOF\nhello\nEOF\nrm -rf ~'), 'rm-rf-outside!'],
+    [bash('rm -rf \\\n~'), 'rm-rf-outside!'],
+    [bash('npm test \\\n  && git reset --hard'), 'git-reset-hard'],
+    [bash('echo $\\\n(git reset --hard)'), 'git-reset-hard'],
+    [bash('echo ok # note \\\ngit reset --hard'), 'git-reset-hard'],
+    [bash("cat <<'EOF'\nline \\\nEOF\ngit reset --hard"), 'git-reset-hard'],
+    [bash('echo a\\\\\ngit reset --hard'), 'git-reset-hard'],
+    [bash("echo 'git reset \\\n--hard'"), null],
+    [bash('git commit -m "rm -rf ~ \\\nis bad"'), null],
+    [bash('npm run build \\\n  --prod'), null],
+    [bash("cat <<'EOF'\ngit reset \\\n--hard\nEOF"), null],
+  ],
 };
+
+// Git Bash also takes backslash-CRLF as a continuation (Linux and macOS bash do not).
+if (WIN) CASES['line continuations'].push([bash('git reset \\\r\n--hard'), 'git-reset-hard']);
 
 if (WIN) {
   CASES['windows paths'] = [
@@ -255,6 +387,63 @@ if (WIN) {
     [bash('rm -rf "C:\\work\\proj\\dist"'), null],
   ];
 }
+
+test('unfold: removes backslash-newline as bash does, and keeps quotes, comments and heredoc bodies', () => {
+  const { unfold } = require('../scripts/lib/shell');
+  assert.equal(unfold('git push --fo"\\\n"rce'), 'git push --fo""rce');
+  assert.equal(unfold('a \\\nb "c\\\nd"'), 'a b "cd"');
+  assert.equal(unfold("echo 'x\\\ny'"), "echo 'x\\\ny'");
+  assert.equal(unfold('echo a # c \\\nb'), 'echo a # c \\\nb');
+  assert.equal(unfold('echo a\\\\\nb'), 'echo a\\\\\nb');
+  // An unquoted heredoc body loses its backslash-newlines too (bash manual: "\<newline> is ignored"); a quoted one
+  // (<<'EOF') keeps them (review of v0.2, M1).
+  assert.equal(unfold('cat <<E\\\nOF\nx \\\nEOF\ny \\\nz'), 'cat <<EOF\nx EOF\ny z');
+  assert.equal(unfold("cat <<'EOF'\nx \\\nEOF\ny \\\nz"), "cat <<'EOF'\nx \\\nEOF\ny z");
+  assert.equal(unfold('echo "$(cat <<\'EOF\'\nx \\\nEOF\n)" \\\nz'), 'echo "$(cat <<\'EOF\'\nx \\\nEOF\n)" z');
+  assert.equal(unfold('x=$(cat <<\'EOF\'\na \\\nEOF)\ny \\\nz'), 'x=$(cat <<\'EOF\'\na \\\nEOF)\ny z');
+  assert.equal(unfold('cat <<EOF\na\\\\\nEOF\nz'), 'cat <<EOF\na\\\\\nEOF\nz');
+  assert.equal(unfold('plain text'), 'plain text');
+  assert.equal(unfold('a \\\r\nb'), WIN ? 'a b' : 'a \\\r\nb');
+});
+
+// Review of v0.2 (H1): the comment check re-read the growing output at every "#", so 40,000 commented lines with one
+// continuation took 3.8 s, past the hook's 3 s, and then nothing was blocked.
+test('unfold stays fast on very long commands with many comments', () => {
+  const big = 'echo a # note\n'.repeat(40000) + 'echo b \\\n c; git push --force origin main';
+  // unfold itself (what regressed: about 3 s here) takes a few ms; the whole check stays well inside the hook's 3 s,
+  // even with the full suite running beside it.
+  let t = Date.now();
+  require('../scripts/lib/shell').unfold(big);
+  assert.ok(Date.now() - t < 1000, `unfold: ${Date.now() - t} ms`);
+  t = Date.now();
+  assert.equal(expectOf(check(bash(big), ctx())), 'git-force-push-main');
+  assert.ok(Date.now() - t < 2000, `check: ${Date.now() - t} ms`);
+});
+
+// Review of v0.2 (M1): what hides in an unquoted heredoc split by a continuation.
+test('continuations inside an unquoted heredoc are joined as bash joins them', () => {
+  for (const [command, want] of [
+    ['psql -h localhost -d app <<EOF\nDROP \\\nTABLE users;\nEOF', 'sql-destroy'],
+    ['cat <<EOF\nbody\nEO\\\nF\ngit reset --hard', 'git-reset-hard'],
+    ['cat <<EOF\n$\\\n(git reset --hard)\nEOF', 'git-reset-hard'],
+    ["cat <<'EOF'\nx \\\nEOF\ngit reset --hard\nEOF", 'git-reset-hard'],
+    ["git commit -F- <<'EOF'\nfix: rm -rf ~ \\\nexample\nEOF", null],
+    ['git commit -F- <<EOF\nfix: DROP \\\nTABLE in docs\nEOF', null],
+  ]) assert.equal(expectOf(check(bash(command), ctx())), want, command);
+});
+
+test('MCP input nested very deep is held as too complex, never passed (and deep-but-normal input is still read)', () => {
+  let deep = { sql: 'DROP TABLE users' };
+  for (let i = 0; i < 6000; i++) deep = { a: deep };
+  const r = check(mcp('mcp__notes__save', deep), ctx());
+  assert.ok(r && r.id === 'too-complex' && r.hard, `got ${JSON.stringify(r && r.id)}`);
+  let fifty = { note: 'DROP TABLE users' };
+  for (let i = 0; i < 45; i++) fifty = { a: [fifty] }; // 91 levels: under the cap of 100
+  assert.equal(expectOf(check(mcp('mcp__notes__save', fifty), ctx())), 'sql-destroy');
+  let plain = { note: 'hello' };
+  for (let i = 0; i < 50; i++) plain = { a: plain };
+  assert.equal(check(mcp('mcp__notes__save', plain), ctx()), null);
+});
 
 function expectOf(r) { return r ? (r.hard ? `${r.id}!` : r.id) : null; }
 
@@ -293,8 +482,8 @@ test('every match carries a reason with the stop sentence', () => {
   assert.ok(!/CONFIRM/.test(h.reason), 'a hard deny offers no override');
 });
 
-test('the published list is the nine design entries plus guest-quarantine and readonly-source (v0.1.1)', () => {
-  assert.deepEqual(Object.keys(BUILTINS).sort(), ['chmod-wide', 'git-clean-fdx', 'git-force-push-main', 'git-reset-hard',
+test('the published list is the nine design entries plus guest-quarantine, readonly-source (v0.1.1) and db-write (v0.2.1)', () => {
+  assert.deepEqual(Object.keys(BUILTINS).sort(), ['chmod-wide', 'db-write', 'git-clean-fdx', 'git-force-push-main', 'git-reset-hard',
     'git-stash-drop', 'guest-quarantine', 'pipe-to-shell', 'readonly-source', 'rm-rf-outside', 'secret-files', 'sql-destroy']);
 });
 

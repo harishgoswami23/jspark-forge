@@ -13,7 +13,7 @@ const SETTINGS = { notes: ['on', 'off'], 'statusline-segment': ['on', 'off'] };
 const slug = s => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'rule';
 
 function parseRules(text) {
-  const out = { confirm: [], never: [], disabled: [], readonly: [], settings: { notes: 'on', 'statusline-segment': 'on' }, errors: [] };
+  const out = { confirm: [], never: [], disabled: [], readonly: [], dbDev: [], settings: { notes: 'on', 'statusline-segment': 'on' }, errors: [] };
   const ids = new Set(Object.keys(BUILTINS));
   let section = null;
   let reCount = 0;
@@ -31,7 +31,21 @@ function parseRules(text) {
       return;
     }
     if (section === 'settings') {
-      const m = line.match(/^\s*[-*]\s+([a-z-]+)\s*:\s*(.+?)\s*$/i);
+      // v0.2.1 "- database dev: host:<glob> | mcp:<server or prefix*> | <exact host or server>" (code review M7: a
+      // host pattern and an MCP server name are kept apart, and a bare name matches only exactly)
+      const dev = line.match(/^\s*[-*]\s+database\s+dev\s*:\s*(.+?)\s*$/i);
+      if (dev) {
+        for (const x of dev[1].split(',').map(y => y.trim()).filter(Boolean)) {
+          const kind = (x.match(/^(host|mcp)\s*:/i) || [])[1];
+          const v = kind ? x.slice(x.indexOf(':') + 1).trim() : x;
+          if (!v) out.errors.push({ line: n, message: `"${x}" names nothing` });
+          else if (!kind && v.includes('*')) out.errors.push({ line: n, message: `"${x}": a pattern needs host:<pattern> (database hosts) or mcp:<prefix>* (MCP servers)` });
+          else if (kind && kind.toLowerCase() === 'mcp' && v.slice(0, -1).includes('*')) out.errors.push({ line: n, message: `"${x}": mcp: takes an exact server name or a prefix ending in * (host: is for host patterns)` });
+          else out.dbDev.push(kind ? `${kind.toLowerCase()}:${v}` : v);
+        }
+        return;
+      }
+      const m =line.match(/^\s*[-*]\s+([a-z-]+)\s*:\s*(.+?)\s*$/i);
       const key = m && m[1].toLowerCase();
       if (m && key === 'disable') {
         for (const id of m[2].split(',').map(x => x.trim()).filter(Boolean)) {
@@ -80,6 +94,8 @@ function loadRules(projectDir, { claudeHome } = {}) {
   const repo = parseRules(repoText);
   const repoDisable = repoText.split(/\r?\n/)
     .map((l, i) => ({ l, n: i + 1 })).filter(x => /^\s*[-*]\s+disable\s*:/i.test(x.l));
+  const repoDbDev = repoText.split(/\r?\n/)
+    .map((l, i) => ({ l, n: i + 1 })).filter(x => /^\s*[-*]\s+database\s+dev\s*:/i.test(x.l));
   const ids = new Set(user.confirm.concat(user.never).map(r => r.id));
   // fromRepo: the project's rules.md may come from a clone; its regular expressions run last (blocklist userHits).
   const fresh = r => Object.assign({}, r, { fromRepo: true }, ids.has(r.id) ? { id: `${r.id}-repo` } : {});
@@ -88,11 +104,14 @@ function loadRules(projectDir, { claudeHome } = {}) {
     never: user.never.concat(repo.never.map(fresh)),
     disabled: user.disabled,
     readonly: user.readonly.concat(repo.readonly), // adding a read-only source only restricts: a repo's own lines count
+    dbDev: user.dbDev, // marking a database as dev relaxes the guard: only the user's own file counts (like disable:)
     settings: Object.assign({}, user.settings, repo.settings),
     errors: user.errors.map(e => Object.assign({ file: USER_LABEL }, e))
       .concat(repo.errors.map(e => Object.assign({ file: REPO_LABEL }, e)))
       .concat(repoDisable.map(x => ({ file: REPO_LABEL, line: x.n,
-        message: `a project's rules.md cannot switch off built-in blocks; put "disable:" in ${USER_LABEL}` }))),
+        message: `a project's rules.md cannot switch off built-in blocks; put "disable:" in ${USER_LABEL}` })))
+      .concat(repoDbDev.map(x => ({ file: REPO_LABEL, line: x.n,
+        message: `a project's rules.md cannot mark a database as dev; put "database dev:" in ${USER_LABEL}` }))),
   };
 }
 

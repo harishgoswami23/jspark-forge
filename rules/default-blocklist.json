@@ -18,6 +18,9 @@
   "sql-destroy": {
     "plain": "this deletes database tables or every row of a table (DROP, TRUNCATE, or DELETE without WHERE)"
   },
+  "db-write": {
+    "plain": "this writes to a production database (an insert, update, schema change, migration, merge, reset or restore; reads are never blocked)"
+  },
   "secret-files": {
     "plain": "this changes a secrets or key file (.env, keys, credentials)"
   },

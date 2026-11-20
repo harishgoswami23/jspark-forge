@@ -194,3 +194,17 @@ MCP (Claude checks its own UI in the running app), shadcn/ui with its MCP server
 one-time tip in projects with a front end; nothing installed automatically. Each companion's licence, activity and
 Windows support checked before listing. Release table: v0.2, ~½ day.
 **Why [owner, 2026-11-20]:** "I want the UI UX build through JSPARK Forge top notch for any product."
+
+### Rev 13: the owner is the first user; build continues to v0.3 (2026-11-20)
+**What:** the real-users gate of Rev 11 becomes a first-user gate: the owner uses each release on real work before the
+next one starts. Scope "complete" = through v0.3 (decision memory, templates, UI/UX companions, database guard, code
+map, launch-scope guard); v0.4 is decided after v0.3 is in use. The outside launch (20–50 users) follows v0.3.
+v0.1.1 released the same day.
+**Why [owner, 2026-11-20]:** "I am the first user, so I need a complete product."
+
+### Rev 14: model map in v0.2 (2026-11-20)
+**What:** new spec 5.15. JSPARK Forge ships four helper agents pinned to model tiers with a visible reason: planner and
+reviewer on the strongest model, builder on a standard one, checker on a light one. Tiers, not model names; built with
+the 5.11 templates; works beside superpowers. The model-choice advice of 5.7 made concrete. ~1 day.
+**Why [owner, 2026-11-20]:** "do we have built the decision tree which model will do what and why?" (it was advice
+only, in a later section).
