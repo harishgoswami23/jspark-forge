@@ -824,7 +824,7 @@ function shellHits(raw, cwd, ctx, depth = 0, dialect = 'bash') {
       }
     });
   }
-  if (sqlClient && sqlDestructive(raw)) hits.push(hit('sql-destroy', false, raw));
+  if (sqlClient && sqlDestructive(ps ? raw : shell.unfold(raw))) hits.push(hit('sql-destroy', false, raw));
   return hits;
 }
 

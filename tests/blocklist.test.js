@@ -355,7 +355,27 @@ const CASES = {
     [bash('echo cmd //c git reset --hard'), null],
     [bash('winpty node app.js'), null],
   ],
+  // Bash removes backslash-newline before it splits words, outside single quotes, comments and heredoc bodies.
+  'line continuations': [
+    [bash('git push --fo"\\\n"rce origin main'), 'git-force-push-main'],
+    [bash('git push --fo\\\nrce origin main'), 'git-force-push-main'],
+    [bash('psql -c "DROP \\\nTABLE users"'), 'sql-destroy'],
+    [bash('cat <<E\\\nOF\nhello\nEOF\nrm -rf ~'), 'rm-rf-outside!'],
+    [bash('rm -rf \\\n~'), 'rm-rf-outside!'],
+    [bash('npm test \\\n  && git reset --hard'), 'git-reset-hard'],
+    [bash('echo $\\\n(git reset --hard)'), 'git-reset-hard'],
+    [bash('echo ok # note \\\ngit reset --hard'), 'git-reset-hard'],
+    [bash("cat <<'EOF'\nline \\\nEOF\ngit reset --hard"), 'git-reset-hard'],
+    [bash('echo a\\\\\ngit reset --hard'), 'git-reset-hard'],
+    [bash("echo 'git reset \\\n--hard'"), null],
+    [bash('git commit -m "rm -rf ~ \\\nis bad"'), null],
+    [bash('npm run build \\\n  --prod'), null],
+    [bash("cat <<'EOF'\ngit reset \\\n--hard\nEOF"), null],
+  ],
 };
+
+// Git Bash also takes backslash-CRLF as a continuation (Linux and macOS bash do not).
+if (WIN) CASES['line continuations'].push([bash('git reset \\\r\n--hard'), 'git-reset-hard']);
 
 if (WIN) {
   CASES['windows paths'] = [
@@ -367,6 +387,20 @@ if (WIN) {
     [bash('rm -rf "C:\\work\\proj\\dist"'), null],
   ];
 }
+
+test('unfold: removes backslash-newline as bash does, and keeps quotes, comments and heredoc bodies', () => {
+  const { unfold } = require('../scripts/lib/shell');
+  assert.equal(unfold('git push --fo"\\\n"rce'), 'git push --fo""rce');
+  assert.equal(unfold('a \\\nb "c\\\nd"'), 'a b "cd"');
+  assert.equal(unfold("echo 'x\\\ny'"), "echo 'x\\\ny'");
+  assert.equal(unfold('echo a # c \\\nb'), 'echo a # c \\\nb');
+  assert.equal(unfold('echo a\\\\\nb'), 'echo a\\\\\nb');
+  assert.equal(unfold('cat <<E\\\nOF\nx \\\nEOF\ny \\\nz'), 'cat <<EOF\nx \\\nEOF\ny z');
+  assert.equal(unfold('echo "$(cat <<EOF\nx \\\nEOF\n)" \\\nz'), 'echo "$(cat <<EOF\nx \\\nEOF\n)" z');
+  assert.equal(unfold('x=$(cat <<EOF\na \\\nEOF)\ny \\\nz'), 'x=$(cat <<EOF\na \\\nEOF)\ny z');
+  assert.equal(unfold('plain text'), 'plain text');
+  assert.equal(unfold('a \\\r\nb'), WIN ? 'a b' : 'a \\\r\nb');
+});
 
 function expectOf(r) { return r ? (r.hard ? `${r.id}!` : r.id) : null; }
 
