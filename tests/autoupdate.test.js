@@ -162,3 +162,41 @@ test('two runs at the same time write one valid file', async () => {
   assert.equal(JSON.parse(read(path.join(h, 'jspark-forge', 'state.json'))).autoUpdateSet, true);
   assert.equal(obj.statusLine.command, 'mine');
 });
+
+// v0.5 review S7: the write changes the key and nothing else about the file.
+test('S7: a 0600 settings.json keeps its mode', t => {
+  if (process.platform === 'win32') return t.skip('no POSIX modes on Windows');
+  const h = home({ 'jspark-forge': FROM_GITHUB });
+  fs.chmodSync(settingsOf(h), 0o600);
+  assert.ok(line(setup.machineMessages(h)));
+  assert.equal(fs.statSync(settingsOf(h)).mode & 0o777, 0o600);
+});
+
+test('S7: a symlinked settings.json stays a symlink; the real file gets the key', t => {
+  const h = home({ 'jspark-forge': FROM_GITHUB }, null);
+  const real = path.join(h, 'dotfiles-settings.json');
+  fs.writeFileSync(real, JSON.stringify({ theme: 'dark' }, null, 2) + '\n');
+  try { fs.symlinkSync(real, settingsOf(h)); } catch { return t.skip('this platform refuses to create a symlink'); }
+  assert.ok(line(setup.machineMessages(h)));
+  assert.equal(fs.lstatSync(settingsOf(h)).isSymbolicLink(), true);
+  const obj = JSON.parse(read(real));
+  assert.equal(obj.theme, 'dark');
+  assert.equal(obj.extraKnownMarketplaces['jspark-forge'].autoUpdate, true);
+});
+
+test('S7: autoUpdateSet is recorded only when the key is really in the file', () => {
+  const h = home({ 'jspark-forge': FROM_GITHUB });
+  const au = require('../scripts/lib/autoupdate');
+  const st = {};
+  au.ensure(h, st);
+  assert.equal(st.autoUpdateSet, true);
+  assert.equal(JSON.parse(read(settingsOf(h))).extraKnownMarketplaces['jspark-forge'].autoUpdate, true);
+  // a settings.json that cannot be written (a folder where the file should be replaced): no flag
+  const h2 = home({ 'jspark-forge': FROM_GITHUB });
+  const st2 = {};
+  const fsx = require('node:fs');
+  const orig = fsx.renameSync;
+  fsx.renameSync = () => { throw new Error('disk full'); };
+  try { au.ensure(h2, st2); } finally { fsx.renameSync = orig; }
+  assert.equal(st2.autoUpdateSet, undefined);
+});

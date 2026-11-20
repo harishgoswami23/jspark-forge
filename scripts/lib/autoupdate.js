@@ -26,21 +26,29 @@ function ensure(home, st) {
     const k = known(home);
     if (!k || k.autoUpdate === false || k.autoUpdate === true) return null;
     const file = path.join(home, 'settings.json');
-    const s = readSettings(file);
-    if (!s || !isObj(s.obj)) return null;
-    const { before, text, obj } = s;
-    if (obj.extraKnownMarketplaces !== undefined && !isObj(obj.extraKnownMarketplaces)) return null;
-    const mk = obj.extraKnownMarketplaces || (obj.extraKnownMarketplaces = {});
-    if (mk[NAME] !== undefined && !isObj(mk[NAME])) return null;
-    if (mk[NAME] && has(mk[NAME], 'autoUpdate')) {
-      if (mk[NAME].autoUpdate === true) st.autoUpdateSet = true; // already on (a second session got there first): done
-      return null;
-    }
-    if (!mk[NAME]) mk[NAME] = { source: { ...SOURCE } };
-    mk[NAME].autoUpdate = true;
-    atomicWrite(file, JSON.stringify(obj, null, indentOf(text)) + (text.endsWith('\n') || !before ? '\n' : ''));
-    st.autoUpdateSet = true;
-    return MESSAGE;
+    // Read, change and write under one lock, so a second session (or anything else using the lock) cannot lose the key.
+    // The flag is set only after the file is read again and the key is seen in it.
+    fs.mkdirSync(home, { recursive: true });
+    return require('./memory').withLock(file, () => {
+      const s = readSettings(file);
+      if (!s || !isObj(s.obj)) return null;
+      const { before, text, obj } = s;
+      if (obj.extraKnownMarketplaces !== undefined && !isObj(obj.extraKnownMarketplaces)) return null;
+      const mk = obj.extraKnownMarketplaces || (obj.extraKnownMarketplaces = {});
+      if (mk[NAME] !== undefined && !isObj(mk[NAME])) return null;
+      if (mk[NAME] && has(mk[NAME], 'autoUpdate')) {
+        if (mk[NAME].autoUpdate === true) st.autoUpdateSet = true; // already on (a second session got there first): done
+        return null;
+      }
+      if (!mk[NAME]) mk[NAME] = { source: { ...SOURCE } };
+      mk[NAME].autoUpdate = true;
+      atomicWrite(file, JSON.stringify(obj, null, indentOf(text)) + (text.endsWith('\n') || !before ? '\n' : ''));
+      const again = readSettings(file);
+      const e = again && isObj(again.obj) && isObj(again.obj.extraKnownMarketplaces) ? again.obj.extraKnownMarketplaces[NAME] : null;
+      if (!isObj(e) || e.autoUpdate !== true) return null;
+      st.autoUpdateSet = true;
+      return MESSAGE;
+    });
   } catch { return null; }
 }
 
