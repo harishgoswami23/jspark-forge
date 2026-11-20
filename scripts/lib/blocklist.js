@@ -1011,14 +1011,29 @@ function forgeCandidates(f) {
 }
 function forgeGlob(t, abs, f) {
   if (t.length > 400 || (t.match(/\*/g) || []).length > 20) return FORGE_NAME.test(t) ? 'unknown' : null; // too wild to match
-  // A wildcard at the start of a name does not match a leading dot ("rm -rf *" leaves .jspark-forge).
-  const re = new RegExp(`^${recKey(abs).replace(/\[[^\]]{0,50}\]/g, '?').replace(/\*{2,}/g, '*').split('').map((ch, i, a) => {
-    const lead = i === 0 || a[i - 1] === '/' ? '(?!\\.)' : '';
-    return ch === '*' ? `${lead}[^/]*` : ch === '?' ? `${lead}[^/]` : ch.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-  }).join('')}$`, 'i');
+  // Matched segment by segment with a wildcard loop, not a regular expression: "*?*?…" against a long name made a
+  // backtracking regex run past the hook's 3 s, and then nothing was blocked (third review H1).
+  const pat = recKey(abs).replace(/\[[^\]]{0,50}\]/g, '?').replace(/\*{2,}/g, '*').toLowerCase().split('/');
   let level = null;
-  for (const [c, kind] of forgeCandidates(f)) if (re.test(c)) { if (kind === 'file') return 'file'; level = 'folder'; }
+  for (const [c, kind] of forgeCandidates(f)) {
+    const parts = c.toLowerCase().split('/');
+    if (parts.length === pat.length && parts.every((s, i) => segMatch(pat[i], s))) { if (kind === 'file') return 'file'; level = 'folder'; }
+  }
   return level;
+}
+// One path segment against a pattern of literals, "*" and "?": the classic two-pointer match with one fallback point,
+// at most length x length steps. A wildcard at the start does not match a leading dot ("rm -rf *" leaves .jspark-forge).
+function segMatch(p, s) {
+  if ((p[0] === '*' || p[0] === '?') && s[0] === '.') return false;
+  let i = 0, j = 0, star = -1, mark = 0;
+  while (j < s.length) {
+    if (i < p.length && (p[i] === '?' || p[i] === s[j])) { i++; j++; }
+    else if (i < p.length && p[i] === '*') { star = i++; mark = j; }
+    else if (star >= 0) { i = star + 1; j = ++mark; }
+    else return false;
+  }
+  while (i < p.length && p[i] === '*') i++;
+  return i === p.length;
 }
 // $PWD, ~+ and the project folder variable are known; any other variable is not.
 function expandKnown(t, cwd, ctx) {

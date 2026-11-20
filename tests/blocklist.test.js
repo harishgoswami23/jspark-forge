@@ -611,6 +611,31 @@ test('a network path never stalls the check: the other rules still answer within
   }
 });
 
+// Third review H1: each "*" became a backtracking "[^/]*", so "*?*?…*z" against a long graph-* file name ran past the
+// hook's 3 s and nothing was blocked. A glob is matched in linear-ish time, and the other rules still answer.
+test('a glob with many wildcards cannot stall the check (third review H1)', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const real = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-glob-'));
+  try {
+    fs.mkdirSync(path.join(real, '.jspark-forge', 'state'), { recursive: true });
+    fs.writeFileSync(path.join(real, '.jspark-forge', 'state', 'graph-release-candidate-checks-for-the-long-name.json'), '{}');
+    const wild = `${'*?'.repeat(20)}z`;
+    for (const [command, want] of [
+      [`rm .jspark-forge/state/${wild}; git push --force origin main`, 'git-force-push-main'],
+      [`cd .jspark-forge/state && rm ${wild}; git push --force origin main`, 'git-force-push-main'],
+      ['rm .jspark-forge/state/graph-*-name.json', 'forge-state!'],
+      ['rm .jspark-forge/state/*.json', 'forge-state!'],
+      ['rm .jspark-forge/state/report-*.json', null],
+    ]) {
+      const t = Date.now();
+      const input = { tool_name: 'Bash', tool_input: { command }, cwd: real, _o: {} };
+      assert.equal(expectOf(check(input, ctx({ projectDir: real }))), want, command);
+      assert.ok(Date.now() - t < 1000, `${command}: ${Date.now() - t} ms`);
+    }
+  } finally { fs.rmSync(real, { recursive: true, force: true }); }
+});
+
 // A mapped network drive (Z:) cannot be told apart from a local one without a lookup, and one slow lookup cannot be
 // interrupted. The record lives on the project's drive, so a target on another drive is never looked up.
 test('a target on another drive letter is never looked up (a mapped network drive cannot stall the check)', { skip: !WIN && 'Windows drive letters' }, () => {
