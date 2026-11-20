@@ -165,9 +165,12 @@ given what the action log holds after the last save.
 
 If the machine itself dies (a power cut, a crash), JSPARK Forge writes its files so they survive it, keeps the save
 before the last one in case the newest is damaged, and notes each command, file write or helper that was under way.
-At the next start it tells you the last session was cut off, and tells Claude what was half done, which files were
-written just before, and what Claude was saying, so it checks before carrying on. It cannot save the reply Claude was
-in the middle of writing, or output a program had not yet written to disk.
+At the next start it tells you the last session was cut off, or is still open in another window, and tells Claude what
+was half done, which files were written just before, and what Claude was saying, so it checks before carrying on. It
+waits 90 seconds of silence (10 minutes when all that is left is a command in flight, such as a long test run) before it
+says so, and it never changes another window's files. It cannot save the reply Claude was in the middle of writing, or
+output a program had not yet written to disk, and the newest log lines can be lost if the cut came before they reached
+the disk. Secrets quoted in what it shows are hidden on a best-effort basis: common shapes, not every secret.
 
 ## What it blocks (published list)
 

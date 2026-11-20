@@ -144,15 +144,27 @@ branch, Claude's own notes. Enough to resume the work, not a map of the system. 
   SessionEnd, half-run commands, dead dev servers, possibly half-written files). Files are written with a flush to the
   disk before the rename; the previous good handoff pair is kept (`handoff.prev.md`, `state/handoff.prev.json`) and is
   read when the newest is damaged, and when both are, the context is built from the action log alone; a log line cut
-  off mid-write is ignored. PreToolUse records each allowed shell, file-write or helper call in
-  `state/inflight-<session>.json` (cleared by PostToolUse, PostToolUseFailure and Stop). At the next start (not at
-  compact or clear), a session with no `ended` stamp, silent for 90 seconds, that left something in flight, running
-  or logged after its last save, is reported as cut off: one line for the user, and for Claude a record (in flight,
-  was running and is gone, files written in the last 2 minutes marked missing / empty / ends in NUL bytes, what was
-  logged after the last save, Claude's last words and unfinished tool call from the tail of the transcript, and what
-  to check before carrying on). It is shown once per session and again by `forge.js show` until handled. A missing
-  `ended` stamp alone says nothing. What a crash can still lose: the reply Claude was writing, a command's unsaved
-  output, anything a program had not yet written to disk; the NUL-byte check is a hint, not proof.
+  off mid-write is ignored. PreToolUse records each allowed shell, file-write or helper call (Bash, PowerShell, Write,
+  Edit, NotebookEdit, Agent) as one small file in `state/inflight-<session>/` (flushed when added; removed by
+  PostToolUse and PostToolUseFailure; the folder emptied at Stop and at that session's own start). Every PreToolUse,
+  PostToolUse and UserPromptSubmit touches the session file: that, the in-flight folder, the last save and the log
+  are the session's last sign of life. At the next start (startup or resume, not compact or clear), a session with
+  no `ended` stamp that left something in flight, running or logged after its last save, and whose last sign of life
+  is older than 90 seconds (10 minutes when its only evidence is in-flight calls or one of them is younger than 10
+  minutes), is reported as "cut off, or is still open in another window": one line for the user, and for Claude a
+  record (in flight, was running and is gone, files written in the last 2 minutes marked missing / empty / ends in
+  NUL bytes, what was logged after the last save, Claude's last words (600 characters) and unfinished tool call from
+  the tail of the transcript, and what to check after the user says to continue). The session that is starting is
+  judged too when it resumes under its own id. A session's last log line that is not SAVE, WAIT or GROUNDING being a
+  normal STOP or END is a clean end. "Already reported" lives in `state/crash-noted.json` (session id to the last sign
+  of life reported); the check never deletes another session's files or writes another session's session file; all
+  sessions found are marked, the newest two are told; `forge.js show` shows the same record until handled. A missing
+  `ended` stamp alone says nothing. The check runs only in a git repo with the own marker or in a guest project (a
+  `.jspark-forge/state/` shipped in a folder that is not a git repo proves nothing), and a transcript is read only when
+  its real path is inside the Claude home. A start deletes at most 50 old session files (ended over 7 days ago, or
+  untouched for 30) and in-flight records older than 7 days. What a crash can still lose: the reply Claude was writing,
+  a command's unsaved output, anything a program had not yet written to disk, and the newest log lines if the cut came
+  before they reached the disk; the NUL-byte check is a hint, not proof. Redaction of quoted text is best effort.
 - [updated 2026-11-20: v0.5] **Step progress** ("n of m") is read from Claude Code's task tools (TaskCreate and
   TaskUpdate; TodoWrite on older versions) as well as from the plan.
 - **New session: show and wait [owner].** JSPARK Forge shows "here's where we were: continue?" and Claude is told to wait.
