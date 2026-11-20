@@ -25,12 +25,10 @@ test('a small build graph runs end to end: helper step, then a gate judged by it
   const dir = project('graph', { files: { 'README.md': '# Tiny\n' } });
   fs.mkdirSync(path.join(dir, '.jspark-forge', 'graphs'), { recursive: true });
   fs.writeFileSync(path.join(dir, '.jspark-forge', 'graphs', 'tiny.md'), GRAPH);
-  // The user's TRUST GRAPH tiny, recorded as the UserPromptSubmit hook would.
-  const L = require('../../scripts/lib/graph').parse(GRAPH);
-  const runs = L.steps.filter(s => s.kind === 'gate').flatMap(s => s.run);
-  const crypto = require('node:crypto');
-  fs.writeFileSync(path.join(dir, '.jspark-forge', 'state', 'graph-trust.json'),
-    JSON.stringify({ asked: {}, trusted: { tiny: crypto.createHash('sha1').update(runs.join('\n')).digest('hex') } }));
+  // The user's TRUST GRAPH tiny, recorded as the UserPromptSubmit hook would (the value comes from the code, so a change
+  // to what trust covers cannot silently break this test again).
+  const { runHash } = require('../../scripts/lib/graph-run').load(dir, 'tiny');
+  fs.writeFileSync(path.join(dir, '.jspark-forge', 'state', 'graph-trust.json'), JSON.stringify({ asked: {}, trusted: { tiny: runHash } }));
   const r = claude(dir, 'Run the build graph "tiny" with /jspark-forge:build: start it, then follow every step that `graph next` prints until it says the graph finished. For the look step, the checker helper should find the path of README.md and return it as readme_path. Reply with the final `graph status tiny` output.',
     ['--permission-mode', 'acceptEdits', '--allowedTools', 'Bash,Agent,Write,Read,Skill']);
   assert.equal(r.status, 0, r.err);

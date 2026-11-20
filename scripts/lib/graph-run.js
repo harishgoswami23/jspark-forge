@@ -463,4 +463,4 @@ function onPrompt(dir, prompt, sid) {
   });
 }
 
-module.exports = { check, start, next, takeover, done, fail, rerun, stop, status, current, onSubagentStart, onAgentResult, onCommand, onPrompt, NAME };
+module.exports = { check, start, next, takeover, done, fail, rerun, stop, status, current, onSubagentStart, onAgentResult, onCommand, onPrompt, NAME, load };
