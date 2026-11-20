@@ -106,7 +106,7 @@ test('gap 1b: a page with no local copy is flagged at session start ("has no loc
 });
 
 // ---------------- gap 1c: temp-folder files ----------------
-const write = (dir, file, extra = {}) => hook(dir, 'PostToolUse', Object.assign({ tool_name: 'Write', tool_input: { file_path: file, content: 'x' } }, extra));
+const write = (dir, file, extra = {}, home) => hook(dir, 'PostToolUse', Object.assign({ tool_name: 'Write', tool_input: { file_path: file, content: 'x' } }, extra), home);
 
 test('gap 1c: writing an html, md or pdf file in the OS temp folder (outside the project) adds one line, once per file per session', () => {
   const dir = project();
@@ -126,10 +126,11 @@ test('gap 1c: not for other file types, nor for files inside the project', () =>
   assert.equal(ctx(write(dir, path.join(dir, 'a.md'))), '');
 });
 
-test('gap 1c: a path with a scratchpad segment counts as temporary, wherever it is', () => {
+test('gap 1c: a path with a scratchpad segment under the Claude home counts as temporary', () => {
   const dir = project();
-  const f = path.join(path.parse(os.tmpdir()).root, 'Users', 'someone', 'AppData', 'scratchpad', 'page.html');
-  assert.match(ctx(write(dir, f)), /temporary folder/);
+  const home = mk('forge-v051-cfg-');
+  const f = path.join(home, 'projects', 'x', 'scratchpad', 'page.html');
+  assert.match(ctx(write(dir, f, {}, home)), /temporary folder/);
 });
 
 test('gap 1c: the line says what to do and nothing is copied', () => {

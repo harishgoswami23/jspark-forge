@@ -120,3 +120,21 @@ test('2: in an own project the temp line is still given', () => {
   const dir = project();
   assert.match(ctx(write(dir, path.join(mk('forge-r51-t-'), 'notes.md'))), /temporary folder/);
 });
+
+test('6: a scratchpad segment counts only under the OS temp folder or the Claude home', () => {
+  const dir = project();
+  const home = mk('forge-r51-home-');
+  const hookTmp = mk('forge-r51-hooktmp-'); // the hook process sees this as the OS temp folder, so the home rule stands alone
+  const run = file => {
+    const e = Object.assign({}, env(dir, home), { TEMP: hookTmp, TMP: hookTmp, TMPDIR: hookTmp });
+    const r = spawnSync(process.execPath, [FORGE, 'PostToolUse'], { encoding: 'utf8', env: e,
+      input: JSON.stringify({ session_id: 's1', cwd: dir, hook_event_name: 'PostToolUse', tool_name: 'Write', tool_input: { file_path: file, content: 'x' } }) });
+    return ctx(r.stdout ? JSON.parse(r.stdout) : null);
+  };
+  const root = path.parse(os.tmpdir()).root;
+  assert.doesNotMatch(run(path.join(root, 'work', 'other', 'docs', 'Scratchpad', 'notes.md')), /temporary folder/, 'a docs folder called Scratchpad is not temporary');
+  assert.match(run(path.join(home, 'projects', 'p', 'scratchpad', 'page.html')), /temporary folder/, 'a scratchpad under the Claude home');
+  assert.match(run(path.join(hookTmp, 'scratchpad', 'a.md')), /temporary folder/, 'under the OS temp folder');
+  assert.match(run(path.join(hookTmp, 'plain', 'b.md')), /temporary folder/, 'any file under the OS temp folder');
+  assert.doesNotMatch(run(path.join(root, 'work', 'plain', 'notes.md')), /temporary folder/, 'any other folder');
+});

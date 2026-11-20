@@ -116,7 +116,11 @@ function tempFileNote(dir, t, ti, sess) {
     const key = process.platform === 'win32' ? abs.toLowerCase() : abs;
     const roots = [os.tmpdir()];
     try { roots.push(fs.realpathSync.native(os.tmpdir())); } catch { /* as given */ }
-    const temp = roots.some(b => under(b, abs)) || abs.split(/[\\/]/).some(seg => seg.toLowerCase() === 'scratchpad');
+    // a scratchpad segment counts only inside the OS temp folder or the Claude home (not any folder called Scratchpad)
+    const homes = [path.resolve(setup.claudeHome())];
+    try { homes.push(fs.realpathSync.native(homes[0])); } catch { /* as given */ }
+    const scratch = abs.split(/[\\/]/).some(seg => seg.toLowerCase() === 'scratchpad') && homes.some(b => under(b, abs));
+    const temp = roots.some(b => under(b, abs)) || scratch;
     if (!temp) return null;
     const warned = Array.isArray(sess.tempWarned) ? sess.tempWarned : [];
     if (warned.includes(key)) return null;
