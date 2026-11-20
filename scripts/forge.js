@@ -244,6 +244,10 @@ const handlers = {
     }
     const rc = handoff.resumeContext(dir, input.session_id, input.source || 'startup');
     if (offerAfterCompact) rc.context = `${rc.context}\n\n${offerAfterCompact}`;
+    try { // short by default (spec principle 10): like the grounding rule, at every start, compact included; own and guest alike
+      const sr = rules.settings['short-answers'] === 'off' ? null : handoff.shortRule();
+      if (sr) rc.context = `${rc.context}\n\n${sr}`;
+    } catch { /* never break a session start */ }
     // Model map (design-v0.2 4): superpowers starts general-purpose helpers and names a model per call, so with it the
     // map is steered, not enforced: one line asking Claude to use JSPARK Forge's helpers.
     try {

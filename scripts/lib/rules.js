@@ -8,14 +8,14 @@ const BUILTINS = require('../../rules/default-blocklist.json');
 const paths = require('./paths');
 
 
-const SETTINGS = { notes: ['on', 'off'], 'statusline-segment': ['on', 'off'], 'code-map': ['on', 'off'], playwright: ['on', 'off'], 'ui-skills': ['on', 'off'] };
+const SETTINGS = { notes: ['on', 'off'], 'statusline-segment': ['on', 'off'], 'code-map': ['on', 'off'], playwright: ['on', 'off'], 'ui-skills': ['on', 'off'], 'short-answers': ['on', 'off'] };
 // brand-skill (v0.5): a skill name, shown to Claude as text, so only a plain name is accepted.
 const SKILL_NAME = /^[A-Za-z0-9][A-Za-z0-9:_.-]{0,79}$/;
 
 const slug = s => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'rule';
 
 function parseRules(text) {
-  const out = { confirm: [], never: [], disabled: [], readonly: [], dbDev: [], settings: { notes: 'on', 'statusline-segment': 'on', 'code-map': 'on', playwright: 'on', 'ui-skills': 'on' }, explicit: [], errors: [] };
+  const out = { confirm: [], never: [], disabled: [], readonly: [], dbDev: [], settings: { notes: 'on', 'statusline-segment': 'on', 'code-map': 'on', playwright: 'on', 'ui-skills': 'on', 'short-answers': 'on' }, explicit: [], errors: [] };
   const ids = new Set(Object.keys(BUILTINS));
   let section = null;
   let reCount = 0;

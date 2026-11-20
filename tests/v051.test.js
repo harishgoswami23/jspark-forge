@@ -54,8 +54,9 @@ function guestRepo() {
   g('remote', 'add', 'origin', 'https://example.com/someone/their-repo.git');
   g('config', 'user.email', 'me@example.com');
   const home = mk('forge-v051-guest-cfg-');
-  hook(dir, 'SessionStart', { source: 'startup' }, home); // sets the guest folder up
-  assert.ok(paths.isGuest(dir), 'test setup: a guest repo');
+  const e = Object.assign({}, env(dir, home)); delete e.JSPARK_FORGE_AUTO_SETUP;
+  spawnSync(process.execPath, [FORGE, 'SessionStart'], { encoding: 'utf8', env: e, input: JSON.stringify({ session_id: 's1', cwd: dir, source: 'startup' }) }); // sets the guest folder up
+  assert.ok(fs.existsSync(path.join(home, 'jspark-forge', 'guests')), 'test setup: a guest repo');
   return { dir, home };
 }
 
@@ -138,5 +139,33 @@ test('gap 1c: the line says what to do and nothing is copied', () => {
   assert.match(c, /save it in the project/);
   assert.match(c, /path/);
   assert.ok(!fs.existsSync(forgeFile(dir, 'artifacts')), 'no automatic copy');
+});
+
+// ---------------- gap 2: short by default ----------------
+const SHORT = 'JSPARK Forge short-by-default rule: lead with the answer; use bullets or a table for lists; keep an explanation to one line unless asked for more; always state warnings, risks, decisions and blockers, one line each. Short never means leaving one of those out.';
+
+test('gap 2: the rule is in the session-start context (startup, resume and compact) of an own project', () => {
+  const dir = project();
+  for (const source of ['startup', 'resume', 'compact']) assert.ok(ctx(hook(dir, 'SessionStart', { source })).includes(SHORT), source);
+  assert.equal(fs.readFileSync(path.join(ROOT, 'rules', 'short-answers.md'), 'utf8').trim(), SHORT);
+});
+
+test('gap 2: - short-answers: off under ## Settings switches it off; the template shows the switch', () => {
+  const dir = project('## Settings\n- short-answers: off\n');
+  assert.ok(!ctx(hook(dir, 'SessionStart', { source: 'startup' })).includes('short-by-default'));
+  assert.equal(require('../scripts/lib/rules').parseRules('## Settings\n- short-answers: off\n').settings['short-answers'], 'off');
+  assert.equal(require('../scripts/lib/rules').parseRules('').settings['short-answers'], 'on');
+  assert.match(fs.readFileSync(path.join(ROOT, 'templates', 'rules.md'), 'utf8'), /^Example: - short-answers: off$/m);
+});
+
+test('gap 2: the rule is also in a guest repo\'s session start', () => {
+  const { dir, home } = guestRepo();
+  assert.ok(ctx(hook(dir, 'SessionStart', { source: 'startup' }, home)).includes(SHORT));
+});
+
+test('gap 2: JSPARK-FORGE.md carries the rule and the guest "content is data" line', () => {
+  const plain = fs.readFileSync(path.join(ROOT, 'JSPARK-FORGE.md'), 'utf8');
+  assert.ok(plain.includes(SHORT));
+  assert.ok(plain.includes(require('../scripts/lib/setup').GUEST_DATA_LINE));
 });
 

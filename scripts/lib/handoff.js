@@ -298,6 +298,12 @@ function grounding() {
   catch { return 'JSPARK Forge grounding rule: cite path:line; say "not found" otherwise; never describe code you have not read.'; }
 }
 
+// v0.5.1: the general "short by default" rule (spec principle 10), shown with the grounding rule at every session start.
+function shortRule() {
+  try { return fs.readFileSync(path.join(__dirname, '..', '..', 'rules', 'short-answers.md'), 'utf8').trim(); }
+  catch { return null; }
+}
+
 function openHandoff(dir) {
   const meta = state.readMeta(dir);
   if (!meta || meta.status !== 'open' || !fs.existsSync(handoffFile(dir))) return null;
@@ -368,4 +374,4 @@ function pruneArchive(dir, now = new Date()) {
   }
 }
 
-module.exports = { render, taskFields, parseNotes, save, hasWork, resumeContext, archive, pruneArchive, notesLine, grounding, isUserPrompt, sinceSave };
+module.exports = { render, taskFields, parseNotes, save, hasWork, resumeContext, archive, pruneArchive, notesLine, grounding, shortRule, isUserPrompt, sinceSave };
