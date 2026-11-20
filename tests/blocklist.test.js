@@ -342,6 +342,19 @@ const CASES = {
     [bash("printf 'rm -rf /'"), null],
     [bash('npm test && git push origin main'), null],
   ],
+  // Git Bash turns "//c" into "/c" for cmd (MSYS path conversion), and winpty runs the command after it.
+  'Git Bash cmd //c and winpty': [
+    [bash('cmd //c "rd /s /q %USERPROFILE%"'), 'rm-rf-outside!'],
+    [bash('cmd //c "git push --force origin main"'), 'git-force-push-main'],
+    [bash('cmd.exe //c git reset --hard'), 'git-reset-hard'],
+    [bash('cmd //k git reset --hard'), 'git-reset-hard'],
+    [bash('CMD //C git reset --hard'), 'git-reset-hard'],
+    [bash('winpty git reset --hard'), 'git-reset-hard'],
+    [bash('winpty cmd //c "git clean -fdx"'), 'git-clean-fdx'],
+    [bash('cmd //c "git status"'), null],
+    [bash('echo cmd //c git reset --hard'), null],
+    [bash('winpty node app.js'), null],
+  ],
 };
 
 if (WIN) {

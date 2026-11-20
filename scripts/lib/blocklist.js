@@ -736,7 +736,8 @@ function innerScript(cmd, args) {
     const i = args.findIndex(a => /^-(c|command|com|comm|comma|comman)$/i.test(a));
     return i >= 0 && i + 1 < args.length ? { script: args.slice(i + 1).join(' '), dialect: 'ps' } : null;
   }
-  if (cmd === 'cmd') { const i = args.findIndex(a => /^\/[ck]$/i.test(a)); return i >= 0 && i + 1 < args.length ? { script: args.slice(i + 1).join(' '), dialect: 'ps' } : null; }
+  // Git Bash passes "cmd //c ..." to cmd as "/c" (MSYS path conversion): one or two slashes.
+  if (cmd === 'cmd') { const i = args.findIndex(a => /^\/{1,2}[ck]$/i.test(a)); return i >= 0 && i + 1 < args.length ? { script: args.slice(i + 1).join(' '), dialect: 'ps' } : null; }
   return null;
 }
 

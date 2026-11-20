@@ -272,7 +272,7 @@ function cleanStage(st) {
 }
 
 // Wrappers and shell keywords that run the command after them ("then npm install", "timeout 60 make", "! npm test").
-const PREFIX = new Set(['sudo', 'env', 'command', 'nohup', 'time', 'exec', 'xargs', 'builtin', 'nice', 'doas', 'timeout',
+const PREFIX = new Set(['sudo', 'env', 'command', 'nohup', 'time', 'exec', 'xargs', 'builtin', 'nice', 'doas', 'timeout', 'winpty',
   'if', 'then', 'else', 'elif', 'do', 'while', 'until', '!']);
 const WITH_VALUE = { sudo: new Set(['-u', '-g', '-h', '-p', '-C']), xargs: new Set(['-I', '-n', '-P', '-L', '-d', '-s', '-E']), nice: new Set(['-n']),
   timeout: new Set(['-s', '--signal', '-k', '--kill-after']) };
