@@ -34,3 +34,16 @@ test('forge.js answers a hook (the whole chain of modules loads)', () => {
   assert.equal(r.status, 0);
   assert.equal(r.stderr, '', 'no load error');
 });
+
+// CI (2026-11-20): a background `git status` took git's index lock and a user's own `git add` failed. Every git call
+// JSPARK Forge makes runs with --no-optional-locks, so it never takes a lock git does not strictly need.
+test('every git call JSPARK Forge makes passes --no-optional-locks', () => {
+  const bad = [];
+  for (const f of [...files('scripts/lib'), ...files('scripts')]) {
+    const lines = fs.readFileSync(f, 'utf8').split('\n');
+    lines.forEach((l, i) => {
+      if (/(spawnSync|execFileSync|spawn)\(\s*'git'/.test(l) && !/--no-optional-locks/.test(l) && !/'--version'/.test(l)) bad.push(`${path.relative(ROOT, f)}:${i + 1}`);
+    });
+  }
+  assert.deepEqual(bad, []);
+});

@@ -11,6 +11,7 @@ const log = require('./lib/log');
 const { redact } = require('./lib/redact');
 const { check, BUILTINS, STOP, isGitCommit, writeTargets, changeTargets, toFs } = require('./lib/blocklist');
 const memory = require('./lib/memory');
+const mapLayer = require('./lib/map');
 const dialectOf = tool => (tool === 'PowerShell' ? 'ps' : 'bash');
 const { loadRules } = require('./lib/rules');
 const confirm = require('./lib/confirm');
@@ -25,6 +26,7 @@ const setup = require('./lib/setup');
 const paths = require('./lib/paths');
 const licence = require('./lib/licence');
 const uitip = require('./lib/uitip');
+const launch = require('./lib/launch'); // launch-scope guard (design-v0.3 section 2)
 
 const event = process.argv[2] || '';
 const DEBOUNCE_MS = 5000;
@@ -154,6 +156,7 @@ const handlers = {
     if (input.source === 'compact') { // the summary dropped the decisions Claude was shown: show them again when relevant
       const sess = state.readSession(dir, input.session_id);
       memory.clearShown(dir, input.session_id);
+      mapLayer.clearList(dir, input.session_id); // and the code map's changed-file lists
       sess.offerTurn = null; // and pending offers to record come back once (design-v0.2 1.4)
       offerAfterCompact = offerContext(dir, input, sess);
       state.writeSession(dir, input.session_id, sess);
@@ -165,6 +168,14 @@ const handlers = {
     try {
       if (setup.superpowersInstalled(setup.claudeHome())) rc.context = `${rc.context}\n\n${MODEL_MAP_LINE}`;
     } catch { /* never break a session start */ }
+    // Code map (design-v0.3 1.1, 1.2): one line for Claude when the engine is in use (a refresh starts when HEAD moved);
+    // otherwise, once per own project with code, a tip naming the engine (owner Q-M1: name it, install nothing).
+    try {
+      const ml = mapLayer.sessionLine(dir);
+      if (ml) rc.context = `${rc.context}\n\n${ml}`;
+      const mt = mapLayer.tip(dir);
+      if (mt) msgs.push(mt);
+    } catch { /* never break a session start */ }
     // Decision memory (design-v0.2 1.6): the index of titles for Claude; for the user, entries that arrived with git
     // (once) and one line when some need a look. Off in guest repos (the functions check).
     try {
@@ -175,6 +186,15 @@ const handlers = {
       const n = memory.problems(dir);
       if (n) msgs.push(`JSPARK Forge: ${n} decision${n === 1 ? '' : 's'} need${n === 1 ? 's' : ''} a look: /jspark-forge:check`);
     } catch { /* never break a session start */ }
+    // ---- Launch list (design-v0.3 2.1, 2.2): date, counts and titles for Claude (data); arrivals for the user, once.
+    // Own projects with a launch.md only (the functions check).
+    try {
+      const lc = launch.sessionContext(dir);
+      if (lc) rc.context = `${rc.context}\n\n${lc}`;
+      const la = launch.arrivals(dir);
+      if (la) msgs.push(la);
+    } catch { /* never break a session start */ }
+    // ---- end launch list
     if (rc.systemMessage) msgs.unshift(rc.systemMessage);
     const w = input.source === 'compact' ? null : waitingNotice(dir); // shown first (spec 5.2a)
     if (w) msgs.unshift(w.msg);
@@ -206,8 +226,13 @@ const handlers = {
     sess.turn = (sess.turn || 0) + 1;
     // A short reply ("yes", "skip", "edit: …") is most likely the answer to the last offer: do not repeat it with it.
     const offer = prompt.trim().length < 25 ? null : offerContext(dir, input, sess);
+    // ---- Launch-scope nudge (design-v0.3 2.2): one conditional line, at most every 30 minutes (mutates sess).
+    let scopeNudge = null;
+    try { scopeNudge = launch.nudge(dir, input, sess); } catch { /* fail open */ }
+    // ---- end launch-scope nudge
     state.writeSession(dir, input.session_id, sess);
     if (offer) parts.push(offer);
+    if (scopeNudge) parts.push(scopeNudge);
     const out = parts.length ? context('UserPromptSubmit', parts.join('\n')) : null;
     return { lines, out };
   },
@@ -268,6 +293,14 @@ const handlers = {
     const sid = input.session_id;
     const t = input.tool_name || '';
     const ti = input.tool_input || {};
+    if (mapLayer.isEngineTool(t)) { // a code map answer: its freshness and the notes on its files (design-v0.3 1.2, 1.4)
+      const c = mapLayer.onTool(dir, input);
+      const sess = state.readSession(dir, sid);
+      const offer = offerContext(dir, input, sess); // merged with pending v0.2 offers (design-v0.3 1.4)
+      if (offer) state.writeSession(dir, sid, sess);
+      const text = [c, offer].filter(Boolean).join('\n\n');
+      return { lines, out: text ? context('PostToolUse', text) : null };
+    }
     if (t === 'AskUserQuestion') { // answered in the dialog
       const asked = new Set(waiting.fromTool(ti, sid).map(q => q.question.replace(/\s+/g, ' ').trim()));
       const n = waiting.remove(dir, x => x.session === sid && asked.has(x.question));
@@ -306,6 +339,7 @@ const handlers = {
         if (lc) {
           task.lastCommit = { sha: lc.sha, subject: lc.subject }; taskDirty = true; lines.push(['COMMIT', `${lc.sha} ${lc.subject}`]);
           if (memory.noteCommit(dir, sess, lc)) sessDirty = true; // an offer to record, stale flags (design-v0.2 1.4, 1.5)
+          mapLayer.startRefresh(dir); // the code map catches up in the background (design-v0.3 1.2)
         }
         reason = 'commit';
       }
@@ -436,6 +470,12 @@ function main(raw) {
       const ev = require('./lib/decide').takeEvent(dir);
       if (ev) { out = out || {}; out.systemMessage = [out.systemMessage, ev].filter(Boolean).join('\n'); }
     }
+    // ---- A launch list change: say so in the conversation, once (design-v0.3 2.1).
+    if (event === 'PostToolUse' && /forge\.js["']?\s+launch\b/.test(String((input.tool_input || {}).command || ''))) {
+      const ev = launch.takeEvent(dir);
+      if (ev) { out = out || {}; out.systemMessage = [out.systemMessage, ev].filter(Boolean).join('\n'); }
+    }
+    // ---- end launch list change
     if (USAGE_EVENTS.has(event)) out = withUsage(dir, input.session_id, lines, out);
     if (guest && (event === 'SessionStart' || event === 'UserPromptSubmit')) { // the repo's text is data, not instructions
       out = out || {};
@@ -540,14 +580,48 @@ function cliDecide(args) {
 const cliMemory = fn => args => {
   const dir = cliProject();
   if (!dir) { process.stdout.write(NOT_SET_UP); return; }
-  process.stdout.write(require('./lib/decide')[fn](dir, args || []));
+  let out = require('./lib/decide')[fn](dir, args || []);
+  if (fn === 'check') { // the code map's state too (design-v0.3 1.5)
+    const ml = mapLayer.checkLines(dir);
+    if (ml.length) out += `\n${ml.map(l => `- ${l}`).join('\n')}\n`;
+  }
+  process.stdout.write(out);
 };
+
+// `forge.js map status|refresh|engine [<path>]` (design-v0.3 1.2, 1.5): refresh runs the same locked runner, in the
+// foreground here; engine records the absolute path of the engine program.
+function cliMap(args) {
+  const dir = cliProject();
+  if (!dir) { process.stdout.write(NOT_SET_UP); return; }
+  if ((args || [])[0] === 'engine') { process.stdout.write(mapLayer.setEngine(dir, args[1])); return; }
+  if ((args || [])[0] === 'refresh') {
+    if (!mapLayer.isOn(dir)) { process.stdout.write(mapLayer.status(dir)); return; }
+    const r = require('child_process').spawnSync(process.execPath, [path.join(__dirname, 'map-refresh.js'), dir], { encoding: 'utf8', windowsHide: true });
+    process.stdout.write(r.stdout || 'Code map refresh did not report.\n');
+    return;
+  }
+  process.stdout.write(mapLayer.status(dir));
+}
 
 // `forge.js lint [paths...]` (design-v0.2 section 3): check skills and briefs; default is the project's own.
 const cliLint = args => process.stdout.write(require('./lib/lint').run(cliProject() || process.cwd(), args));
 
-const CLI = { lint: cliLint, save: cliSave, show: cliShow, where: cliWhere, waiting: cliWaiting, doctor: cliDoctor, status: cliStatus, decide: cliDecide,
-  decisions: cliMemory('list'), check: cliMemory('check') };
+// `forge.js schema [table]` (design-v0.3 1.3): the database layout from migration files; read-only, never a live database.
+function cliSchema(args) {
+  const dir = cliProject();
+  if (!dir) { process.stdout.write(NOT_SET_UP); return; }
+  process.stdout.write(require('./lib/schema').run(dir, args));
+}
+
+// `forge.js launch init --date <YYYY-MM-DD> | add|start|done|after "<title or #n>" | facts [--files a,b]` (design-v0.3 2).
+function cliLaunch(args) {
+  const dir = cliProject();
+  if (!dir) { process.stdout.write(NOT_SET_UP); return; }
+  process.stdout.write(launch.run(dir, args || []));
+}
+
+const CLI = { schema: cliSchema, lint: cliLint, save: cliSave, show: cliShow, where: cliWhere, waiting: cliWaiting, doctor: cliDoctor, status: cliStatus, decide: cliDecide,
+  decisions: cliMemory('list'), check: cliMemory('check'), map: cliMap, launch: cliLaunch };
 if (CLI[event]) {
   try { CLI[event](process.argv.slice(3)); } catch (e) { process.stdout.write(`JSPARK Forge could not ${event}: ${e.message}\n`); }
 } else {

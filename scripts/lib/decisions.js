@@ -199,4 +199,4 @@ function matches(pattern, file) {
   return pathMatch(ps, f.split('/'));
 }
 
-module.exports = { parse, nextId, addEntry, setField, setTitle, idCounts, matches, words, today, KINDS };
+module.exports = { parse, nextId, addEntry, setField, setTitle, idCounts, matches, words, today, KINDS, linesOf, joinLines };

@@ -36,7 +36,7 @@ test('first session in a git project switches JSPARK Forge on by itself', () => 
   const dir = gitProject();
   const o = start(dir, config({}));
   const f = path.join(dir, '.jspark-forge');
-  assert.equal(fs.readFileSync(path.join(f, '.gitignore'), 'utf8'), '*\n!.gitignore\n!rules.md\n');
+  assert.equal(fs.readFileSync(path.join(f, '.gitignore'), 'utf8'), '*\n!.gitignore\n!rules.md\n!launch.md\n');
   assert.ok(fs.existsSync(path.join(f, 'rules.md')));
   assert.match(o.systemMessage, /JSPARK Forge is on in this project/);
   assert.match(o.hookSpecificOutput.additionalContext, /^JSPARK Forge grounding rule:/, 'works from the first session');
