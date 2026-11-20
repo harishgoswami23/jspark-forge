@@ -269,6 +269,82 @@ function normPath(p) {
 }
 const samePath = (a, b) => normPath(a) === normPath(b);
 
+// ---------- v0.4.1: readonly sources in the map (spec 5.2b) ----------
+// The rules.md "## Sources" readonly folders (an old system being migrated from). The engine indexes each as its own
+// project; JSPARK Forge records which engine project is which source, and its commit, and labels answers "old code".
+function readonlySources(dir) {
+  let list;
+  try { list = require('./rules').loadRules(dir).readonly || []; } catch { return []; }
+  const seen = new Set();
+  const out = [];
+  for (const r of list) {
+    const abs = path.resolve(dir, String(r.path || ''));
+    const key = normPath(abs);
+    if (!r.path || seen.has(key)) continue;
+    seen.add(key);
+    out.push({ path: String(r.path), abs, key });
+    if (out.length >= 20) break;
+  }
+  return out;
+}
+// A source's own commit: only when the folder is itself a git repo (not a folder inside some other repo).
+const sourceHead = abs => (fs.existsSync(path.join(abs, '.git')) ? headSha(abs) : '');
+const slashes = p => String(p).split(path.sep).join('/');
+const reindexCall = abs => `call index_repository with repo_path "${slashes(abs)}"`;
+
+// -> { changed, text } describing a recorded source against its folder now.
+function sourceNow(src, cur) {
+  if (!src.sha) return { changed: false, text: `indexed ${stamp(src.indexedAt)}; not a git repo, so JSPARK Forge cannot tell whether it changed since` };
+  const short = src.sha.slice(0, 7);
+  const head = sourceHead(cur.abs);
+  if (!head) return { changed: false, text: `as of ${short}, ${stamp(src.indexedAt)}; whether it changed since could not be checked` };
+  if (head !== src.sha) return { changed: true, text: `as of ${short}, ${stamp(src.indexedAt)}; it changed since it was indexed (HEAD is now ${head.slice(0, 7)})` };
+  return { changed: false, text: `as of ${short}, current` };
+}
+
+// A map answer whose engine project is a readonly source: the old-code line, or null when it is not one.
+function oldCodeLine(dir, input) {
+  const project = (input.tool_input || {}).project;
+  if (typeof project !== 'string' || !project) return null;
+  const recorded = readState(dir).sources || {};
+  const key = Object.keys(recorded).find(k => recorded[k] && recorded[k].project === project);
+  if (!key) return null;
+  const cur = readonlySources(dir).find(s => s.key === key);
+  if (!cur) return null; // no longer a readonly source in rules.md
+  const now = sourceNow(recorded[key], cur);
+  return `JSPARK Forge: this answer is from old code: the readonly source ${clean(cur.path, 120)} (${now.text})` +
+    `${now.changed ? `; before relying on it, ${reindexCall(cur.abs)}` : ''}. Say "old code" when you use it, and never edit it.`;
+}
+
+// Session start, map status and /check lines about readonly sources.
+function sourceLines(dir, kind) {
+  const recorded = readState(dir).sources || {};
+  const out = [];
+  for (const cur of readonlySources(dir)) {
+    const src = recorded[cur.key];
+    const name = clean(cur.path, 120);
+    if (!src) {
+      if (kind === 'session') out.push(`JSPARK Forge: readonly source ${name} not indexed: for "where is X in the old code?", ${reindexCall(cur.abs)} (its own index; answers from it are labelled old code; never edit it).`);
+      if (kind === 'status') out.push(`Old code (readonly source ${name}): not indexed yet.`);
+      continue;
+    }
+    const now = sourceNow(src, cur);
+    const short = src.sha ? src.sha.slice(0, 7) : '';
+    if (kind === 'session') {
+      out.push(`JSPARK Forge: readonly source ${name}: old code ${short ? `indexed as of ${short}` : `indexed ${stamp(src.indexedAt)} (not a git repo)`}` +
+        `${now.changed ? `; it changed since, so ${reindexCall(cur.abs)} before relying on map answers about it` : ''}. Map answers from it are labelled old code; never edit it.`);
+    } else if (kind === 'status') {
+      out.push(`Old code (readonly source ${name}): ${now.changed ? `changed since indexed (${now.text})` : short ? `indexed as of ${short}` : `indexed ${stamp(src.indexedAt)} (not a git repo)`}.`);
+    } else if (kind === 'check' && now.changed) {
+      out.push(`the old code in readonly source ${name} changed since it was indexed (as of ${short}): re-index it? (${reindexCall(cur.abs)})`);
+    }
+  }
+  return out;
+}
+
+const INDEX_OK = r => !(r && r.isError) && /"status"\s*:\s*"(indexed|ready)"|status:\s*(indexed|ready)/i.test(textOf(r).slice(0, 5000)) && !/\berror\b/i.test(textOf(r).slice(0, 200));
+const projectOf = r => { const m = textOf(r).slice(0, 5000).match(/"project"\s*:\s*"([^"]{1,300})"|^project:\s*(\S{1,300})/m); return m ? (m[1] || m[2]) : ''; };
+
 // PostToolUse on an engine tool. -> context text or null.
 function onTool(dir, input) {
   if (!paths.isOwn(dir) || !isEngineTool(input.tool_name)) return null;
@@ -284,10 +360,20 @@ function onTool(dir, input) {
     if (thisRepo && !(r && r.isError) && /"status"\s*:\s*"(indexed|ready)"|status:\s*(indexed|ready)/i.test(resp) && !/\berror\b/i.test(resp.slice(0, 200))) {
       const head = headSha(dir);
       if (head) updateState(dir, s => { s.sha = head; s.indexedAt = Date.now(); s.lastError = null; s.failures = 0; s.nextTryAt = 0; });
+    } else if (!thisRepo && typeof repo === 'string' && repo.trim() && INDEX_OK(r)) { // a readonly source: old code (v0.4.1)
+      const target = path.resolve(dir, repo.trim());
+      const src = readonlySources(dir).find(s => samePath(target, s.abs));
+      const project = src && projectOf(r);
+      if (project) {
+        const sha = sourceHead(src.abs) || null;
+        updateState(dir, s => { s.sources = Object.assign({}, s.sources, { [src.key]: { path: src.path, project, sha, indexedAt: Date.now() } }); });
+      }
     }
     return null;
   }
   if (!QUERY_TOOLS.test(String(input.tool_name))) return null;
+  const old = oldCodeLine(dir, input);
+  if (old) return old; // this project's freshness and decisions do not apply to the old code
   const key = input.agent_id || 'main';
   const parts = [freshness(dir, input.session_id, key)];
   try {
@@ -305,6 +391,12 @@ function onTool(dir, input) {
 // Session start: one line when on (and a refresh when HEAD moved); the tip once when off.
 function sessionLine(dir) {
   if (!isOn(dir)) return null;
+  const own = projectLine(dir);
+  let old = [];
+  try { old = sourceLines(dir, 'session'); } catch { /* fail open */ }
+  return [own].concat(old).join('\n');
+}
+function projectLine(dir) {
   const st = readState(dir);
   if (!st.sha) return `JSPARK Forge: code map engine in use; not indexed by JSPARK Forge yet (${refreshNote(dir)}).`;
   const head = headSha(dir);
@@ -346,6 +438,7 @@ function status(dir) {
     L.push(Number.isFinite(n) && n > 0 ? `Code map ${n} commit${n === 1 ? '' : 's'} behind (as of ${st.sha.slice(0, 7)}).` : `Code map indexed on a different history (${st.sha.slice(0, 7)}).`);
   }
   if (st.lastError) L.push(`Last refresh failed: ${String(st.lastError).slice(0, 200)}${st.nextTryAt > Date.now() ? ` (next try after ${stamp(st.nextTryAt)})` : ''}.`);
+  try { L.push(...sourceLines(dir, 'status')); } catch { /* fail open */ }
   return `${L.join('\n')}\n`;
 }
 function checkLines(dir) {
@@ -355,6 +448,7 @@ function checkLines(dir) {
   const out = [];
   if (st.sha && head && head !== st.sha) out.push(`the code map is behind HEAD (as of ${st.sha.slice(0, 7)}): refresh now? (node "${FORGE_JS}" map refresh)`);
   if (st.lastError) out.push(`the last code map refresh failed (${String(st.lastError).slice(0, 120)}): refresh now? (node "${FORGE_JS}" map refresh)`);
+  try { out.push(...sourceLines(dir, 'check')); } catch { /* fail open */ }
   return out;
 }
 

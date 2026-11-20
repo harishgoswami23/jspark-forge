@@ -72,6 +72,10 @@ reading file after file. JSPARK Forge switches on when the map is first used, ke
 commits, and adds how fresh each answer is ("as of <commit>"). Without it, these features stay quiet and everything
 else works.
 
+Migrating from an old system listed as a readonly source (below)? Claude can index it as well, as its own map, and
+answer "where is X in the old code?". Those answers are labelled **old code**, with the old system's commit; if the old
+code changed since it was indexed, Claude is told to index it again first. It is never edited.
+
 ## Skills and briefs for your project
 
 `/jspark-forge:new-skill <name>` creates a project skill from a checked template, and `/jspark-forge:new-brief <name>`
