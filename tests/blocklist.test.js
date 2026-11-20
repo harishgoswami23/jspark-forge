@@ -632,16 +632,22 @@ test('thousands of targets are checked fast: touch of 20000 files and rm of 3000
   const real = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-perf-'));
   try {
     fs.mkdirSync(path.join(real, '.jspark-forge', 'state'), { recursive: true });
-    const c = ctx({ projectDir: real });
+
     const deep = Array.from({ length: 60 }, (_, i) => `d${i}`).join('/');
     for (const [label, command] of [
       ['touch 20000', `touch ${Array.from({ length: 20000 }, (_, i) => `f${i}`).join(' ')}`],
       ['rm 3000 deep', `rm ${Array.from({ length: 3000 }, (_, i) => `${deep}/f${i}.txt`).join(' ')}`],
       ['rm 3000', `rm ${Array.from({ length: 3000 }, (_, i) => `f${i}.txt`).join(' ')}`],
     ]) {
-      const t = Date.now();
-      assert.equal(check({ tool_name: 'Bash', tool_input: { command }, cwd: real }, c), null);
-      assert.ok(Date.now() - t < 500, `${label}: ${Date.now() - t} ms`);
+      // Best of two, under 1.5 s: alone this takes about 0.25 s, the full suite in parallel doubles it, and the
+      // regression it guards against took 3.5 s and 10.5 s.
+      let best = Infinity;
+      for (let i = 0; i < 2; i++) {
+        const t = Date.now();
+        assert.equal(check({ tool_name: 'Bash', tool_input: { command }, cwd: real }, ctx({ projectDir: real })), null);
+        best = Math.min(best, Date.now() - t);
+      }
+      assert.ok(best < 1500, `${label}: ${best} ms`);
     }
   } finally { fs.rmSync(real, { recursive: true, force: true }); }
 });
