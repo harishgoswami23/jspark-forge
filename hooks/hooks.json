@@ -75,7 +75,7 @@
             "timeout": 10
           }
         ],
-        "matcher": "Edit|Write|NotebookEdit|Bash|PowerShell|TodoWrite|TaskCreate|TaskUpdate|Agent|AskUserQuestion|ExitPlanMode|mcp__.*"
+        "matcher": "Edit|Write|NotebookEdit|Artifact|Bash|PowerShell|TodoWrite|TaskCreate|TaskUpdate|Agent|AskUserQuestion|ExitPlanMode|mcp__.*"
       }
     ],
     "PostToolUseFailure": [

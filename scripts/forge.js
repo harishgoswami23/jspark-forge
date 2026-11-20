@@ -27,6 +27,7 @@ const setup = require('./lib/setup');
 const paths = require('./lib/paths');
 const licence = require('./lib/licence');
 const uitip = require('./lib/uitip');
+const artifacts = require('./lib/artifacts'); // spec principle 9: a published page is kept as a local file
 const uiskills = require('./lib/uiskills'); // v0.5: Claude and its helpers load the design and brand skills before UI work
 const launch = require('./lib/launch'); // launch-scope guard (design-v0.3 section 2)
 
@@ -226,6 +227,13 @@ const handlers = {
     try {
       if (setup.superpowersInstalled(setup.claudeHome())) rc.context = `${rc.context}\n\n${MODEL_MAP_LINE}`;
     } catch { /* never break a session start */ }
+    try { // spec principle 9: local-first, account-independent (own projects)
+      if (paths.isOwn(dir)) {
+        rc.context = `${rc.context}\n\n${artifacts.RULE}`;
+        const gone = input.source === 'compact' ? null : artifacts.missing(dir);
+        if (gone) msgs.push(gone);
+      }
+    } catch { /* never break a session start */ }
     try { // the UI rule, every session start in an own front-end project (compact included)
       const ui = uiskills.line(dir);
       if (ui) rc.context = `${rc.context}\n\n${ui}`;
@@ -394,6 +402,11 @@ const handlers = {
       if (offer) state.writeSession(dir, sid, sess);
       const text = [c, offer].filter(Boolean).join('\n\n');
       return { lines, out: text ? context('PostToolUse', text) : null };
+    }
+    if (t === 'Artifact') { // a published page: keep its file in the project (spec principle 9)
+      const kept = paths.isOwn(dir) ? artifacts.onPublish(dir, ti, input.tool_response) : null;
+      if (kept) lines.push(['KEEP', String(ti.file_path || '')]);
+      return { lines, out: kept ? context('PostToolUse', kept) : null };
     }
     if (t === 'AskUserQuestion') { // answered in the dialog
       const asked = new Set(waiting.fromTool(ti, sid).map(q => q.question.replace(/\s+/g, ' ').trim()));
