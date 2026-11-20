@@ -78,7 +78,10 @@ function render(m, opts = {}) {
   let head = `As of ${ymd(m.asOf)} ${hhmm(m.asOf)} · saved because: ${m.reason}`;
   if (g && g.branch) {
     head += ` · branch ${g.branch}${g.head ? ` @ ${g.head}` : ''}`;
-    head += g.dirty ? ` · ${g.dirty} ${g.dirty === 1 ? 'file' : 'files'} not committed` : ' · nothing uncommitted';
+    const n = g.capped ? `${g.dirty}+` : g.dirty;
+    const fw = g.dirty === 1 && !g.capped ? 'file' : 'files';
+    if (g.noCommits) head += ` · no commits yet in this repo (${g.approx ? 'about ' : ''}${n} ${fw} untracked)`;
+    else head += g.dirty ? ` · ${g.approx ? 'about ' : ''}${n} ${fw} not committed` : ' · nothing uncommitted';
   }
   if (m.ended) head += ` · session ended ${hhmm(new Date(m.ended.at))} (${m.ended.reason})`;
   L.push('# Where we were');

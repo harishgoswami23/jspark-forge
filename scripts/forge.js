@@ -132,6 +132,17 @@ function tempFileNote(dir, t, ti, sess) {
 }
 
 const branchOf = dir => git.headBranch(dir) || ''; // read from .git/HEAD, no git process
+// A note shown at most once a day per project: true the first time today (and remembered in state/tips.json).
+function onceADay(dir, key) {
+  const tipsFile = path.join(paths.forgeDir(dir), 'state', 'tips.json');
+  let tips = {};
+  try { tips = JSON.parse(fs.readFileSync(tipsFile, 'utf8')) || {}; } catch { /* none yet */ }
+  const today = log.dayStamp(new Date());
+  if (tips[key] === today) return false;
+  fs.mkdirSync(path.dirname(tipsFile), { recursive: true });
+  fs.writeFileSync(tipsFile, `${JSON.stringify(Object.assign(tips, { [key]: today }), null, 1)}\n`);
+  return true;
+}
 // quarantine: only in a guest repo after /jspark-forge:init --guest (one small file read, no git).
 const blockCtx = (dir, rules) => ({ projectDir: dir, home: os.homedir(), rules, branchOf,
   quarantine: paths.isGuest(dir) && !!(paths.guestMeta(dir) || {}).quarantine, repoRoot: paths.repoRoot(dir) });
@@ -271,6 +282,10 @@ const handlers = {
     try { // v0.5.1 gaps 1-2: an own project's missing .gitignore is made again; an older one learns the briefs line
       if (paths.isOwn(dir)) {
         if (!setup.repairGitignore(dir) && fs.existsSync(path.join(paths.repoForgeDir(dir), 'graphs'))) setup.shareGraphs(dir);
+        // v0.5.1 gaps 3: no commit yet means nothing can be undone; say so once a day (read from .git, no git process)
+        if (git.headBranch(dir) && !git.headCommit(dir) && onceADay(dir, 'noCommitsTold')) {
+          msgs.push('JSPARK Forge: this repo has no commits yet, so a crash or a bad edit cannot be undone. Ask Claude to make a first commit.');
+        }
       }
     } catch { /* never break a session start */ }
     let offerAfterCompact = null;
