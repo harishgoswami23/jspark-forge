@@ -16,7 +16,7 @@ const models = () => Object.values(tiers()).map(t => t && t.model).filter(Boolea
 
 // The `model:` value of an agent file's frontmatter, or null.
 function modelOfText(text) {
-  const m = String(text).replace(/^﻿/, '').match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  const m = String(text).replace(/^\u{FEFF}/u, '').match(/^---\r?\n([\s\S]*?)\r?\n---/);
   const l = m && m[1].split(/\r?\n/).map(x => x.match(/^model:\s*(.*?)\s*$/)).find(Boolean);
   return l ? l[1] : null;
 }

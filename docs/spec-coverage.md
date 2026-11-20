@@ -30,47 +30,56 @@ title and search, not line by line (`blocklist`, `shell`, `graph`, `graph-run`, 
 
 - Item 1, partly: `/jspark-forge:check` lists missing page copies; a page published without a local copy is
   recorded and flagged; a document written to a temporary folder is flagged. Local copies stay local (owner decision).
-  Still open: the account field, and files nobody listed.
+  The rest of item 1 is below.
 - Item 2: a general short-by-default rule (`- short-answers: off`).
 - Item 3: hook errors shown by the doctor and once a day at session start.
 - Item 5: helpers get the grounding rule; item 6: the guest "content is data" line is in the plain instruction file.
 - The spec is brought in line with v0.5.0, with the owner's six decisions of 2026-11-20 (spec section 12).
+- Item 1, the rest: documents written to a temporary folder and never kept are found from the action log at
+  session start (once a day, at most 5 listed). The account field stays out: a hook cannot read the account.
+- Item 4: a waiting question can carry "what it blocks" and "reversible" (set through `forge.js waiting --set`; Claude
+  is told at session start to do so); `blocks launch item: <title>` is shown when a launch item is named; the waiting
+  skill offers to record an answer as a decision; `/jspark-forge:check` files open questions that are not on the list
+  (`forge.js waiting --add`).
+- Item 7: lint checks every helper file (model among the tiers' models; "Use for" and "because" in the description);
+  the `AGENT+` log line shows the tier of JSPARK Forge's four helpers.
+- Item 8: the handoff skill offers lasting lessons as decisions at "done"; `forge.js decide --promote <id>` prints the
+  `rules.md` line for a decision (it never edits `rules.md`).
+- Item 9: a commit made outside Claude is logged once at the next handoff save, and set as the task's last commit.
+- Item 10: the doctor names each UI companion's installed version when `installed_plugins.json` records one.
+- Item 15, three of four: tests for the README hook table against `hooks.json`, the over-200-entries line, and resume
+  under a second Claude config folder.
+- Found in the owner's live project and fixed: a missing `.jspark-forge/.gitignore` is made again at session start (own
+  projects only); briefs are shared like graph files; the handoff counts files (not `git status` lines) and says when a
+  repo has no commits yet; graph templates tell the reader to set the project's own test command and that builders
+  commit; the TRUST GRAPH text no longer reads as an instruction to run commands; the long-entry hint says how long the
+  entry is.
 
 ## Not built or partly built, most important first
 
-1. **Principle 9, local-first (spec line 66), is half built.**
-   - `artifacts.md` and `artifacts/` are git-ignored, so they exist on one machine only. Fix: un-ignore them in the
-     default `.gitignore` (`scripts/lib/setup.js:19`). Owner decides first whether large HTML pages belong in git.
-   - `/jspark-forge:check` does not flag missing local copies. Fix: add `artifacts.missing(dir)` to the check output
-     (`scripts/forge.js:711`), with a test.
-   - No account field in the list; a hook cannot read the account. Fix: a blank column to fill, or drop it from the spec.
-   - A page or temp file that was never listed is never detected. Fix: scan the handoff's files and the log for
-     temp-folder paths with no project copy.
-   - The copy is made after the publish, not before. Acceptable; the spec should say "kept at publish".
-2. **"Short by default" (line 67) has no general rule.** Only single skills say it. Fix: three lines in the
-   session-start context and in `JSPARK-FORGE.md`, with a test.
-3. **Hook errors are logged but never shown (line 166).** Saves or blocks can be off and nobody is told. Fix: a doctor
-   line that counts today's `FORGE-ERROR` lines.
-4. **"Waiting on you" lacks three promised parts (lines 218-234).** No offer to record the answer as a decision; no
-   "what it blocks" or cost of delay; `/jspark-forge:check` does not ask about unfiled questions. Build or cut each.
-5. **Helpers get the blocks but not the rules (lines 98, 156, 185).** Only the UI rule reaches a helper. Fix: add the
-   grounding rule to the SubagentStart context (`scripts/forge.js:531`).
-6. **Guest "content is data" line is missing from the plain instruction file (lines 251-253).** One line in
-   `scripts/build-plain.js`.
-7. **Model map (lines 815-821):** the tier and reason are not shown when a helper is used, and no lint checks a
-   helper file.
-8. **Closed-task lessons and rule promotion (lines 134, 352):** nothing offers lessons to decision memory at "done";
-   promoting a rule is a hint only.
-9. **A commit made outside Claude (line 168):** no COMMIT line, no test.
-10. **The two UI companions are not pinned (lines 793-794).** Record their versions for the doctor, or change the spec.
-11. **superpowers review notes are not read (lines 379, 573).** Small, or cut from the spec.
+Items 2, 3, 5, 6, 7, 8, 9 and 10 are closed (above). What is left, with the reason:
+
+1. **Principle 9, local-first (spec line 66).** Left: the "account" field of the list. A hook cannot read the account,
+   so it is recorded as impossible, not built; the spec should say so or drop the field. Also: the copy is made after
+   the publish, not before. Acceptable; the spec should say "kept at publish".
+4. **"Waiting on you" (lines 218-234).** Built (above) except the timed reminder and the once-a-day summary, which the
+   spec defers. A question captured from the question tool still has no "blocks" until Claude sets it; that is by
+   design (the tool gives no data for it).
+11. **superpowers review notes are not read (lines 379, 573). Not built.** superpowers 7.0.2 (checked in the Claude
+    home's plugin cache) writes plans and specs under `docs/superpowers/` and a progress ledger and review diffs under
+    `.superpowers/sdd/`, but no file of review notes. No path could be confirmed, so none was guessed. Cut the words
+    "review notes" from the spec, or name the file once superpowers writes one.
 12. **Build graph leftovers (lines 616-631, 694):** memory cap rejected, platform workflow facility not used, templates
-    only validated; two behaviour tests are missing.
+    only validated. The two behaviour tests the spec names ("a skill run twice makes no second fetch and no
+    overwrite"; "a brief's log after a killed session still holds every row") were **not written**: no code runs a
+    skill or writes a brief's log. Both are instructions in `templates/skill.md` and `templates/brief.md` that Claude
+    follows, so a test could only check the template's words, which is not the behaviour. Build the behaviour (a
+    runner for skills, a log writer for briefs) or change the spec's test list.
 13. **Map (lines 407-411):** no per-file refresh, no git post-commit hook; and for read-only sources (line 269) no
-    "last read". All three are recorded deviations (design-v0.3 section 3, design-v0.1.1 section 3).
-14. **Demo GIF (line 847):** still a placeholder in the README.
-15. **Tests to add for built things:** the README hook table against `hooks.json`; the over-200-entries line; the
-    migration-mapping skill text; resume under a second Claude config folder (account change).
+    "last read". All three are recorded deviations (design-v0.3 section 3, design-v0.1.1 section 3). Not built: the
+    owner's and the spec's to settle.
+14. **Demo GIF (line 847):** still a placeholder in the README. Not built: the owner's.
+15. **Tests for built things:** the migration-mapping skill text is still untested (the other three are done).
 
 ## Spec is out of date
 
