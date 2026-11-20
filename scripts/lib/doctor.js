@@ -191,7 +191,7 @@ function checkCompanions(home) {
   const flags = (readJson(path.join(home, 'jspark-forge', 'state.json')) || {}).companions || {};
   const results = c.results(home);
   const missing = c.LIST.filter(x => !c.installed(home, x.name));
-  if (!missing.length) return [['ok', `UI companions: ${c.LIST.map(x => x.name).join(' and ')} installed`]];
+  if (!missing.length) return [['ok', `UI companions: ${c.LIST.map(x => { const v = c.versionOf(home, x.name); return v ? `${x.name} ${v}` : x.name; }).join(' and ')} installed`]];
   return missing.map(x => {
     const r = results[x.name];
     if (!flags[x.name]) return ['ok', `UI companions: ${x.name} not added yet (JSPARK Forge adds it at the next start from its marketplace; or: /plugin install ${x.id})`];

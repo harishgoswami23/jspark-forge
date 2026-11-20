@@ -132,6 +132,17 @@ function tempFileNote(dir, t, ti, sess) {
 }
 
 const branchOf = dir => git.headBranch(dir) || ''; // read from .git/HEAD, no git process
+// A note shown at most once a day per project: true the first time today (and remembered in state/tips.json).
+function onceADay(dir, key) {
+  const tipsFile = path.join(paths.forgeDir(dir), 'state', 'tips.json');
+  let tips = {};
+  try { tips = JSON.parse(fs.readFileSync(tipsFile, 'utf8')) || {}; } catch { /* none yet */ }
+  const today = log.dayStamp(new Date());
+  if (tips[key] === today) return false;
+  fs.mkdirSync(path.dirname(tipsFile), { recursive: true });
+  fs.writeFileSync(tipsFile, `${JSON.stringify(Object.assign(tips, { [key]: today }), null, 1)}\n`);
+  return true;
+}
 // quarantine: only in a guest repo after /jspark-forge:init --guest (one small file read, no git).
 const blockCtx = (dir, rules) => ({ projectDir: dir, home: os.homedir(), rules, branchOf,
   quarantine: paths.isGuest(dir) && !!(paths.guestMeta(dir) || {}).quarantine, repoRoot: paths.repoRoot(dir) });
@@ -142,11 +153,14 @@ const context = (ev, text) => ({ hookSpecificOutput: { hookEventName: ev, additi
 const notesOn = dir => loadRules(dir).settings.notes !== 'off';
 
 const WAIT_CTX = 'JSPARK Forge: these questions to the user are still open. Ask them again in one short list, ' +
-  "or carry on with work they do not block and say what is parked. Never act on a recommendation without the user's answer.";
+  "or carry on with work they do not block and say what is parked. Never act on a recommendation without the user's answer. " +
+  'State for each open question what it blocks (and whether the answer can be undone), and record it with: ' +
+  `node "${path.join(__dirname, 'forge.js').replace(/\\/g, '/')}" waiting --set <id> --blocks "<what it holds up>" --reversible yes|no`;
 function waitingNotice(dir) { // -> { msg, ctx } for session start, or null
   const items = waiting.read(dir);
   if (!items.length) return null;
-  const list = items.map((x, i) => `${i + 1}. ${waiting.line(x)}`).join('\n');
+  const titles = waiting.launchTitles(dir);
+  const list = items.map((x, i) => `${i + 1}. ${waiting.line(x, titles)}`).join('\n');
   return { msg: `Waiting on you (${items.length}):\n${list}\nAnswer here, or run /jspark-forge:waiting.`, ctx: `${WAIT_CTX}\n${list}` };
 }
 
@@ -268,6 +282,15 @@ const handlers = {
       }
     } catch { /* never break a session start */ }
     if (rules.disabled.length) msgs.push(`JSPARK Forge: you switched off ${rules.disabled.join(', ')} in rules.md.`);
+    try { // v0.5.1 gaps 1-2: an own project's missing .gitignore is made again; an older one learns the briefs line
+      if (paths.isOwn(dir)) {
+        if (!setup.repairGitignore(dir) && fs.existsSync(path.join(paths.repoForgeDir(dir), 'graphs'))) setup.shareGraphs(dir);
+        // v0.5.1 gaps 3: no commit yet means nothing can be undone; say so once a day (read from .git, no git process)
+        if (git.headBranch(dir) && !git.headCommit(dir) && onceADay(dir, 'noCommitsTold')) {
+          msgs.push('JSPARK Forge: this repo has no commits yet, so a crash or a bad edit cannot be undone. Ask Claude to make a first commit.');
+        }
+      }
+    } catch { /* never break a session start */ }
     let offerAfterCompact = null;
     if (input.source === 'compact') { // the summary dropped the decisions Claude was shown: show them again when relevant
       const sess = state.readSession(dir, input.session_id);
@@ -300,6 +323,10 @@ const handlers = {
         rc.context = `${rc.context}\n\n${artifacts.RULE}`;
         const gone = input.source === 'compact' ? null : artifacts.missing(dir);
         if (gone) msgs.push(gone);
+        if (input.source !== 'compact' && onceADay(dir, 'unlistedDocsScanned')) { // documents written to a temp folder, never listed
+          const un = artifacts.unlisted(dir, new Date(), setup.claudeHome());
+          if (un) msgs.push(un);
+        }
       }
     } catch { /* never break a session start */ }
     try { // the UI rule, every session start in an own front-end project (compact included)
@@ -620,7 +647,9 @@ const handlers = {
     const parts = [handoff.grounding()];
     try { if (paths.isGuest(dir)) parts.push(setup.GUEST_DATA_LINE); } catch { /* fail open */ }
     try { const ui = uiskills.helperLine(dir, input.agent_type); if (ui) parts.push(ui); } catch { /* fail open */ }
-    return { lines: [['AGENT+', input.agent_type || '']], out: context('SubagentStart', parts.join('\n\n')) };
+    let tier = null; // the model map: the tier shows when one of JSPARK Forge's four helpers starts (spec 815-821)
+    try { tier = require('./lib/tiers').tierOfAgent(input.agent_type); } catch { /* fail open */ }
+    return { lines: [['AGENT+', `${input.agent_type || ''}${tier ? ` (${tier})` : ''}`]], out: context('SubagentStart', parts.join('\n\n')) };
   },
 
   // v0.5.1: a sign-in completed during the session (the account may have changed). A hook cannot see which account is
@@ -836,11 +865,28 @@ function cliWaiting(args) {
     process.stdout.write(`Removed ${n} from the list; ${waiting.read(dir).length} still waiting.\n`);
     return;
   }
+  const flag = name => { const k = args.indexOf(name); return k >= 0 && args[k + 1] !== undefined && !String(args[k + 1]).startsWith('--') ? String(args[k + 1]) : undefined; };
+  const rev = flag('--reversible') === undefined ? undefined : /^(yes|y|true)$/i.test(flag('--reversible')) ? true : /^(no|n|false)$/i.test(flag('--reversible')) ? false : undefined;
+  if (args.includes('--set')) { // v0.5.1: what an open question blocks, and whether the answer can be undone (optional)
+    const id = flag('--set');
+    const x = id && waiting.set(dir, id, { blocks: flag('--blocks'), reversible: rev });
+    process.stdout.write(x ? `${x.id}: ${waiting.line(x)}\n` : `No open question ${id || ''} to update.\n`);
+    return;
+  }
+  if (args.includes('--add')) { // v0.5.1: Claude files an open question it found unfiled (/jspark-forge:check)
+    const q = flag('--add');
+    const sid = process.env.CLAUDE_CODE_SESSION_ID || 'manual';
+    const added = q ? waiting.add(dir, [{ question: q, session: sid, source: 'claude', blocks: flag('--blocks'), reversible: rev, recommendation: flag('--recommend') }]) : 0;
+    const x = added ? waiting.read(dir).filter(i => i.session === sid && i.question.startsWith(String(q).replace(/\s+/g, ' ').trim().slice(0, 100))).pop() : null;
+    process.stdout.write(x ? `Filed ${x.id}: ${waiting.line(x)}\n` : 'Not filed: it is already on the list, or no question was given.\n');
+    return;
+  }
   const items = waiting.read(dir);
   if (!items.length) { process.stdout.write('Nothing is waiting on you.\n'); return; }
   const now = Date.now();
+  const titles = waiting.launchTitles(dir);
   process.stdout.write(`${items.length} waiting on you (oldest first):\n${items.map((x, n) =>
-    `${n + 1}. [${x.id}] ${waiting.line(x)}${x.about ? ` (about: ${x.about})` : ''}${x.options.length ? `; options: ${x.options.join(' / ')}` : ''}; asked ${waiting.ago(now - x.askedAt)} ago`).join('\n')}\n`);
+    `${n + 1}. [${x.id}] ${waiting.line(x, titles)}${x.about ? ` (about: ${x.about})` : ''}${x.options.length ? `; options: ${x.options.join(' / ')}` : ''}; asked ${waiting.ago(now - x.askedAt)} ago`).join('\n')}\n`);
 }
 
 // `forge.js doctor` / `forge.js status` (spec 5.13c): read-only health check; what is saved now.

@@ -25,7 +25,7 @@ test('creates .jspark-forge/ with its own .gitignore and a starter rules.md', ()
   const r = init(s);
   assert.equal(r.status, 0);
   const f = path.join(s.project, '.jspark-forge');
-  assert.equal(fs.readFileSync(path.join(f, '.gitignore'), 'utf8'), '*\n!.gitignore\n!rules.md\n!launch.md\n!graphs/\n!graphs/*.md\n');
+  assert.equal(fs.readFileSync(path.join(f, '.gitignore'), 'utf8'), '*\n!.gitignore\n!rules.md\n!launch.md\n!graphs/\n!graphs/*.md\n!briefs/\n!briefs/*.md\n');
   const rules = fs.readFileSync(path.join(f, 'rules.md'), 'utf8');
   assert.match(rules, /^## Confirm$/m);
   assert.match(rules, /^## Never$/m);

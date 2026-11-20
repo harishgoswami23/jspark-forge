@@ -78,7 +78,10 @@ function render(m, opts = {}) {
   let head = `As of ${ymd(m.asOf)} ${hhmm(m.asOf)} · saved because: ${m.reason}`;
   if (g && g.branch) {
     head += ` · branch ${g.branch}${g.head ? ` @ ${g.head}` : ''}`;
-    head += g.dirty ? ` · ${g.dirty} ${g.dirty === 1 ? 'file' : 'files'} not committed` : ' · nothing uncommitted';
+    const n = g.capped ? `${g.dirty}+` : g.dirty;
+    const fw = g.dirty === 1 && !g.capped ? 'file' : 'files';
+    if (g.noCommits) head += ` · no commits yet in this repo (${g.approx ? 'about ' : ''}${n} ${fw} untracked)`;
+    else head += g.dirty ? ` · ${g.approx ? 'about ' : ''}${n} ${fw} not committed` : ' · nothing uncommitted';
   }
   if (m.ended) head += ` · session ended ${hhmm(new Date(m.ended.at))} (${m.ended.reason})`;
   L.push('# Where we were');
@@ -214,6 +217,24 @@ const hasWork = (dir, sid) => {
   return workOf(state.readSession(dir, sid), task, readNotes(dir), task.planFile || superpowers.newestLedgerPlan(dir, task.closedAt || 0));
 };
 
+// A commit made outside Claude (spec 168): HEAD moved forward on the same branch since this session's last save, and
+// neither the task's last commit nor a COMMIT line in the log is for it. One COMMIT line, once; the task's last commit
+// is set. The extra git calls (the commit, the ancestry) run only when HEAD moved. Mutates task; never throws.
+function outsideCommit(dir, sid, prev, now_, task, now) {
+  try {
+    if (!prev || !prev.head || !now_ || !now_.head || prev.head === now_.head || prev.branch !== now_.branch) return;
+    const known = c => c && String(c).length >= 7 && (now_.head.startsWith(String(c).slice(0, 7)) || String(c).startsWith(now_.head));
+    if (task.lastCommit && known(task.lastCommit.sha)) return; // Claude's own commit: the hook has recorded it
+    if (logEntries(dir).some(e => e.kind === 'COMMIT' && known(String(e.detail).split(' ')[0]))) return;
+    if (!require('./git').isAncestor(dir, prev.head, now_.head)) return;
+    const lc = require('./git').lastCommit(dir);
+    if (!lc || !known(lc.sha)) return;
+    task.lastCommit = { sha: lc.sha, subject: lc.subject };
+    state.writeTask(dir, task);
+    log.append(dir, { time: now, session: sid, kind: 'COMMIT', detail: `${lc.sha} ${lc.subject} (made outside Claude)` }, { secrets: log.envSecrets(dir) });
+  } catch { /* fail open */ }
+}
+
 function save(dir, sid, reason, { refreshGit = true, now = new Date(), force = false } = {}) {
   const sess = state.readSession(dir, sid);
   const task = state.readTask(dir);
@@ -221,7 +242,11 @@ function save(dir, sid, reason, { refreshGit = true, now = new Date(), force = f
   let plan = null;
   const planFile = task.planFile || superpowers.newestLedgerPlan(dir, task.closedAt || 0);
   if (!force && !workOf(sess, task, notes, planFile)) return null;
-  if (refreshGit) sess.git = gitInfo(dir);
+  if (refreshGit) {
+    const prevGit = sess.git;
+    sess.git = gitInfo(dir);
+    outsideCommit(dir, sid, prevGit, sess.git, task, now);
+  }
   if (planFile) {
     try { plan = parsePlan(fs.readFileSync(path.join(dir, planFile), 'utf8')); } catch {}
     const lp = plan && superpowers.ledgerProgress(dir, planFile, plan); // superpowers tracks tasks, not boxes

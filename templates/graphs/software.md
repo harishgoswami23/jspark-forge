@@ -1,7 +1,7 @@
 # Graph: software
 - max_parallel: 2
 
-<!-- A feature from spec to release. /jspark-forge:build copies it to .jspark-forge/graphs/<name>.md; then change the title to "# Graph: <name>" and edit the briefs and checks. -->
+<!-- A feature from spec to release. /jspark-forge:build copies it to .jspark-forge/graphs/<name>.md; then change the title to "# Graph: <name>" and edit the briefs and checks. Builders commit their step's work on the current branch (no merge, no push): the review step needs those commits. -->
 
 ## spec (agent)
 - helper: planner
@@ -35,6 +35,7 @@
 ## tasks (parallel)
 - steps: build-core, build-ui
 
+<!-- Set this to the project's own test command (pnpm test, yarn test, pytest, go test ./..., …) before you trust the graph. -->
 ## gate (gate)
 - after: tasks
 - run: npm test

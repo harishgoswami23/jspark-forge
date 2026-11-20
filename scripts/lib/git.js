@@ -4,24 +4,47 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
-const run = (dir, args) => execFileSync('git', ['--no-optional-locks', '-C', dir, ...args],
-  { encoding: 'utf8', timeout: 3000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+const run = (dir, args, timeout = 3000) => execFileSync('git', ['--no-optional-locks', '-C', dir, ...args],
+  { encoding: 'utf8', timeout, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 64 * 1024 * 1024 });
 
-// -> { branch, head, dirty } or null when not a repo / git missing. Forge's own folder is not counted as dirty.
-function gitInfo(dir) {
-  try {
-    const out = run(dir, ['status', '--porcelain=v2', '--branch']);
-    let branch = null, head = null, dirty = 0;
-    for (const line of out.split('\n')) {
-      if (line.startsWith('# branch.oid ')) { const o = line.slice(13).trim(); head = /^[0-9a-f]+$/.test(o) ? o.slice(0, 7) : null; }
-      else if (line.startsWith('# branch.head ')) branch = line.slice(14).trim();
-      else if (line && !line.startsWith('#')) {
-        const p = line.startsWith('?') ? line.slice(2) : line.split(' ').slice(-1)[0];
-        if (!p.startsWith('.jspark-forge')) dirty++;
+const DIRTY_CAP = 2000; // stop counting files here and say "2000+"
+
+function parseStatus(out, cap) {
+  let branch = null, head = null, dirty = 0, noCommits = false, capped = false;
+  for (const line of out.split('\n')) {
+    if (line.startsWith('# branch.oid ')) {
+      const o = line.slice(13).trim();
+      head = /^[0-9a-f]+$/.test(o) ? o.slice(0, 7) : null;
+      noCommits = o === '(initial)';
+    } else if (line.startsWith('# branch.head ')) branch = line.slice(14).trim();
+    else if (line && !line.startsWith('#')) {
+      const p = line.startsWith('?') ? line.slice(2) : line.split(' ').slice(-1)[0];
+      if (!p.startsWith('.jspark-forge')) {
+        dirty++;
+        if (cap && dirty >= cap) { capped = true; break; }
       }
     }
-    return { branch, head, dirty };
-  } catch { return null; }
+  }
+  return { branch, head, dirty, noCommits, capped };
+}
+
+// -> { branch, head, dirty, noCommits, capped?, approx? } or null when not a repo / git missing. Forge's own folder is
+// not counted as dirty. dirty counts files (an untracked folder shows every file in it), up to 2000 (capped). One
+// 3 s limit in all: the full count gets 2 s; when it does not finish, today's count (an untracked folder is one line)
+// is used and marked approx. noCommits: the repo has no commit yet (no HEAD).
+function gitInfo(dir, opts = {}) {
+  let out, approx = false;
+  try {
+    out = run(dir, ['status', '--porcelain=v2', '--branch', '--untracked-files=all'], opts.fullTimeoutMs || 2000);
+  } catch {
+    try { out = run(dir, ['status', '--porcelain=v2', '--branch'], 1000); approx = true; } catch { return null; }
+  }
+  const r = parseStatus(out, approx ? 0 : DIRTY_CAP);
+  const info = { branch: r.branch, head: r.head, dirty: r.dirty };
+  if (r.noCommits) info.noCommits = true;
+  if (r.capped) info.capped = true;
+  if (approx) info.approx = true;
+  return info;
 }
 
 // -> { sha, subject, files } (files: repo-relative, as git prints them; a first commit works too) or null.
@@ -32,6 +55,11 @@ function lastCommit(dir) {
     const [sha, subject] = first.trim().split('\t');
     return sha ? { sha, subject: subject || '', files: rest.map(s => s.trim()).filter(Boolean) } : null;
   } catch { return null; }
+}
+
+// Is `older` an ancestor of `newer` (HEAD moved forward, not sideways)? One git call; any failure -> false.
+function isAncestor(dir, older, newer) {
+  try { run(dir, ['merge-base', '--is-ancestor', older, newer], 1500); return true; } catch { return false; }
 }
 
 // The current branch from .git/HEAD without starting git (~0.1 ms instead of ~50 ms on Windows).
@@ -78,4 +106,4 @@ function headCommit(start) {
   } catch { return null; }
 }
 
-module.exports = { gitInfo, lastCommit, headBranch, headCommit };
+module.exports = { gitInfo, lastCommit, isAncestor, headBranch, headCommit };

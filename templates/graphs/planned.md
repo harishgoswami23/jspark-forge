@@ -1,7 +1,7 @@
 # Graph: planned
 - max_parallel: 2
 
-<!-- A build whose spec and plan are already written. No spec or plan step: each build brief names the plan file and the tasks it covers. /jspark-forge:build copies it to .jspark-forge/graphs/<name>.md; then change the title to "# Graph: <name>" and edit the briefs and checks. For work with no plan yet, use the software template. -->
+<!-- A build whose spec and plan are already written. No spec or plan step: each build brief names the plan file and the tasks it covers. /jspark-forge:build copies it to .jspark-forge/graphs/<name>.md; then change the title to "# Graph: <name>" and edit the briefs and checks. For work with no plan yet, use the software template. Builders commit their step's work on the current branch (no merge, no push): the review step needs those commits. -->
 
 ## approve-plan (human)
 - say: Check that the plan named in the build briefs is the one to build, and which of its tasks this run covers. Reply DONE approve-plan when it is right (or ask for changes first).
@@ -21,6 +21,7 @@
 ## tasks (parallel)
 - steps: build-core, build-ui
 
+<!-- Set this to the project's own test command (pnpm test, yarn test, pytest, go test ./..., …) before you trust the graph. -->
 ## gate (gate)
 - after: tasks
 - run: npm test
