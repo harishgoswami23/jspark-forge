@@ -62,7 +62,7 @@ function checkHooks() {
       const t = Date.now();
       const r = spawnSync(process.execPath, [path.join(ROOT, 'scripts', 'forge.js'), h.event], { cwd: tmp, encoding: 'utf8', timeout: h.timeout,
         input: JSON.stringify({ session_id: 'doctor', cwd: tmp, source: 'startup', tool_name: 'Bash', tool_input: { command: 'echo ok' } }),
-        env: Object.assign({}, process.env, { CLAUDE_PROJECT_DIR: tmp, CLAUDE_CONFIG_DIR: tmp, JSPARK_FORGE_AUTO_STATUSLINE: 'off' }), windowsHide: true });
+        env: Object.assign({}, process.env, { CLAUDE_PROJECT_DIR: tmp, CLAUDE_CONFIG_DIR: tmp, JSPARK_FORGE_AUTO_STATUSLINE: 'off', JSPARK_FORGE_AUTO_SETUP: 'off' }), windowsHide: true });
       return { ms: Date.now() - t, ok: !r.error && r.status === 0 };
     };
     for (const h of list) {
@@ -128,6 +128,52 @@ function checkStatusLine(home, dir) {
   return out;
 }
 
+function checkAutoUpdate(home) {
+  const st = require('./autoupdate').state(home);
+  if (st === 'on') return ['ok', 'Auto-update: on'];
+  if (st === 'off') return ['FIX', 'Auto-update: off, so new JSPARK Forge versions do not arrive. Fix: /plugin → Marketplaces → jspark-forge → turn on auto-update.'];
+  return ['ok', 'Auto-update: not installed from the jspark-forge marketplace (a local copy updates by hand)'];
+}
+
+// The two bundled servers: what the project's switches say first, then what the launcher recorded in bundled.json.
+function checkBundled(home, dir) {
+  const bundled = require('./bundled');
+  const folder = dir || process.cwd();
+  const rec = bundled.read(home);
+  const out = [];
+  for (const [name, label] of [['codebase-memory', 'Code map'], ['playwright', 'Playwright']]) {
+    const mode = bundled.mode(name, folder);
+    const r = rec[name];
+    const s = bundled.SERVERS[name];
+    if (mode === 'off') out.push(['ok', `${label}: off by your choice`]);
+    else if (mode === 'no-frontend') out.push(['ok', 'Playwright: off here (no front end in this project)']);
+    else if (!r || typeof r !== 'object') out.push(['FIX', `${label}: the engine has not started. Fix: restart Claude Code; if it stays, update Claude Code.`]);
+    else if (r.exit) out.push(['FIX', `${label}: the engine did not start (${String(r.exit.reason || `exit code ${r.exit.code}`)}). Fix: check the network and that antivirus has not quarantined it, then restart Claude Code.`]);
+    else out.push(['ok', `${label}: engine running (${s.pkg} ${r.pin || s.pin})`]);
+  }
+  try {
+    const userHome = process.env.CLAUDE_CONFIG_DIR ? home : os.homedir(); // with a custom config folder, .claude.json lives in it
+    const e = require('./map').engines(dir, userHome);
+    if (e.bundled && e.own) out.splice(1, 0, ['FIX', "Code map: two engines (JSPARK Forge's and your own codebase-memory-mcp). Fix: remove yours with: claude mcp remove codebase-memory-mcp"]);
+  } catch { /* the check is a bonus */ }
+  return out;
+}
+
+function checkCompanions(home) {
+  const c = require('./companions');
+  const flags = (readJson(path.join(home, 'jspark-forge', 'state.json')) || {}).companions || {};
+  const results = c.results(home);
+  const missing = c.LIST.filter(x => !c.installed(home, x.name));
+  if (!missing.length) return [['ok', `UI companions: ${c.LIST.map(x => x.name).join(' and ')} installed`]];
+  return missing.map(x => {
+    const r = results[x.name];
+    if (!flags[x.name]) return ['ok', `UI companions: ${x.name} not added yet (JSPARK Forge adds it at the next start from its marketplace; or: /plugin install ${x.id})`];
+    if (r && r.ok === false) return ['FIX', `UI companions: ${x.name} could not be added (${r.reason || 'no reason recorded'}). Fix: /plugin install ${x.id}`];
+    if (!r) return ['ok', `UI companions: ${x.name} is being added; it loads the next time Claude Code starts`];
+    return ['ok', `UI companions: ${x.name} not installed (add: /plugin install ${x.id})`];
+  });
+}
+
 function newestUsage(dir) {
   const d = path.join(paths.forgeDir(dir), 'usage');
   let best = null;
@@ -136,7 +182,7 @@ function newestUsage(dir) {
 }
 
 function doctor(dir, home) {
-  const lines = [checkNode(), checkFiles(), checkHooks(), checkGit(), ...checkProject(dir), ...checkStatusLine(home, dir)];
+  const lines = [checkNode(), checkFiles(), checkHooks(), checkGit(), ...checkProject(dir), ...checkStatusLine(home, dir), checkAutoUpdate(home), ...checkBundled(home, dir), ...checkCompanions(home)];
   const bad = lines.filter(l => l[0] === 'FIX').length;
   return `JSPARK Forge doctor: ${lines.length - bad} ok, ${bad} to fix\n${lines.map(([s, t]) => `${s.padEnd(4)} ${t}`).join('\n')}\n`;
 }
