@@ -21,6 +21,7 @@ that date; **[spike]** depends on a spike. Spike results override review decisio
 | v0.4 | Build graph: a build as a fixed graph of nodes, saved after every node, resumed on the running node (spec 5.10) | ~1½–2 weeks, **soft** |
 | v0.4.1 | Map of readonly sources ("where is X in the old code?"), promised for v0.3 and missed; open questions brought up to date | ~½ day |
 | v0.4.2 | Updates without a command: install steps turn on auto-update, a once-per-machine tip when it is off; version set in `plugin.json` only | ~1 hour |
+| v0.5.0 | Installs once, runs on its own (issue #7): auto-update, code map, Playwright and UI companions set up from the one install command; resume that survives a crash (not released yet) | not estimated |
 | Later, only if asked | Security review prompts (incl. council mode), `/capacity`, dashboard (incl. git view), `/jspark-forge:review`, migration mode, customer edition, secrets by name, limit handover (spec 5.6–5.8a, 5.12, 5.13) | not estimated |
 | **Total to v0.3** | | ~4–4½ weeks of build after v0.1.1, plus ~2 weeks of feedback, **soft** (v0.4 ~1½–2 weeks more, only if asked) |
 
@@ -383,6 +384,16 @@ a graph that references an undeclared field fails before the run.
 failed node.
 
 **Depends on spikes** none new; open questions Q18 (runner without a workflow facility), Q19 (file format).
+
+---
+
+## v0.5.0: Installs once, runs on its own; resume survives a crash (not released yet)
+
+**Status (2026-11-20): built** on `dev/v0.5`, not released. Details: [`release-notes/v0.5.0.md`](release-notes/v0.5.0.md) and `design-v0.5.md`.
+
+**Resume.** Every user message saves the handoff; tool work with no file writes saves once a minute; the next session also gets what the log holds after the last save; Task is the last real request; a helper report never counts as the user's message or grants a CONFIRM.
+
+**Self-setup (closes #7).** Auto-update switches on by itself (once per machine); the code map and Playwright ship as plugin servers started through a launcher with npx; frontend-design and Chrome DevTools are added once in the background; every piece has an off switch and the doctor reports each. No minimum Claude Code version is checked (tested on 2.1.329).
 
 ---
 
