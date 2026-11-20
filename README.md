@@ -31,7 +31,8 @@ A Claude Code plugin for technical solo founders. Built for Claude Code, by JSPA
    project is named ("Also worked in"), and step progress is read from Claude Code's task tools as well as the plan.
    Resuming a session never wipes the history.
 2. **Shows it back after any cutoff, and asks first.** Open Claude Code again: JSPARK Forge shows where you were and
-   asks "Continue?" before picking the old task back up. No command to type.
+   asks "Continue?" before picking the old task back up. No command to type. If the last session was cut off by a crash
+   or a power cut, it also says so and tells Claude to check what was half done first.
 3. **Blocks dangerous actions.** A published list, enforced by hooks, with a typed confirmation to override.
 4. **Keeps a short action log** for the step that was cut off (7 days, then a one-paragraph summary per day).
 5. **Keeps Claude grounded.** A short rule at every session start: cite the file and line, say "not found"
@@ -161,6 +162,12 @@ It never blocks anything.
 
 A crash or a hard limit gives no warning, so at most the last minute of work is lost, and the next session is also
 given what the action log holds after the last save.
+
+If the machine itself dies (a power cut, a crash), JSPARK Forge writes its files so they survive it, keeps the save
+before the last one in case the newest is damaged, and notes each command, file write or helper that was under way.
+At the next start it tells you the last session was cut off, and tells Claude what was half done, which files were
+written just before, and what Claude was saying, so it checks before carrying on. It cannot save the reply Claude was
+in the middle of writing, or output a program had not yet written to disk.
 
 ## What it blocks (published list)
 

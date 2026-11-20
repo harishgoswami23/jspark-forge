@@ -140,6 +140,19 @@ branch, Claude's own notes. Enough to resume the work, not a map of the system. 
   [updated 2026-11-20: v0.5] The handoff's history (recent actions, files touched) is built from the log for all
   sessions, so resuming a session does not wipe it; the next session is also given what the log holds after the
   last save.
+- [owner 2026-11-21: built in v0.5.1] **Crash recovery** (the machine dies at an arbitrary instant: no Stop, no
+  SessionEnd, half-run commands, dead dev servers, possibly half-written files). Files are written with a flush to the
+  disk before the rename; the previous good handoff pair is kept (`handoff.prev.md`, `state/handoff.prev.json`) and is
+  read when the newest is damaged, and when both are, the context is built from the action log alone; a log line cut
+  off mid-write is ignored. PreToolUse records each allowed shell, file-write or helper call in
+  `state/inflight-<session>.json` (cleared by PostToolUse, PostToolUseFailure and Stop). At the next start (not at
+  compact or clear), a session with no `ended` stamp, silent for 90 seconds, that left something in flight, running
+  or logged after its last save, is reported as cut off: one line for the user, and for Claude a record (in flight,
+  was running and is gone, files written in the last 2 minutes marked missing / empty / ends in NUL bytes, what was
+  logged after the last save, Claude's last words and unfinished tool call from the tail of the transcript, and what
+  to check before carrying on). It is shown once per session and again by `forge.js show` until handled. A missing
+  `ended` stamp alone says nothing. What a crash can still lose: the reply Claude was writing, a command's unsaved
+  output, anything a program had not yet written to disk; the NUL-byte check is a hint, not proof.
 - [updated 2026-11-20: v0.5] **Step progress** ("n of m") is read from Claude Code's task tools (TaskCreate and
   TaskUpdate; TodoWrite on older versions) as well as from the plan.
 - **New session: show and wait [owner].** JSPARK Forge shows "here's where we were: continue?" and Claude is told to wait.

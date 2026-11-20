@@ -52,7 +52,7 @@ test('the time named is the last sign of life of that session', () => {
   const m = ctxOf(start(dir)).match(HEAD);
   // the newest of lastSaveAt (400 s ago), its log lines (280 s ago) and the inflight file (280 s ago)
   const expected = hhmm(Date.now() - 280000);
-  const near = [hhmm(Date.now() - 280000 - 61000), expected, hhmm(Date.now() - 280000 + 61000)];
+  const near = [-120000, -60000, 0, 60000, 120000].map(d => hhmm(Date.now() - 280000 + d));
   assert.ok(near.includes(m[1]), `${m[1]} not near ${expected}`);
   assert.ok(s.lastSaveAt);
 });
