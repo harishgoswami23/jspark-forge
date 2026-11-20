@@ -578,6 +578,18 @@ const handlers = {
     return { lines: [['AGENT+', input.agent_type || '']], out: context('SubagentStart', parts.join('\n\n')) };
   },
 
+  // v0.5.1: a sign-in completed during the session (the account may have changed). A hook cannot see which account is
+  // signed in; Claude Code then warns on every turn that it cannot use thinking from another organization. Save now,
+  // and say how to carry on cleanly. Only when there is work to resume.
+  Notification(dir, input) {
+    if (input.notification_type !== 'auth_success') return null;
+    const lines = [];
+    doSave(dir, input.session_id, 'sign-in', lines);
+    if (!lines.length) return null; // nothing to resume: nothing to say
+    lines.unshift(['SIGNIN', '']);
+    return { lines, out: { systemMessage: 'JSPARK Forge: You signed in again, and the handoff is saved. If you changed account, start a new session and say "resume": this one keeps working, but Claude cannot use its earlier thinking here, so replies may be slower.' } };
+  },
+
   SubagentStop(dir, input) { // an unpaired stop (internal helpers) is ignored (design 16, deviation 6)
     const sess = state.readSession(dir, input.session_id);
     if (input.agent_id && sess.helpers[input.agent_id]) {

@@ -1,7 +1,7 @@
 'use strict';
 // v0.2 UI/UX companions tip (spec 5.14): once per project, in your own project only, when it has a front end, one line
-// at SessionStart naming only the companions that are not installed, each with its pinned install line. Never installs
-// anything. Every read fails silently; a wrong guess about "installed" only shows the tip once.
+// at SessionStart naming only the companions that are still missing, each with its install line. (Since v0.5 the
+// companions are added automatically, by companions.js; this tip itself installs nothing.) Every read fails silently; a wrong guess about "installed" only shows the tip once.
 const fs = require('fs');
 const os = require('os');
 const path = require('path');

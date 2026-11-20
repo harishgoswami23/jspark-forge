@@ -357,6 +357,7 @@ Details per feature: [design-v0.1.md](docs/design-v0.1.md), [design-v0.1.1.md](d
 | Stop (10 s) | Saves the handoff after each reply; files a closing question when there is work | handoff, waiting list | No |
 | PreCompact (10 s) | Saves before compaction (prints nothing) | handoff | No |
 | SessionEnd (1 s) | Marks the session ended | session state | No |
+| Notification, sign-in only (10 s) | Saves the handoff when a sign-in completes during a session and says how to carry on after a change of account | the handoff | Yes, one line |
 | SubagentStart / SubagentStop (10 s) | Tracks running helpers; build graph evidence that a helper ran | session and graph state | No |
 
 The status line (if you let JSPARK Forge add or wrap it) writes usage figures to `usage/` and shows "saved …" and

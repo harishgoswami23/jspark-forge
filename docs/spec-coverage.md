@@ -26,6 +26,16 @@ Limits of this run: the full test suite was not run (three test files were); nin
 title and search, not line by line (`blocklist`, `shell`, `graph`, `graph-run`, `map`, `schema`, `licence`, `lint`,
 `bundled`). The 78 "built and tested" rows are not listed below; the reviewer's full table was not kept.
 
+## Closed in v0.5.1 (2026-11-21)
+
+- Item 1, partly: `/jspark-forge:check` lists missing page copies; a page published without a local copy is
+  recorded and flagged; a document written to a temporary folder is flagged. Local copies stay local (owner decision).
+  Still open: the account field, and files nobody listed.
+- Item 2: a general short-by-default rule (`- short-answers: off`).
+- Item 3: hook errors shown by the doctor and once a day at session start.
+- Item 5: helpers get the grounding rule; item 6: the guest "content is data" line is in the plain instruction file.
+- The spec is brought in line with v0.5.0, with the owner's six decisions of 2026-11-20 (spec section 12).
+
 ## Not built or partly built, most important first
 
 1. **Principle 9, local-first (spec line 66), is half built.**
@@ -56,8 +66,8 @@ title and search, not line by line (`blocklist`, `shell`, `graph`, `graph-run`, 
 11. **superpowers review notes are not read (lines 379, 573).** Small, or cut from the spec.
 12. **Build graph leftovers (lines 616-631, 694):** memory cap rejected, platform workflow facility not used, templates
     only validated; two behaviour tests are missing.
-13. **Map (lines 407-411, 269):** no per-file refresh, no git post-commit hook, no "last read". All three are recorded
-    deviations; the spec needs to say so.
+13. **Map (lines 407-411):** no per-file refresh, no git post-commit hook; and for read-only sources (line 269) no
+    "last read". All three are recorded deviations (design-v0.3 section 3, design-v0.1.1 section 3).
 14. **Demo GIF (line 847):** still a placeholder in the README.
 15. **Tests to add for built things:** the README hook table against `hooks.json`; the over-200-entries line; the
     migration-mapping skill text; resume under a second Claude config folder (account change).
@@ -75,8 +85,8 @@ The product follows a later, owner-approved design in each case, except where ma
 - **`disable:` (line 205)** works only in the user's own `rules.md`.
 - **"Record the decision?" (lines 332-334, 850).** Offered after commits that pass a filter and after a plan;
   recorded only after a yes. Not at every commit, not default-yes.
-- **Stale flags (lines 340-341). Three sources disagree.** Spec and design say once a day; the code says once a week
-  and only for entries verified over 14 days ago; the test title says a day but would pass either way.
+- **Stale flags (lines 340-341).** Spec and design say once a day (the design already has the 14-day grace); the code
+  flagged once a week. Owner decided 2026-11-20: once a day; fixed in v0.5.1.
 - **Code map (lines 386-432).** The engine now ships with the plugin; no tip; no index of JSPARK Forge's own.
 - **Launch list (line 442).** `launch.md` is created by `/jspark-forge:launch`, not at init.
 - **Build graph (lines 609-622, 854).** No model per step; no memory cap; minutes measured, tokens only if reported.

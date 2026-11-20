@@ -19,7 +19,7 @@ const matches = (matcher, tool) => new RegExp(`^(?:${matcher})$`).test(tool);
 
 test('every design hook event is registered, in exec form with node and forge.js', () => {
   const events = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'Stop',
-    'PreCompact', 'SessionEnd', 'SubagentStart', 'SubagentStop'];
+    'PreCompact', 'SessionEnd', 'SubagentStart', 'SubagentStop', 'Notification'];
   assert.deepEqual(Object.keys(hooks).sort(), [...events].sort());
   for (const ev of events) {
     const h = only(ev).hooks[0];

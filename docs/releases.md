@@ -389,7 +389,7 @@ failed node.
 
 ## v0.5.0: Installs once, runs on its own; resume survives a crash
 
-**Status (2026-11-20): built** on `dev/v0.5`, not released. Details: [`release-notes/v0.5.0.md`](release-notes/v0.5.0.md) and `design-v0.5.md`.
+**Status: released 2026-11-20** (PR #8, issue #7 closed; integration tests green on Windows, macOS and Linux). Details: [`release-notes/v0.5.0.md`](release-notes/v0.5.0.md) and `design-v0.5.md`.
 
 **Resume.** Every user message saves the handoff; tool work with no file writes saves once a minute; the next session also gets what the log holds after the last save; Task is the last real request; a helper report never counts as the user's message or grants a CONFIRM.
 
