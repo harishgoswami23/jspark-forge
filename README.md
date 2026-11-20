@@ -58,8 +58,8 @@ list** against scope creep. It also has **guest mode** (review someone else's re
 
 Decisions, rules and lessons for a project live in `.jspark-forge/decisions.md` (commit it to share with your team).
 Each is one line, tied to the files it covers. Just before Claude edits one of those files, it sees the decisions that
-touch it (as data, not orders). When you settle something in conversation, JSPARK Forge offers *"Record the
-decision?"*; nothing is recorded without your yes. When a covered file changes, the decision is flagged for a look.
+touch it (as data, not orders). After a commit that settles a choice, or a plan you approve in plan mode, JSPARK Forge
+offers *"Record the decision?"*; nothing is recorded without your yes. When a covered file changes, the decision is flagged for a look.
 
 - `/jspark-forge:decide` records, updates, verifies or retires a decision.
 - `/jspark-forge:decisions` lists what is on file. `/jspark-forge:check` asks whether each is still true.

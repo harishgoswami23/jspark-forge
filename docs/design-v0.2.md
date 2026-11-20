@@ -165,6 +165,11 @@ file): injected entry ids per `agent_id`, pending offers, delivery counts.
 Does PostToolUse fire for `ExitPlanMode` when the user approves a plan, and what does its input hold? One interactive
 run. If not, the trigger is only the superpowers files, and plan-mode approval is a known gap.
 
+**Result (2026-11-20, Claude Code 2.1.329, Windows): passed.** On approval, PostToolUse fires for `ExitPlanMode` with
+`tool_input` empty and the plan in `tool_response.plan` (`tool_response.filePath` is under `~/.claude/plans/`, outside
+the project). The trigger keys each plan by a hash of its text (one offer per plan, ever), names it by its first line,
+and drafts `"source": "plan approved"`. A rejected plan fires no PostToolUse, so it brings no offer.
+
 ### 1.11 Tests
 
 - Reader and writer: byte-exact round trips (LF, CRLF, BOM, no final newline); malformed entries counted; ids from the
