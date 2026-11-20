@@ -21,7 +21,7 @@ that date; **[spike]** depends on a spike. Spike results override review decisio
 | v0.4 | Build graph: a build as a fixed graph of nodes, saved after every node, resumed on the running node (spec 5.10) | ~1½–2 weeks, **soft** |
 | v0.4.1 | Map of readonly sources ("where is X in the old code?"), promised for v0.3 and missed; open questions brought up to date | ~½ day |
 | v0.4.2 | Updates without a command: install steps turn on auto-update, a once-per-machine tip when it is off; version set in `plugin.json` only | ~1 hour |
-| v0.5.0 | Installs once, runs on its own (issue #7): auto-update, code map, Playwright and UI companions set up from the one install command; resume that survives a crash (not released yet) | not estimated |
+| v0.5.0 | Installs once, runs on its own (issue #7): auto-update, code map, Playwright and UI companions set up from the one install command; resume that survives a crash | not estimated |
 | Later, only if asked | Security review prompts (incl. council mode), `/capacity`, dashboard (incl. git view), `/jspark-forge:review`, migration mode, customer edition, secrets by name, limit handover (spec 5.6–5.8a, 5.12, 5.13) | not estimated |
 | **Total to v0.3** | | ~4–4½ weeks of build after v0.1.1, plus ~2 weeks of feedback, **soft** (v0.4 ~1½–2 weeks more, only if asked) |
 
@@ -387,7 +387,7 @@ failed node.
 
 ---
 
-## v0.5.0: Installs once, runs on its own; resume survives a crash (not released yet)
+## v0.5.0: Installs once, runs on its own; resume survives a crash
 
 **Status (2026-11-20): built** on `dev/v0.5`, not released. Details: [`release-notes/v0.5.0.md`](release-notes/v0.5.0.md) and `design-v0.5.md`.
 
