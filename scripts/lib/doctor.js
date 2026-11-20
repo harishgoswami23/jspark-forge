@@ -98,7 +98,10 @@ function checkProject(dir) {
   }
   // Handoff
   const md = path.join(f, 'handoff.md');
-  if (fs.existsSync(md)) {
+  const hp = require('./handoff').pairHealth(dir);
+  if (hp.newest !== 'good' && hp.prev === 'good') { // v0.5.1: a crash damaged the newest save; the one before it is used
+    out.push(['ok', 'Handoff: the newest save is damaged (a crash or a power cut can do that); the previous save is intact and is used. The next save writes a fresh one.']);
+  } else if (fs.existsSync(md)) {
     const meta = readJson(path.join(f, 'state', 'handoff.json'));
     out.push(meta && typeof meta === 'object'
       ? ['ok', `Handoff: readable, saved ${meta.savedAt ? ago(Date.now() - meta.savedAt) : 'at an unknown time'}`]

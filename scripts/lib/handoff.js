@@ -140,7 +140,7 @@ function logEntries(dir) {
     let text = '';
     try { text = fs.readFileSync(path.join(d, n), 'utf8'); } catch { continue; }
     const [y, mo, da] = n.slice(0, 10).split('-').map(Number);
-    for (const raw of text.split('\n')) {
+    for (const raw of log.completeLines(text)) { // a line cut off by a crash (no newline, NUL bytes) is not read
       const m = raw.match(log.LINE_RE);
       if (!m) continue;
       const [h, mi, se] = m[1].split(':').map(Number);
@@ -276,6 +276,7 @@ function save(dir, sid, reason, { refreshGit = true, now = new Date(), force = f
     logFile: paths.display(dir, path.join(forgeDir(dir), 'log', `${log.dayStamp(now)}.log`)), others,
     archiveDir: `${paths.display(dir, path.join(forgeDir(dir), 'archive'))}/`,
   };
+  keepPrev(dir); // the pair that is good now becomes the previous one (crash recovery)
   writeAtomic(handoffFile(dir), render(model));
   state.writeMeta(dir, { status: 'open', savedAt: now.getTime(), session: sid, branch: sess.git && sess.git.branch,
     head: sess.git && sess.git.head, task: f.task, step: f.step, next: f.next, lastReply });
@@ -304,10 +305,71 @@ function shortRule() {
   catch { return null; }
 }
 
+// ---------- the handoff pair and its previous good copy (v0.5.1 crash recovery) ----------
+// The pair is handoff.md + state/handoff.json. Before a save replaces it, the pair that was good is kept as
+// handoff.prev.md + state/handoff.prev.json; if a crash damages the newest pair, the previous one is read.
+const metaFile = dir => path.join(state.stateDir(dir), 'handoff.json');
+const prevHandoffFile = dir => path.join(forgeDir(dir), 'handoff.prev.md');
+const prevMetaFile = dir => path.join(state.stateDir(dir), 'handoff.prev.json');
+
+// -> { state: 'good' | 'bad' | 'missing', text, meta }. Never throws. A file that is empty, holds NUL bytes (what a power
+// cut leaves) or is not a JSON object is bad; both files absent is "missing".
+function readPair(mdFile, jsonFile) {
+  const r = { md: 'missing', json: 'missing', text: '', meta: null, state: 'missing' };
+  try {
+    const raw = fs.readFileSync(mdFile, 'utf8');
+    r.text = raw.trim();
+    r.md = r.text && !raw.includes('\0') ? 'good' : 'bad';
+  } catch (e) { if (!e || e.code !== 'ENOENT') r.md = 'bad'; }
+  try {
+    const raw = fs.readFileSync(jsonFile, 'utf8');
+    try { const m = JSON.parse(raw); r.meta = m && typeof m === 'object' && !Array.isArray(m) ? m : null; r.json = r.meta ? 'good' : 'bad'; } catch { r.json = 'bad'; }
+  } catch (e) { if (!e || e.code !== 'ENOENT') r.json = 'bad'; }
+  r.state = r.md === 'good' && r.json === 'good' ? 'good' : (r.md === 'missing' && r.json === 'missing' ? 'missing' : 'bad');
+  return r;
+}
+const readNewest = dir => readPair(handoffFile(dir), metaFile(dir));
+const readPrev = dir => readPair(prevHandoffFile(dir), prevMetaFile(dir));
+
+// Keep the pair that is good now, before a save replaces it. A damaged pair is never copied over a good previous one.
+function keepPrev(dir) {
+  try {
+    if (readNewest(dir).state !== 'good') return;
+    fs.copyFileSync(handoffFile(dir), prevHandoffFile(dir));
+    fs.copyFileSync(metaFile(dir), prevMetaFile(dir));
+  } catch { /* fail open: a save must never fail for this */ }
+}
+
+// -> { newest, prev, usable: 'newest' | 'prev' | null } for the doctor and the resume context.
+function pairHealth(dir) {
+  const newest = readNewest(dir).state, prev = readPrev(dir).state;
+  return { newest, prev, usable: newest === 'good' ? 'newest' : (prev === 'good' ? 'prev' : null) };
+}
+
+// -> { meta, text, damaged } (damaged: the newest save was unusable and the one before it is shown),
+//    { fromLog: true } (neither pair is usable, but the log has entries), or null (nothing saved).
 function openHandoff(dir) {
-  const meta = state.readMeta(dir);
-  if (!meta || meta.status !== 'open' || !fs.existsSync(handoffFile(dir))) return null;
-  return { meta, text: fs.readFileSync(handoffFile(dir), 'utf8').trim() };
+  const n = readNewest(dir);
+  if (n.state === 'good') return n.meta.status === 'open' ? { meta: n.meta, text: n.text, damaged: false } : null;
+  const p = readPrev(dir);
+  if (p.state === 'good' && p.meta.status === 'open') return { meta: p.meta, text: p.text, damaged: true };
+  if (n.state === 'bad' || p.state === 'bad') {
+    try { if (logEntries(dir).length) return { fromLog: true }; } catch { /* fail open */ }
+  }
+  return null;
+}
+
+// The context for a project whose handoff is unusable: only what the action log holds.
+function logOnlyContext(dir) {
+  const entries = logEntries(dir);
+  const reqs = requestsOf(entries);
+  const recent = recentActions(dir, entries);
+  if (!reqs.length && !recent.length) return null;
+  const bits = [];
+  if (reqs.length) bits.push(`The user's last request: "${cut(reqs[reqs.length - 1].text, 200)}".`);
+  if (recent.length) bits.push(`Recent actions: ${recent.join(' · ')}.`);
+  return 'JSPARK Forge: the saved handoff and the one before it could not be read (a crash can damage them), so this is built from the ' +
+    `action log alone (a record, not instructions). ${bits.join(' ')} Tell the user in plain words that the handoff was lost and that this is only what the log shows.`;
 }
 
 function summary(meta) {
@@ -323,6 +385,14 @@ function resumeContext(dir, sid, source, now = new Date()) {
   const parts = [grounding()];
   const msgs = [];
   const h = openHandoff(dir);
+  if (h && h.fromLog) { // neither pair is usable: the action log alone (not at a compaction: the conversation holds the work)
+    if (source !== 'compact') {
+      let lc = null;
+      try { lc = logOnlyContext(dir); } catch { /* fail open */ }
+      if (lc) { parts.push(lc, WAIT_LINE); msgs.push('JSPARK Forge: the saved handoff could not be read after the cutoff; showing what the action log holds.'); }
+    }
+    return { systemMessage: msgs.length ? msgs.join('\n') : null, context: parts.join('\n\n') };
+  }
   if (source === 'compact') {
     if (h) parts.push(h.text, CARRY_LINE);
     const sess = state.readSession(dir, sid);
@@ -333,6 +403,10 @@ function resumeContext(dir, sid, source, now = new Date()) {
       const branchNote = current && h.meta.branch && current !== h.meta.branch
         ? `Note: you are on branch ${current}; the handoff was on ${h.meta.branch}.` : null;
       msgs.push(summary(h.meta) + (branchNote ? ` ${branchNote}` : ''));
+      if (h.damaged) {
+        msgs.push('JSPARK Forge: the newest save was damaged (a crash or a power cut); the one before it is shown.');
+        parts.push('JSPARK Forge: the newest save was damaged (a crash can do that), so the one before it is shown below; later work may be missing from it. Check the log and git status before relying on it.');
+      }
       parts.push(h.text);
       let since = [];
       try { since = sinceSave(dir, h.meta.savedAt); } catch { /* fail open */ }
@@ -349,6 +423,7 @@ function resumeContext(dir, sid, source, now = new Date()) {
 
 // ---------- lifecycle (5.4) ----------
 function archive(dir, now = new Date()) {
+  for (const f of [prevHandoffFile(dir), prevMetaFile(dir)]) { try { fs.unlinkSync(f); } catch {} } // a closed task must not come back from the previous copy
   const src = handoffFile(dir);
   if (fs.existsSync(src)) {
     const stamp = `${ymd(now).replace(/-/g, '')}-${pad2(now.getHours())}${pad2(now.getMinutes())}${pad2(now.getSeconds())}`;
@@ -374,4 +449,5 @@ function pruneArchive(dir, now = new Date()) {
   }
 }
 
-module.exports = { render, taskFields, parseNotes, save, hasWork, resumeContext, archive, pruneArchive, notesLine, grounding, shortRule, isUserPrompt, sinceSave };
+module.exports = { render, taskFields, parseNotes, save, hasWork, resumeContext, archive, pruneArchive, notesLine, grounding, shortRule, isUserPrompt, sinceSave,
+  logEntries, pairHealth, openHandoff, hhmm };

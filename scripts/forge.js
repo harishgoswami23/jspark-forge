@@ -716,7 +716,7 @@ function tailLines(file, n) { // the last n lines of a file, reading only its en
     const len = Math.min(size, TAIL_BYTES);
     const buf = Buffer.alloc(len);
     fs.readSync(fd, buf, 0, len, size - len);
-    let lines = buf.toString('utf8').split(/\r?\n/);
+    let lines = log.completeLines(buf.toString('utf8')); // drops a cut last line and NUL bytes
     if (size > len) lines.shift(); // the first line may be cut
     lines = lines.filter(l => l !== '');
     return lines.slice(-n);
