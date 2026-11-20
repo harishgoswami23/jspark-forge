@@ -173,6 +173,8 @@ function checkCompanions(home) {
     const r = results[x.name];
     if (!flags[x.name]) return ['ok', `UI companions: ${x.name} not added yet (JSPARK Forge adds it at the next start from its marketplace; or: /plugin install ${x.id})`];
     if (r && r.ok === false) return ['FIX', `UI companions: ${x.name} could not be added (${r.reason || 'no reason recorded'}). Fix: /plugin install ${x.id}`];
+    // The flag is the time the install was started (companions.ensure). No result after 10 minutes: it never finished.
+    if (!r && !(typeof flags[x.name] === 'number' && Date.now() - flags[x.name] <= 10 * 60000)) return ['FIX', `UI companions: ${x.name} could not be added (no result from the install). Fix: /plugin install ${x.id}`];
     if (!r) return ['ok', `UI companions: ${x.name} is being added; it loads the next time Claude Code starts`];
     return ['ok', `UI companions: ${x.name} not installed (add: /plugin install ${x.id})`];
   });

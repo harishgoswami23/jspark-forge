@@ -121,7 +121,7 @@ const withFront = dir => fs.writeFileSync(path.join(dir, 'package.json'), JSON.s
 const doctorOut = (dir, home, extraEnv) => spawnSync(process.execPath, [FORGE, 'doctor'], { cwd: dir, encoding: 'utf8', timeout: 120000,
   env: Object.assign({}, process.env, { CLAUDE_PROJECT_DIR: dir, CLAUDE_CONFIG_DIR: home }, extraEnv) }).stdout;
 const noOff = { JSPARK_FORGE_CODE_MAP: '', JSPARK_FORGE_PLAYWRIGHT: '' };
-const flagged = (home, names) => writeIn(home, 'jspark-forge/state.json', { companions: Object.fromEntries(names.map(n => [n, 1])) });
+const flagged = (home, names) => writeIn(home, 'jspark-forge/state.json', { companions: Object.fromEntries(names.map(n => [n, Date.now()])) });
 const market = (home, autoUpdate) => writeIn(home, 'plugins/known_marketplaces.json', { 'jspark-forge': Object.assign({ source: { source: 'github', repo: 'x/y' } }, autoUpdate === undefined ? {} : { autoUpdate }) });
 const installPlugins = (home, names) => writeIn(home, 'plugins/installed_plugins.json', { plugins: Object.fromEntries(names.map(n => [`${n}@claude-plugins-official`, [{}]])) });
 
@@ -186,6 +186,9 @@ test('doctor: UI companions in every state', () => {
   assert.match(doctorOut(dir, home, noOff), /^ok\s+UI companions: frontend-design and chrome-devtools-mcp installed$/m);
   home = cfg(); installPlugins(home, ['chrome-devtools-mcp']); flagged(home, ['frontend-design', 'chrome-devtools-mcp']);
   assert.match(doctorOut(dir, home, noOff), /^ok\s+UI companions: frontend-design is being added; it loads the next time Claude Code starts$/m);
+  home = cfg(); installPlugins(home, ['chrome-devtools-mcp']);
+  writeIn(home, 'jspark-forge/state.json', { companions: { 'frontend-design': Date.now() - 11 * 60000, 'chrome-devtools-mcp': Date.now() } });
+  assert.match(doctorOut(dir, home, noOff), /^FIX\s+UI companions: frontend-design could not be added \(no result from the install\)\. Fix: \/plugin install frontend-design@claude-plugins-official$/m);
   home = cfg(); installPlugins(home, ['chrome-devtools-mcp']); flagged(home, ['frontend-design', 'chrome-devtools-mcp']);
   writeIn(home, 'jspark-forge/companions.json', { 'frontend-design': { at: 1, ok: false, reason: 'no network' } });
   assert.match(doctorOut(dir, home, noOff), /^FIX\s+UI companions: frontend-design could not be added \(no network\)\. Fix: \/plugin install frontend-design@claude-plugins-official$/m);
