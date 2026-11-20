@@ -119,6 +119,34 @@ function waitingNotice(dir) { // -> { msg, ctx } for session start, or null
   return { msg: `Waiting on you (${items.length}):\n${list}\nAnswer here, or run /jspark-forge:waiting.`, ctx: `${WAIT_CTX}\n${list}` };
 }
 
+// v0.5: the task tools (TodoWrite is off by default in current Claude Code; tools reference, "Task tool
+// availability"). task.taskList holds one entry per TaskCreate ({ id, content, status }, deleted ones included, so
+// positions stay true); task.todos is the list the handoff reads. The id comes from the tool result when it is there
+// ({ task: { id } }); otherwise a task is matched by its order (ids count up from 1; taskBase = tasks before this list).
+// -> true when the list changed.
+function taskTool(task, t, ti, tr) {
+  let list = Array.isArray(task.taskList) ? task.taskList : [];
+  if (t === 'TaskCreate') {
+    if (!ti.subject) return false;
+    const live = list.filter(x => x.status !== 'deleted');
+    if (live.length && live.every(x => x.status === 'completed')) { task.taskBase = (task.taskBase || 0) + list.length; list = []; } // a finished list: a new one starts
+    const id = (tr.task && tr.task.id) || tr.id || tr.taskId;
+    list.push({ id: id === undefined || id === null ? null : String(id), content: String(ti.subject), status: 'pending' });
+  } else {
+    const raw = ti.taskId !== undefined ? ti.taskId : ti.id !== undefined ? ti.id : ti.task_id;
+    if (raw === undefined || raw === null) return false;
+    const id = String(raw);
+    let x = list.find(e => e.id === id);
+    if (!x && /^\d+$/.test(id)) { const byOrder = list[Number(id) - 1 - (task.taskBase || 0)]; if (byOrder && !byOrder.id) x = byOrder; }
+    if (!x) return false;
+    if (ti.status) x.status = String(ti.status);
+    if (ti.subject) x.content = String(ti.subject);
+  }
+  task.taskList = list;
+  task.todos = list.filter(x => x.status !== 'deleted').map(x => ({ content: x.content, status: x.status }));
+  return true;
+}
+
 function doSave(dir, sid, reason, lines, opts) {
   if (handoff.save(dir, sid, reason, opts)) lines.push(['SAVE', reason]); // null: no work to resume, nothing written
 }
@@ -373,6 +401,7 @@ const handlers = {
       task.todos = ti.todos.map(x => ({ content: String(x.content || ''), status: String(x.status || 'pending') }));
       taskDirty = true;
     }
+    if ((t === 'TaskCreate' || t === 'TaskUpdate') && !input.agent_id && taskTool(task, t, ti, input.tool_response || {})) taskDirty = true;
     const bgId = input.tool_response && input.tool_response.backgroundTaskId;
     if (bgId && !sess.background.some(b => b.id === bgId)) {
       sess.background.push({ id: bgId, command: ti.command || '', description: ti.description || '', at: now });

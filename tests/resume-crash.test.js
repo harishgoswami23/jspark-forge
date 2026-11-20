@@ -219,3 +219,46 @@ test('notes older than the plan file: the plan still gives Task and Step', () =>
   assert.match(t, /\*\*Task:\*\* Install once/);
   assert.match(t, /\*\*Step:\*\* 1 of 3: auto-update/);
 });
+
+// ---- step progress from the task tools (Claude Code docs, tools reference: TodoWrite is "disabled by default in
+// favor of TaskCreate, TaskGet, TaskList, and TaskUpdate"; only TodoWrite was read, so Step was never recorded) ----
+const taskCreate = (dir, subject, id) => run(dir, 'PostToolUse', { tool_name: 'TaskCreate', tool_input: { subject, activeForm: `Doing ${subject}` },
+  tool_response: id ? { task: { id, subject } } : {} });
+const taskUpdate = (dir, input) => run(dir, 'PostToolUse', { tool_name: 'TaskUpdate', tool_input: input });
+
+test('TaskCreate and TaskUpdate give Step n of m, Done and Next', () => {
+  const dir = repo();
+  say(dir, REQUEST);
+  taskCreate(dir, 'add the chart model', '1'); taskCreate(dir, 'write the export route', '2'); taskCreate(dir, 'wire the button', '3');
+  taskUpdate(dir, { taskId: '1', status: 'completed' });
+  taskUpdate(dir, { taskId: '2', status: 'in_progress' });
+  run(dir, 'Stop', {});
+  const t = handoffText(dir);
+  assert.match(t, /\*\*Step:\*\* 2 of 3: write the export route/);
+  assert.match(t, /\*\*Done:\*\* step 1/);
+  assert.match(t, /\*\*Next action:\*\* write the export route/);
+});
+
+test('task ids missing from the tool result: tasks are matched by their order (ids count up from 1)', () => {
+  const dir = repo();
+  say(dir, REQUEST);
+  taskCreate(dir, 'add the chart model'); taskCreate(dir, 'write the export route');
+  taskUpdate(dir, { task_id: 1, status: 'completed' });
+  run(dir, 'Stop', {});
+  assert.match(handoffText(dir), /\*\*Step:\*\* 2 of 2: write the export route/);
+});
+
+test('a deleted task leaves the list, a renamed one shows its new name, and a new list starts after a finished one', () => {
+  const dir = repo();
+  say(dir, REQUEST);
+  taskCreate(dir, 'add the chart model', '1'); taskCreate(dir, 'old idea', '2'); taskCreate(dir, 'wire the button', '3');
+  taskUpdate(dir, { taskId: '2', status: 'deleted' });
+  taskUpdate(dir, { taskId: '3', subject: 'wire the export button' });
+  taskUpdate(dir, { taskId: '1', status: 'completed' });
+  run(dir, 'Stop', {});
+  assert.match(handoffText(dir), /\*\*Step:\*\* 2 of 2: wire the export button/);
+  taskUpdate(dir, { taskId: '3', status: 'completed' });
+  taskCreate(dir, 'csv format', '4');
+  run(dir, 'Stop', {});
+  assert.match(handoffText(dir), /\*\*Step:\*\* 1 of 1: csv format/);
+});
