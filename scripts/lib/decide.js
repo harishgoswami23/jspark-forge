@@ -122,9 +122,10 @@ function run(dir, args, sid) {
   const added = D.parse(out.text).entries.find(e => e.id === id);
   if (added) st.known = Object.assign({}, st.known, { [id]: hashOf(added) }); // recorded here: not "arrived with git"
   let msg = `Recorded ${id}: ${title}${touches.length ? ` (touches ${touches.join(', ')})` : ' (no Touches: it is never shown just in time)'}.`;
-  if (D.words(entry) > LONG_WORDS && !st.longWarned) {
+  const wc = D.words(entry); // the title and the why, never the touches
+  if (wc > LONG_WORDS && !st.longWarned) {
     st.longWarned = true;
-    msg += ` Long entries go stale and cost tokens on every matching edit; for detail, consider a reference entry pointing to a doc.`;
+    msg += ` This entry's title and why are ${wc} words (over ${LONG_WORDS}). Long entries go stale and cost tokens on every matching edit; for detail, consider a reference entry pointing to a doc.`;
   }
   return done(msg);
 }
