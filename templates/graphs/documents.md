@@ -1,7 +1,7 @@
 # Graph: documents
 - max_parallel: 1
 
-<!-- A document from research to publication. /jspark-forge:build copies it to .jspark-forge/graphs/<name>.md; then change the title to "# Graph: <name>". -->
+<!-- A document from research to publication. /jspark-forge:build copies it to .jspark-forge/graphs/<name>.md; then change the title to "# Graph: <name>". Builders commit their step's work on the current branch (no merge, no push): the review step needs those commits. -->
 
 ## research (agent)
 - helper: planner

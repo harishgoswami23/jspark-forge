@@ -7,7 +7,12 @@ Run a build graph step by step. JSPARK Forge keeps the record and checks it; you
 1. If the user named no graph, list `.jspark-forge/graphs/*.md`. To start from a template, copy one of
    `${CLAUDE_PLUGIN_ROOT}/templates/graphs/` (software, documents, spike, ui, or planned when the spec and plan are already written) to `.jspark-forge/graphs/<name>.md` with the
    Write tool, never over an existing file, change its first line to `# Graph: <name>` (the title must match the file
-   name), and help the user fill in its briefs. Then run
+   name), and help the user fill in its briefs. After copying a template: (a) set every `run:` line to the project's
+   real commands (the template says `npm test` only as a placeholder): look at the `scripts` in package.json and at the
+   lock file (package-lock.json, pnpm-lock.yaml, yarn.lock) to pick npm, pnpm or yarn, or use the project's own runner
+   (pytest, go test ./..., and so on), and remove the template's comment lines about it once done; (b) say in each build
+   brief that the builder commits its work on the current branch (no merge, no push), because the review step needs
+   those commits. Then run
    `node "${CLAUDE_PLUGIN_ROOT}/scripts/forge.js" graph check <name>` and fix what it reports.
 2. Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/forge.js" graph start <name>` (or `graph status <name>` to see a run in
    progress). If it asks for `TRUST GRAPH <name>`, show the user the commands it lists and stop: only the user types
