@@ -12,6 +12,7 @@ const path = require('path');
 const statusline = require('./statusline-install');
 const paths = require('./paths');
 const autoupdate = require('./autoupdate');
+const companions = require('./companions');
 const { writeAtomic } = require('./fsx');
 
 
@@ -222,7 +223,7 @@ function machineMessages(home = claudeHome()) {
       msgs.push('You have your own status line, so JSPARK Forge left it untouched. To let it save at 80 % and 95 % ' +
         'usage, run /jspark-forge:init once (it asks first and keeps your status line as it is).');
     }
-    changed = !!st.statusline;
+    if (st.statusline) changed = true;
   }
   // superpowers is a dependency (installed with JSPARK Forge from our marketplace). A user who already had it from
   // another marketplace now has it twice, so every skill shows twice: say once which copy to remove.
@@ -244,6 +245,8 @@ function machineMessages(home = claudeHome()) {
   const au = autoupdate.ensure(home, st);
   if (au) msgs.push(au);
   if (st.autoUpdateSet !== hadAu) changed = true;
+  const comp = companions.ensure(home, st); // writes its own flags first (two sessions at once), then starts the runners
+  if (comp.length) msgs.push(...comp);
   if (changed) {
     writeAtomic(stateFile, JSON.stringify(st, null, 2) + '\n');
   }

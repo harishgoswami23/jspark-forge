@@ -10,6 +10,7 @@ const { spawn, spawnSync, execFileSync } = require('child_process');
 const PLUGIN = path.resolve(__dirname, '..', '..');
 // Real Claude Code runs with the real login and config: never let automatic setup touch the real status line.
 process.env.JSPARK_FORGE_AUTO_STATUSLINE = 'off';
+process.env.JSPARK_FORGE_AUTO_SETUP = 'off';
 const MODEL = process.env.FORGE_IT_MODEL || 'haiku';
 // Every folder a test file makes goes under one root, removed when the file ends; kept when a test failed, to look at.
 const ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-it-run-'));
