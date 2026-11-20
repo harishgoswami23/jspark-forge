@@ -402,6 +402,19 @@ test('unfold: removes backslash-newline as bash does, and keeps quotes, comments
   assert.equal(unfold('a \\\r\nb'), WIN ? 'a b' : 'a \\\r\nb');
 });
 
+test('MCP input nested very deep is held as too complex, never passed (and deep-but-normal input is still read)', () => {
+  let deep = { sql: 'DROP TABLE users' };
+  for (let i = 0; i < 6000; i++) deep = { a: deep };
+  const r = check(mcp('mcp__notes__save', deep), ctx());
+  assert.ok(r && r.id === 'too-complex' && r.hard, `got ${JSON.stringify(r && r.id)}`);
+  let fifty = { note: 'DROP TABLE users' };
+  for (let i = 0; i < 45; i++) fifty = { a: [fifty] }; // 91 levels: under the cap of 100
+  assert.equal(expectOf(check(mcp('mcp__notes__save', fifty), ctx())), 'sql-destroy');
+  let plain = { note: 'hello' };
+  for (let i = 0; i < 50; i++) plain = { a: plain };
+  assert.equal(check(mcp('mcp__notes__save', plain), ctx()), null);
+});
+
 function expectOf(r) { return r ? (r.hard ? `${r.id}!` : r.id) : null; }
 
 for (const [group, cases] of Object.entries(CASES)) {

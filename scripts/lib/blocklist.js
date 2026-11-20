@@ -828,11 +828,23 @@ function shellHits(raw, cwd, ctx, depth = 0, dialect = 'bash') {
   return hits;
 }
 
+// The text of an MCP tool input, one value per line, read without recursion. Input nested deeper than MCP_MAX_DEPTH
+// is not followed (a few thousand levels overflowed the stack, and the failed check let the call through): deep is
+// set and the caller holds it as too complex.
+const MCP_MAX_DEPTH = 100;
 function mcpText(v) {
-  if (v === null || v === undefined) return '';
-  if (typeof v === 'string') return v;
-  if (typeof v === 'object') return Object.values(v).map(mcpText).join('\n');
-  return String(v);
+  const parts = [];
+  let deep = false;
+  const todo = [[v, 0]];
+  while (todo.length) {
+    const [x, d] = todo.pop();
+    if (x === null || x === undefined) continue;
+    if (typeof x !== 'object') { parts.push(String(x)); continue; }
+    if (d >= MCP_MAX_DEPTH) { deep = true; continue; }
+    const vals = Object.values(x);
+    for (let i = vals.length - 1; i >= 0; i--) todo.push([vals[i], d + 1]);
+  }
+  return { text: parts.join('\n'), deep };
 }
 
 // Every rule always runs, on the whole command (Fable review H3, M4; verification N4). The user's own rules and all
@@ -884,7 +896,8 @@ function check(input, ctx, opts = {}) {
       hits = shellHits(raw, cwd, ctx, 0, tool === 'PowerShell' ? 'ps' : 'bash');
       hits = hits.concat(userHits(raw, ctx.rules));
     } else if (tool.startsWith('mcp__')) {
-      const text = mcpText(ti);
+      const { text, deep } = mcpText(ti);
+      if (deep) hits.push(tooComplex(text));
       if (sqlDestructive(text)) hits.push(hit('sql-destroy', false, text));
       if (mcpDbWrite(tool, ti, ctx)) hits.push(hit('db-write', false, text));
       hits = hits.concat(userHits(text, ctx.rules));
