@@ -395,11 +395,36 @@ test('unfold: removes backslash-newline as bash does, and keeps quotes, comments
   assert.equal(unfold("echo 'x\\\ny'"), "echo 'x\\\ny'");
   assert.equal(unfold('echo a # c \\\nb'), 'echo a # c \\\nb');
   assert.equal(unfold('echo a\\\\\nb'), 'echo a\\\\\nb');
-  assert.equal(unfold('cat <<E\\\nOF\nx \\\nEOF\ny \\\nz'), 'cat <<EOF\nx \\\nEOF\ny z');
-  assert.equal(unfold('echo "$(cat <<EOF\nx \\\nEOF\n)" \\\nz'), 'echo "$(cat <<EOF\nx \\\nEOF\n)" z');
-  assert.equal(unfold('x=$(cat <<EOF\na \\\nEOF)\ny \\\nz'), 'x=$(cat <<EOF\na \\\nEOF)\ny z');
+  // An unquoted heredoc body loses its backslash-newlines too (bash manual: "\<newline> is ignored"); a quoted one
+  // (<<'EOF') keeps them (review of v0.2, M1).
+  assert.equal(unfold('cat <<E\\\nOF\nx \\\nEOF\ny \\\nz'), 'cat <<EOF\nx EOF\ny z');
+  assert.equal(unfold("cat <<'EOF'\nx \\\nEOF\ny \\\nz"), "cat <<'EOF'\nx \\\nEOF\ny z");
+  assert.equal(unfold('echo "$(cat <<\'EOF\'\nx \\\nEOF\n)" \\\nz'), 'echo "$(cat <<\'EOF\'\nx \\\nEOF\n)" z');
+  assert.equal(unfold('x=$(cat <<\'EOF\'\na \\\nEOF)\ny \\\nz'), 'x=$(cat <<\'EOF\'\na \\\nEOF)\ny z');
+  assert.equal(unfold('cat <<EOF\na\\\\\nEOF\nz'), 'cat <<EOF\na\\\\\nEOF\nz');
   assert.equal(unfold('plain text'), 'plain text');
   assert.equal(unfold('a \\\r\nb'), WIN ? 'a b' : 'a \\\r\nb');
+});
+
+// Review of v0.2 (H1): the comment check re-read the growing output at every "#", so 40,000 commented lines with one
+// continuation took 3.8 s, past the hook's 3 s, and then nothing was blocked.
+test('unfold stays fast on very long commands with many comments', () => {
+  const big = 'echo a # note\n'.repeat(40000) + 'echo b \\\n c; git push --force origin main';
+  const t = Date.now();
+  assert.equal(expectOf(check(bash(big), ctx())), 'git-force-push-main');
+  assert.ok(Date.now() - t < 1000, `${Date.now() - t} ms`);
+});
+
+// Review of v0.2 (M1): what hides in an unquoted heredoc split by a continuation.
+test('continuations inside an unquoted heredoc are joined as bash joins them', () => {
+  for (const [command, want] of [
+    ['psql -h localhost -d app <<EOF\nDROP \\\nTABLE users;\nEOF', 'sql-destroy'],
+    ['cat <<EOF\nbody\nEO\\\nF\ngit reset --hard', 'git-reset-hard'],
+    ['cat <<EOF\n$\\\n(git reset --hard)\nEOF', 'git-reset-hard'],
+    ["cat <<'EOF'\nx \\\nEOF\ngit reset --hard\nEOF", 'git-reset-hard'],
+    ["git commit -F- <<'EOF'\nfix: rm -rf ~ \\\nexample\nEOF", null],
+    ['git commit -F- <<EOF\nfix: DROP \\\nTABLE in docs\nEOF', null],
+  ]) assert.equal(expectOf(check(bash(command), ctx())), want, command);
 });
 
 test('MCP input nested very deep is held as too complex, never passed (and deep-but-normal input is still read)', () => {
