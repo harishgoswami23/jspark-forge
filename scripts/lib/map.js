@@ -422,7 +422,7 @@ function engines(dir, home) {
   const h = home || require('os').homedir();
   let on = false;
   try { on = bundled.mode('codebase-memory', dir) === 'run'; } catch { /* off */ }
-  return { bundled: on, own: mention(path.join(h, '.claude.json')) || (!!dir && mention(path.join(dir, '.mcp.json'))) };
+  return { bundled: on, own: mention(path.join(h, '.claude.json')) || (!!dir && !paths.isGuest(dir) && mention(path.join(dir, '.mcp.json'))) };
 }
 
 // `forge.js map status` and /check lines.

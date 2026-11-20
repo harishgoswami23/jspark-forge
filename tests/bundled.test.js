@@ -206,10 +206,13 @@ test('an unknown server name is one stderr line and exit 1', () => {
   assert.equal(r.stdout, '');
 });
 
-test('stopping the launcher stops the engine too', async () => {
+// The launcher ends when it is stopped; where a signal can be passed on (not Windows, where a kill is a hard stop), the
+// engine process is gone too.
+test('stopping the launcher ends it, and (outside Windows) the engine process too', async () => {
   const s = setup();
   const slow = path.join(s.base, 'slow.js');
-  fs.writeFileSync(slow, "console.log('up'); setTimeout(() => {}, 15000);"); // ends by itself: on Windows a killed launcher cannot pass the signal on
+  const pidFile = path.join(s.base, 'engine.pid');
+  fs.writeFileSync(slow, `require('fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); console.log('up'); setTimeout(() => {}, 15000);`); // ends by itself: on Windows a killed launcher cannot pass the signal on
   s.env.JSPARK_FORGE_BUNDLED_CMD = JSON.stringify({ 'codebase-memory': [process.execPath, slow] });
   const child = spawn(process.execPath, [bundled.LAUNCHER, 'codebase-memory'], { env: s.env, cwd: s.project, stdio: ['ignore', 'pipe', 'pipe'] });
   await new Promise(res => child.stdout.once('data', res));
@@ -219,6 +222,12 @@ test('stopping the launcher stops the engine too', async () => {
   const r = await done;
   clearTimeout(timer);
   assert.notEqual(r.sig, 'SIGKILL', 'the launcher had to be killed');
+  if (process.platform !== 'win32') {
+    const enginePid = Number(fs.readFileSync(pidFile, 'utf8'));
+    const end = Date.now() + 5000;
+    while (bundled.pidAlive(enginePid) && Date.now() < end) await new Promise(res => setTimeout(res, 50));
+    assert.equal(bundled.pidAlive(enginePid), false, 'the engine process is gone');
+  }
 });
 
 test('npxCommand never needs a shell: its first element is an existing file or "npx"', () => {

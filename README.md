@@ -207,12 +207,15 @@ That is the whole install. superpowers comes with it. On first start JSPARK Forg
 - **The code map** (codebase-memory-mcp 0.12.1), as a plugin server. Undo: `- code-map: off` under `## Settings` in
   `rules.md`, or `JSPARK_FORGE_CODE_MAP=off`.
 - **Playwright** (`@playwright/mcp` 0.0.86), as a plugin server, so Claude can check its own screens. It gives Claude
-  tools only in a project with a front end. Undo: `- playwright: off` under `## Settings` in `rules.md`, or
-  `JSPARK_FORGE_PLAYWRIGHT=off`.
+  tools only in a project with a front end. It needs Node.js 20 or newer and stays off on Node.js 18 and 19. Undo:
+  `- playwright: off` under `## Settings` in `rules.md`, or `JSPARK_FORGE_PLAYWRIGHT=off`.
 - **frontend-design and Chrome DevTools**, added once, in the background, from Anthropic's plugin directory. They load
   the next time Claude Code starts. Undo: `/plugin uninstall frontend-design@claude-plugins-official` and
   `/plugin uninstall chrome-devtools-mcp@claude-plugins-official`.
 - **A status line**, only when you have none. Undo: `/jspark-forge:init --undo-statusline`.
+
+Undo for the two servers stops them but does not delete what `npx` downloaded; that sits in npm's cache, which
+`npm cache clean --force` clears.
 
 To stop the automatic switch-on of auto-update and the two companions, set `JSPARK_FORGE_AUTO_SETUP=off`.
 
@@ -322,7 +325,7 @@ What JSPARK Forge checks, what it guards, and what it can only ask for:
 
 ## Privacy
 
-Your files and the handoff stay on your machine. The handoff holds paths and short text, never file contents. The log
+Your files and the handoff stay on your machine. The handoff holds paths, short text and the last lines of Claude's reply, never file contents. The log
 hides likely secrets (keys, tokens, passwords) before writing. JSPARK Forge itself sends nothing anywhere. It goes
 online only through `npx` (the first start of the code map and Playwright servers) and through `claude plugin install`
 (once, for the two companions). Those two programs, and the servers they run, are not JSPARK Forge's own code. A hook

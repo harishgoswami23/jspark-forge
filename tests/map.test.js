@@ -569,3 +569,21 @@ test('code-map off with the plugin prefix recorded: the map layer is off, no ref
   process.env.JSPARK_FORGE_CODE_MAP = 'off';
   try { assert.equal(map.isOn(dir), true); } finally { if (saved === undefined) delete process.env.JSPARK_FORGE_CODE_MAP; else process.env.JSPARK_FORGE_CODE_MAP = saved; }
 });
+
+test("map.engines does not read a reviewed (guest) repo's .mcp.json", () => {
+  const map = require('../scripts/lib/map');
+  const paths = require('../scripts/lib/paths');
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-map-guest-'));
+  const dir = path.join(base, 'repo');
+  fs.mkdirSync(dir);
+  fs.writeFileSync(path.join(dir, '.mcp.json'), '{"mcpServers":{"codebase-memory":{}}}');
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-map-home-'));
+  const prev = process.env.CLAUDE_CONFIG_DIR;
+  process.env.CLAUDE_CONFIG_DIR = home;
+  try {
+    assert.equal(map.engines(dir, home).own, true, 'a plain folder: its .mcp.json counts');
+    fs.mkdirSync(paths.guestDir(dir), { recursive: true });
+    assert.equal(paths.isGuest(dir), true);
+    assert.equal(map.engines(dir, home).own, false, 'a guest repo: the repo is not read');
+  } finally { if (prev === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = prev; }
+});
