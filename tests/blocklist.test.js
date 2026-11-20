@@ -410,9 +410,14 @@ test('unfold: removes backslash-newline as bash does, and keeps quotes, comments
 // continuation took 3.8 s, past the hook's 3 s, and then nothing was blocked.
 test('unfold stays fast on very long commands with many comments', () => {
   const big = 'echo a # note\n'.repeat(40000) + 'echo b \\\n c; git push --force origin main';
-  const t = Date.now();
+  // unfold itself (what regressed: about 3 s here) takes a few ms; the whole check stays well inside the hook's 3 s,
+  // even with the full suite running beside it.
+  let t = Date.now();
+  require('../scripts/lib/shell').unfold(big);
+  assert.ok(Date.now() - t < 200, `unfold: ${Date.now() - t} ms`);
+  t = Date.now();
   assert.equal(expectOf(check(bash(big), ctx())), 'git-force-push-main');
-  assert.ok(Date.now() - t < 1000, `${Date.now() - t} ms`);
+  assert.ok(Date.now() - t < 2000, `check: ${Date.now() - t} ms`);
 });
 
 // Review of v0.2 (M1): what hides in an unquoted heredoc split by a continuation.
