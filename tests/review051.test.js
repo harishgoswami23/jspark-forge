@@ -162,3 +162,45 @@ test('3: a hook error logged after the day\'s log reached its cap is still logge
   log.append(dir, { time: t, session: 's1', kind: 'FORGE-ERROR', detail: 'Stop: after the cap' }, { capBytes: 300 });
   assert.equal(log.hookErrors(dir).n, 1);
 });
+
+// ---------------- 4: only a real publish is recorded ----------------
+const LINK = 'https://claude.ai/code/artifact/1b4e28ba-2fa1-11d2-883f-0016d3cca427';
+const artifact = (dir, input, response) => hook(dir, 'PostToolUse', { tool_name: 'Artifact', tool_input: input, tool_response: response });
+const logText = dir => { try { return fs.readdirSync(forgeFile(dir, 'log')).map(f => fs.readFileSync(forgeFile(dir, 'log', f), 'utf8')).join('\n'); } catch { return ''; } };
+
+test('4: an Artifact call that is not a publish records nothing', () => {
+  const dir = project();
+  for (const [input, resp] of [
+    [{ command: 'list' }, { content: 'Your artifacts: none' }],
+    [{ action: 'list' }, { content: 'Your artifacts: none' }],
+    [{ action: 'quickstart', intent: 'other' }, { content: 'Guidance text' }],
+    [{ file_path: path.join(dir, 'nope.html') }, { content: 'Error: could not publish' }], // a publish whose reply has no link and no file
+    [{ title: 'x' }, { content: 'ok' }],
+    [{ action: 'read', url: LINK }, { content: `Page at ${LINK}` }], // a link, but not a publish
+    [{ action: 'delete', url: LINK }, { content: `Deleted ${LINK}` }],
+    [{ asset: true, url: LINK, file_path: 'a.png' }, { content: `Uploaded to ${LINK}` }],
+  ]) {
+    const o = artifact(dir, input, resp);
+    assert.equal(ctx(o), '', JSON.stringify(input));
+  }
+  assert.ok(!fs.existsSync(forgeFile(dir, 'artifacts.md')), 'nothing listed');
+  assert.doesNotMatch(logText(dir), /UNKEPT|KEEP /);
+});
+
+test('4: a publish with a link and a missing source file is recorded as none, and logs UNKEPT', () => {
+  const dir = project();
+  const o = artifact(dir, { file_path: path.join(dir, 'gone.html') }, { content: `Published to ${LINK}` });
+  assert.match(ctx(o), /no local copy/);
+  assert.match(fs.readFileSync(forgeFile(dir, 'artifacts.md'), 'utf8'), new RegExp(`\| none \| ${LINK}`));
+  assert.match(logText(dir), new RegExp(`UNKEPT ${LINK}`));
+  assert.doesNotMatch(logText(dir), /KEEP /);
+});
+
+test('4: a kept publish logs KEEP with the local path; an explicit publish action counts', () => {
+  const dir = project();
+  const src = path.join(mk('forge-r51-art-'), 'page.html');
+  fs.writeFileSync(src, '<html><head><title>P</title></head></html>');
+  artifact(dir, { action: 'publish', file_path: src }, { content: `Published to ${LINK}` });
+  assert.match(logText(dir), /KEEP +\.jspark-forge\/artifacts\/page\.html/);
+  assert.doesNotMatch(logText(dir), /UNKEPT/);
+});

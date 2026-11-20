@@ -449,9 +449,10 @@ const handlers = {
       return { lines, out: text ? context('PostToolUse', text) : null };
     }
     if (t === 'Artifact') { // a published page: keep its file in the project (spec principle 9)
-      const kept = paths.isOwn(dir) ? artifacts.onPublish(dir, ti, input.tool_response) : null;
-      if (kept) lines.push(['KEEP', String(ti.file_path || '')]);
-      return { lines, out: kept ? context('PostToolUse', kept) : null };
+      const r = paths.isOwn(dir) ? artifacts.publish(dir, ti, input.tool_response) : null;
+      if (r && r.kept) lines.push(['KEEP', r.kept]);
+      else if (r && r.unkept) lines.push(['UNKEPT', r.unkept]);
+      return { lines, out: r ? context('PostToolUse', r.text) : null };
     }
     if (t === 'AskUserQuestion') { // answered in the dialog
       const asked = new Set(waiting.fromTool(ti, sid).map(q => q.question.replace(/\s+/g, ' ').trim()));

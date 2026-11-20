@@ -34,7 +34,8 @@ function read(dir) { // -> [{ date, title, file, url }]
 const write = (dir, items) => writeAtomic(listFile(dir), HEAD + items.map(i => `- ${i.date} | ${i.title} | ${i.file} | ${i.url}`).join('\n') + '\n');
 
 const NO_COPY = 'none'; // the local path of a page that was published but never kept (v0.5.1)
-const linkOf = (ti, toolResponse) => clean((JSON.stringify(toolResponse || '').match(/https:\/\/claude\.ai\/[A-Za-z0-9/_-]*artifact[A-Za-z0-9/_-]*/) || [])[0] || ti.url || 'no link recorded');
+const LINK_RE = /https:\/\/claude\.ai\/[A-Za-z0-9/_-]*artifact[A-Za-z0-9/_-]*/;
+const linkOf = toolResponse => { const m = JSON.stringify(toolResponse || '').match(LINK_RE); return m ? clean(m[0]) : null; }; // the artifact link in the tool's reply, or null
 
 // A page that was published but whose file could not be kept: listed with local path "none" (once per link).
 function recordUnkept(dir, ti, url, now) {
@@ -48,16 +49,20 @@ function recordUnkept(dir, ti, url, now) {
     'and tell the user its path together with the link; the link may stop working if they change account.';
 }
 
-// A publish by the Artifact tool. -> text for Claude (where the local copy is), or null when nothing was recorded.
-function onPublish(dir, toolInput, toolResponse, now = new Date()) {
+// A publish by the Artifact tool. Only a real publish counts: the action is missing or "publish", it is not an asset
+// upload, and the reply holds an artifact link (a list, read, quickstart or a failed call records nothing).
+// -> { text, kept, unkept } (text for Claude; kept: the local path shown; unkept: the link of a page with no copy), or null.
+function publish(dir, toolInput, toolResponse, now = new Date()) {
   try {
     const ti = toolInput || {};
     if ((ti.action && ti.action !== 'publish') || ti.asset) return null;
-    const url = linkOf(ti, toolResponse);
+    const url = linkOf(toolResponse);
+    if (!url) return null;
+    const unkept = () => ({ text: recordUnkept(dir, ti, url, now), kept: null, unkept: url });
     try {
-      if (!ti.file_path) return recordUnkept(dir, ti, url, now);
+      if (!ti.file_path) return unkept();
       const src = path.resolve(String(ti.file_path));
-      if (!fs.statSync(src).isFile()) return recordUnkept(dir, ti, url, now);
+      if (!fs.statSync(src).isFile()) return unkept();
       const rel = path.relative(dir, src);
       const inside = rel && !rel.startsWith('..') && !path.isAbsolute(rel);
       const listed = read(dir);
@@ -87,11 +92,12 @@ function onPublish(dir, toolInput, toolResponse, now = new Date()) {
       const items = listed.filter(i => i.file !== shown && !(i.file === NO_COPY && url !== 'no link recorded' && i.url === url));
       items.push({ date: today(now), title: clean(title || ti.title || path.basename(src)), file: shown, url });
       write(dir, items);
-      return `JSPARK Forge: a local copy of this page is kept at ${shown} (listed in ${paths.display(dir, listFile(dir))}). ` +
-        'Tell the user that path together with the link; the link may stop working if they change account.';
-    } catch { return recordUnkept(dir, ti, url, now); } // the source could not be read or copied
+      return { kept: shown, unkept: null, text: `JSPARK Forge: a local copy of this page is kept at ${shown} (listed in ${paths.display(dir, listFile(dir))}). ` +
+        'Tell the user that path together with the link; the link may stop working if they change account.' };
+    } catch { return unkept(); } // the source could not be read or copied
   } catch { return null; }
 }
+const onPublish = (...a) => { const r = publish(...a); return r ? r.text : null; }; // the text only
 
 // Listed pages with no local file: gone, or never kept. -> [{ date, title, file, url, never }]
 function gone(dir) {
@@ -117,4 +123,4 @@ function missing(dir) {
   } catch { return null; }
 }
 
-module.exports = { onPublish, missing, checkLines, read, RULE };
+module.exports = { publish, onPublish, missing, checkLines, read, RULE };
