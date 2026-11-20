@@ -194,3 +194,28 @@ test('once the new session does real work, its own last reply takes over', () =>
   assert.match(t, /Next: the csv format\./);
   assert.doesNotMatch(t, /wire the export button/);
 });
+
+// ---- a parked plan (found on this repo's own handoff, 2026-11-20) ----
+function planAndNotes(notesAgeMs) {
+  const dir = repo();
+  fs.mkdirSync(path.join(dir, 'docs'));
+  fs.writeFileSync(path.join(dir, 'docs', 'plan.md'), '# Install once\n- [ ] auto-update\n- [ ] launcher\n- [ ] doctor\n');
+  editIn(dir, 'docs/plan.md');
+  const notes = path.join(dir, '.jspark-forge', 'state', 'notes.md');
+  fs.writeFileSync(notes, 'Task: Make resume work after a crash\nStep: 1 of 2: tests for the four causes\nNext: fix the save triggers\nThe install plan is parked.');
+  const t = new Date(Date.now() + notesAgeMs);
+  fs.utimesSync(notes, t, t);
+  run(dir, 'Stop', {});
+  return handoffText(dir);
+}
+test("Claude's notes written after the plan file say what the task is now (the plan is parked)", () => {
+  const t = planAndNotes(60000);
+  assert.match(t, /\*\*Task:\*\* Make resume work after a crash/);
+  assert.match(t, /\*\*Step:\*\* 1 of 2: tests for the four causes/);
+  assert.match(t, /\*\*Next action:\*\* fix the save triggers/);
+});
+test('notes older than the plan file: the plan still gives Task and Step', () => {
+  const t = planAndNotes(-3600000);
+  assert.match(t, /\*\*Task:\*\* Install once/);
+  assert.match(t, /\*\*Step:\*\* 1 of 3: auto-update/);
+});

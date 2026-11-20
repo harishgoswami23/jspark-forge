@@ -43,8 +43,11 @@ const doneText = n => (n <= 0 ? null : n === 1 ? 'step 1' : `steps 1–${n}`);
 
 // Deviation 7: todo list, then a checkbox plan file, then Claude's notes, then the last request.
 const SUBSTANTIVE = 25; // shorter messages ("go on", "resume", "yes") steer the work; they are not the task
-function taskFields({ todos, plan, notes, lastRequest, requests }) {
+// notesFirst (v0.5): the notes were written after the plan file, so they say what the task is now (a plan can be parked).
+function taskFields({ todos, plan, notes, lastRequest, requests, notesFirst }) {
   let step = null, next = null, done = null;
+  const lead = !!(notesFirst && notes && notes.task);
+  if (lead && !(Array.isArray(todos) && todos.length)) plan = null;
   if (Array.isArray(todos) && todos.length) {
     const m = todos.length;
     let i = todos.findIndex(t => t.status === 'in_progress');
@@ -63,7 +66,7 @@ function taskFields({ todos, plan, notes, lastRequest, requests }) {
   }
   if (!next && notes && notes.next) next = notes.next;
   const real = (requests || []).map(r => r.text).reverse().find(t => t.length >= SUBSTANTIVE);
-  const task = (plan && plan.title) || (notes && notes.task) || real || lastRequest || null;
+  const task = (lead && notes.task) || (plan && plan.title) || (notes && notes.task) || real || lastRequest || null;
   return { task, step, next, done };
 }
 
@@ -227,7 +230,9 @@ function save(dir, sid, reason, { refreshGit = true, now = new Date(), force = f
   const same = (x, y) => { const p = String(x).slice(0, 150), q = String(y).slice(0, 150); return p.startsWith(q) || q.startsWith(p); };
   if (sess.lastPrompt && !(requests.length && same(requests[requests.length - 1].text, sess.lastPrompt))) requests.push({ at: now, text: sess.lastPrompt });
   const lastRequest = sess.lastPrompt || (requests.length ? requests[requests.length - 1].text : null);
-  const f = taskFields({ todos: task.todos, plan, notes, lastRequest, requests });
+  let planTime = 0;
+  if (planFile) { try { planTime = fs.statSync(path.join(dir, planFile)).mtimeMs; } catch { /* gone */ } }
+  const f = taskFields({ todos: task.todos, plan, notes, lastRequest, requests, notesFirst: !!(plan && notes && notes.time && notes.time.getTime() > planTime) });
   // Claude's last reply: this session's once it has done work of its own; until then the one already in the handoff
   // (a session that only showed the handoff and asked "Continue?" must not replace what was said about the work).
   const prevMeta = state.readMeta(dir);
