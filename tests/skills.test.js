@@ -16,10 +16,13 @@ for (const name of ['resume', 'handoff', 'waiting']) {
   });
 }
 
-test('resume reads only the handoff, never the log, and waits', () => {
+// Owner 2026-11-20: resume starts from the handoff and also reads the end of the log and the notes (it was "only the
+// handoff, never the log"; twice the handoff was behind and Claude found the real work only in the log).
+test('resume starts from the handoff, reads the end of the log too, and waits', () => {
   const t = read('resume');
   assert.match(t, /node "\$\{CLAUDE_PLUGIN_ROOT\}\/scripts\/forge\.js" show/, 'asks the script (guest mode moves the file)');
-  assert.match(t, /Do not read the log/);
+  assert.match(t, /read the last 60 lines of the log file the handoff names/);
+  assert.doesNotMatch(t, /Do not read the log/);
   assert.match(t, /Continue\?/);
 });
 
