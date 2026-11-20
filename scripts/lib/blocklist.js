@@ -713,12 +713,16 @@ function mcpDbWrite(tool, ti, ctx) {
 }
 
 // ---------- secret files ----------
+const CODE_FILE = /\.(?:[cm]?[jt]sx?|py|go|rs|java|kt|kts|cs|rb|php|swift|c|h|cc|cpp|hpp|scala|dart|ex|exs|vue|svelte|md|mdx)$/;
 function isSecretName(p) {
   const b = String(p).split(/[\\/]/).pop().toLowerCase();
   if (!b) return false;
   if (b.split('.').some(part => TEMPLATE_WORDS.has(part))) return false;
-  return b.startsWith('.env') || b.endsWith('.pem') || b.endsWith('.key') || b.startsWith('id_rsa') ||
-    b.includes('credentials') || b.includes('secret');
+  if (b.startsWith('.env') || b.endsWith('.pem') || b.endsWith('.key') || b.startsWith('id_rsa')) return true;
+  // A name with 'secret' or 'credentials' in it: a secrets store unless it is source code or a document (secrets.ts
+  // holds the code that makes tokens, not the tokens; owner report 2026-11-20). Data files stay held.
+  if (CODE_FILE.test(b)) return false;
+  return b.includes('credentials') || b.includes('secret');
 }
 
 // ---------- shell commands ----------

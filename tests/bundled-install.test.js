@@ -136,7 +136,10 @@ test('the launcher is killed while it waits: the detached installer still finish
   const { child, done } = launch(s, ['codebase-memory']);
   assert.ok(await until(() => counted(s) === 1), 'the installer started');
   assert.ok(await until(() => (recordOf(s)['codebase-memory'] || {}).mode === 'installing'), 'recorded as installing');
-  child.kill('SIGKILL');
+  // Killed the way a session end kills it on Windows: the whole process tree (seen for real on 2026-11-20: the
+  // installer died with the session, 26 s into a 333 MB download, and the engine never arrived).
+  if (process.platform === 'win32') require('node:child_process').spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
+  else child.kill('SIGKILL');
   await done;
   assert.equal(fs.existsSync(marker(s)), false, 'not finished yet');
   assert.ok(await until(() => fs.existsSync(marker(s)), 20000), 'the installer survived the launcher');

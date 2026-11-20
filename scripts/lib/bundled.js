@@ -105,7 +105,11 @@ function installCommand(home, name) {
 // started it. It takes its own lock; a second one finds the first and ends.
 function startInstaller(home, name, project) {
   try {
-    const c = require('child_process').spawn(process.execPath, [INSTALLER, name], Object.assign({ detached: true, stdio: 'ignore', windowsHide: true, shell: false },
+    // Started through a go-between that ends at once. On Windows a session end kills the launcher's whole process
+    // tree, and "detached" alone does not take a child out of that tree: the installer died 26 s into a 333 MB
+    // download (real run, 2026-11-20). A process whose parent has already ended is not part of the tree.
+    const GO_BETWEEN = "require('child_process').spawn(process.execPath,[process.argv[1],process.argv[2]],{detached:true,stdio:'ignore',windowsHide:true}).unref()";
+    const c = require('child_process').spawn(process.execPath, ['-e', GO_BETWEEN, INSTALLER, name], Object.assign({ detached: true, stdio: 'ignore', windowsHide: true, shell: false },
       { cwd: neutralDir(home), env: Object.assign({}, process.env, { NoDefaultCurrentDirectoryInExePath: '1', CLAUDE_CONFIG_DIR: home, CLAUDE_PROJECT_DIR: project || '' }) }));
     c.on('error', () => { /* the launcher notices that no marker comes */ });
     c.unref();
