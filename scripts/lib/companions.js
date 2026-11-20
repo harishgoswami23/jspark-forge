@@ -27,6 +27,27 @@ function installed(home, name) {
   try { return fs.readdirSync(path.join(plugins, 'cache')).some(m => fs.existsSync(path.join(plugins, 'cache', m, name))); } catch { return false; }
 }
 
+// The installed version of a companion, when installed_plugins.json records one (spec 793-794). The file's shape is not
+// documented (seen: { plugins: { "<name>@<marketplace>": [{ version, ... }] } }), so every step is checked and anything
+// unexpected gives null. The last entry of the list is the newest. Only a short plain version string is accepted: it
+// is printed.
+function versionOf(home, name) {
+  try {
+    const j = readJson(path.join(home, 'plugins', 'installed_plugins.json'));
+    const map = isObj(j) && isObj(j.plugins) ? j.plugins : isObj(j) ? j : null;
+    if (!map) return null;
+    for (const k of Object.keys(map)) {
+      if (k !== name && !k.startsWith(`${name}@`)) continue;
+      const list = Array.isArray(map[k]) ? map[k] : [];
+      for (let i = list.length - 1; i >= 0; i--) {
+        const v = isObj(list[i]) ? list[i].version : null;
+        if (typeof v === 'string' && /^[A-Za-z0-9][A-Za-z0-9._+-]{0,39}$/.test(v)) return v;
+      }
+    }
+    return null;
+  } catch { return null; }
+}
+
 function fromMarketplace(home) {
   const k = readJson(path.join(home, 'plugins', 'known_marketplaces.json'));
   return isObj(k) && isObj(k['jspark-forge']) && isObj(k['claude-plugins-official']);
@@ -74,4 +95,4 @@ function results(home) {
   return isObj(r) ? r : {};
 }
 
-module.exports = { LIST, installed, ensure, results, fromMarketplace };
+module.exports = { LIST, installed, versionOf, ensure, results, fromMarketplace };
