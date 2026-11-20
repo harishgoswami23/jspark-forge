@@ -312,6 +312,10 @@ const metaFile = dir => path.join(state.stateDir(dir), 'handoff.json');
 const prevHandoffFile = dir => path.join(forgeDir(dir), 'handoff.prev.md');
 const prevMetaFile = dir => path.join(state.stateDir(dir), 'handoff.prev.json');
 
+// A handoff.md is usable when it is not empty, holds no NUL bytes (what a power cut leaves) and, if it is one this program
+// wrote (it starts with its title), still has its last line ("More detail"): a file cut short does not.
+const mdUsable = raw => { const t = String(raw || ''); return !!t.trim() && !t.includes('\0') && !(/^# Where we were/.test(t) && !t.includes('**More detail:**')); };
+
 // -> { state: 'good' | 'bad' | 'missing', text, meta }. Never throws. A file that is empty, holds NUL bytes (what a power
 // cut leaves) or is not a JSON object is bad; both files absent is "missing".
 function readPair(mdFile, jsonFile) {
@@ -319,7 +323,7 @@ function readPair(mdFile, jsonFile) {
   try {
     const raw = fs.readFileSync(mdFile, 'utf8');
     r.text = raw.trim();
-    r.md = r.text && !raw.includes('\0') ? 'good' : 'bad';
+    r.md = mdUsable(raw) ? 'good' : 'bad';
   } catch (e) { if (!e || e.code !== 'ENOENT') r.md = 'bad'; }
   try {
     const raw = fs.readFileSync(jsonFile, 'utf8');
@@ -451,4 +455,4 @@ function pruneArchive(dir, now = new Date()) {
 }
 
 module.exports = { render, taskFields, parseNotes, save, hasWork, resumeContext, archive, pruneArchive, notesLine, grounding, shortRule, isUserPrompt, sinceSave,
-  logEntries, pairHealth, openHandoff, logOnlyContext, hhmm };
+  logEntries, pairHealth, openHandoff, logOnlyContext, mdUsable, hhmm };

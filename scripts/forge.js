@@ -773,7 +773,7 @@ function cliShow(args) {
   let text = fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : 'No handoff saved yet in this project.\n';
   try { // v0.5.1: a damaged newest save shows the one before it; both damaged shows what the log holds
     const h = handoff.openHandoff(dir);
-    const mdBad = !fs.existsSync(f) || !text.trim() || text.includes('\0'); // an intact handoff.md is shown as it is
+    const mdBad = !fs.existsSync(f) || !handoff.mdUsable(text); // an intact handoff.md is shown as it is
     if (h && h.damaged && mdBad) text = `Note: the newest save was damaged (a crash can do that); the one before it is shown. Later work may be missing; check the log and git status.\n\n${h.text}\n`;
     else if (h && h.fromLog && mdBad) { const lc = handoff.logOnlyContext(dir); if (lc) text = `${lc}\n`; }
   } catch { /* fail open */ }

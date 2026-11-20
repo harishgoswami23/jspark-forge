@@ -71,4 +71,39 @@ function died(dir, opts = {}) {
   return sess;
 }
 
-module.exports = { FORGE, A, B, repo, run, show, out, ctxOf, msgOf, start, forge, stateFile, readSessionFile, logPath, logLine, hhmm, died };
+// Make everything the hooks wrote look `secs` older: session files' times, inflight file mtimes, today's log clock times.
+// (Log lines carry only a clock time; near midnight a shift would cross the day, so callers check `nearMidnight()`.)
+function age(dir, secs) {
+  const ms = secs * 1000;
+  const sd = path.join(forge(dir), 'state');
+  for (const n of fs.readdirSync(sd)) {
+    const f = path.join(sd, n);
+    if (/^session-.+\.json$/.test(n)) {
+      const s = JSON.parse(fs.readFileSync(f, 'utf8'));
+      if (s.lastSaveAt) s.lastSaveAt -= ms;
+      for (const b of s.background || []) b.at -= ms;
+      for (const h of Object.values(s.helpers || {})) h.at -= ms;
+      fs.writeFileSync(f, JSON.stringify(s));
+    } else if (/^inflight-.+\.json$/.test(n)) {
+      const l = JSON.parse(fs.readFileSync(f, 'utf8'));
+      for (const e of l) e.at -= ms;
+      fs.writeFileSync(f, JSON.stringify(l));
+      const t = new Date(Date.now() - ms);
+      fs.utimesSync(f, t, t);
+    }
+  }
+  const lp = logPath(dir);
+  if (fs.existsSync(lp)) {
+    const d = new Date();
+    const shifted = fs.readFileSync(lp, 'utf8').split('\n').map(l => {
+      const m = l.match(/^(\d\d):(\d\d):(\d\d) /);
+      if (!m) return l;
+      const t = new Date(d.getFullYear(), d.getMonth(), d.getDate(), +m[1], +m[2], +m[3]).getTime() - ms;
+      return `${clock(new Date(t))}${l.slice(8)}`;
+    });
+    fs.writeFileSync(lp, shifted.join('\n'));
+  }
+}
+const nearMidnight = () => { const d = new Date(); return d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds() < 900; };
+
+module.exports = { age, nearMidnight, FORGE, A, B, repo, run, show, out, ctxOf, msgOf, start, forge, stateFile, readSessionFile, logPath, logLine, hhmm, died };
