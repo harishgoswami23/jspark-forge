@@ -88,11 +88,17 @@ function judge(dir, s, entries, now, noted, selfMtime) {
   return { s, sid, sign, inflight: list, background, helpers, mine, lastSave };
 }
 
+// The crash check trusts session files only where they cannot have been shipped by someone else: a git repo carrying the
+// own marker, or a guest project (its state is in the Claude home). In a folder that is not a git repo a cloned or
+// unpacked `.jspark-forge/state/` proves nothing, so the check says nothing there.
+const eligible = dir => { try { return paths.isGuest(dir) || (!!paths.gitDirOf(dir) && paths.isOwn(dir)); } catch { return false; } };
+
 // -> [{ ... }] newest first: the unclean ends not reported yet. opts.self: { mtime, ended } of the session that is starting
 // (it is judged too, from its state before the start); opts.skipNewest: leave out the session with the newest sign of life
 // (the caller does not know its own id and is itself the newest one).
 function find(dir, currentSid, now = Date.now(), opts = {}) {
   const found = [];
+  if (!eligible(dir)) return found;
   const cur = String(currentSid || '');
   const all = state.allSessions(dir).filter(s => s && typeof s === 'object' && s.session && !s.ended);
   let sessions = all.filter(s => String(s.session) !== cur);

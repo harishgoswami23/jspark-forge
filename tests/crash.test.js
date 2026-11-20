@@ -158,7 +158,9 @@ test('7: a dev server recorded as a background command is listed under "was runn
 
 test('8: a transcript tail with a last assistant text and an unfinished tool call', () => {
   const dir = repo();
-  const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-e2e-tr-')), 't.jsonl');
+  const projects = path.join(require('../scripts/lib/paths').claudeHome(), 'projects'); // a transcript is read only from the Claude home
+  fs.mkdirSync(projects, { recursive: true });
+  const f = path.join(fs.mkdtempSync(path.join(projects, 'e2e-tr-')), 't.jsonl');
   const L = [
     { type: 'user', message: { role: 'user', content: 'go' } },
     { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'First I will migrate the table, then update the report.' }] } },
