@@ -59,6 +59,14 @@ JSPARK Forge's own `graph fail … "could not import"`). Product rule: a false r
 worse than an extra prompt, so only certain targets are refused; guesses from text ask (decided overnight on the
 owner's behalf; owner to confirm).
 
+**Revision 5 (2026-11-20), after a third review of the safety check alone.** One more stall (a glob of many `*` made a
+backtracking match run past 3 s) is fixed with a wildcard loop; `state/confirm.json` is protected like the record;
+PowerShell expression and pipeline targets, interpreter code naming the record, folder copies and extracts into
+`.jspark-forge`, and `\\?\` spellings now ask or deny. Still only guarded, by design: a script handed the record's path
+as an argument (`python tools/x.py <path>`), `git apply` / `patch`, `xargs sed -i` on a search that never names a
+graph file, `tar -x` into the project root, `cd .j*-forge`, `/cygdrive` and `/mnt/c` spellings, `git clean -fdX` and
+`git stash -u`. None of these is a way past the published block list; they are routes to the build record only.
+
 What this means for the user, said in the README: the build graph keeps an honest record and stops ordinary mistakes
 and shortcuts; it is not a sandbox against an AI determined to cheat, and nothing that runs as your user account can
 be.
