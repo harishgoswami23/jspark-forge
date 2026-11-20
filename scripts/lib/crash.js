@@ -44,8 +44,7 @@ function find(dir, currentSid, now = Date.now()) {
       const mine = entries.filter(e => String(e.id).split('/')[0] === prefix);
       const newestLog = mine.reduce((m, e) => Math.max(m, e.ts), 0);
       const list = inflight.read(dir, sid);
-      let mtime = 0;
-      try { mtime = fs.statSync(inflight.fileOf(dir, sid)).mtimeMs; } catch { /* none */ }
+      const mtime = inflight.mtime(dir, sid);
       const lastSave = Number(s.lastSaveAt) || 0;
       const sign = Math.max(lastSave, newestLog, mtime);
       if (!sign || now - sign < STALE_MS || now - sign > MAX_AGE_MS) continue;

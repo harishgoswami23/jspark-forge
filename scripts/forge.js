@@ -398,6 +398,7 @@ const handlers = {
       const denied = res && !Array.isArray(res) && res.out && res.out.hookSpecificOutput && res.out.hookSpecificOutput.permissionDecision === 'deny';
       if (!denied && inflight.TOOLS.has(input.tool_name)) inflight.add(dir, input, log.envSecrets(dir));
     } catch { /* fail open */ }
+    inflight.pulse(dir, input.session_id); // a sign of life for the crash check of another window
     return res;
   },
 
@@ -460,6 +461,7 @@ const handlers = {
 
   PostToolUse(dir, input) {
     try { inflight.remove(dir, input, log.envSecrets(dir)); } catch { /* fail open */ } // the call finished
+    inflight.pulse(dir, input.session_id); // a sign of life for the crash check of another window
     const lines = [];
     const first = toolLine(dir, input);
     if (first) lines.push(first);

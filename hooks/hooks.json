@@ -59,7 +59,7 @@
             "timeout": 3
           }
         ],
-        "matcher": "Bash|PowerShell|Edit|Write|NotebookEdit|AskUserQuestion|mcp__.*"
+        "matcher": "Bash|PowerShell|Edit|Write|NotebookEdit|Agent|AskUserQuestion|mcp__.*"
       }
     ],
     "PostToolUse": [

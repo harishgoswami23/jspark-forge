@@ -55,3 +55,9 @@ test('plugin.json names the plugin jspark-forge, MIT, no reserved words', () => 
   assert.equal(p.license, 'MIT');
   assert.ok(!/claude|anthropic/i.test(p.name));
 });
+
+test('crash review S1: the PreToolUse matcher covers Agent, so helper calls are recorded in flight', () => {
+  const m = only('PreToolUse').matcher;
+  for (const t of ['Bash', 'PowerShell', 'Edit', 'Write', 'NotebookEdit', 'Agent', 'AskUserQuestion', 'mcp__db__query']) assert.ok(matches(m, t), `should match ${t}`);
+  for (const t of ['Read', 'Grep', 'Glob']) assert.ok(!matches(m, t), `must not match ${t}`);
+});

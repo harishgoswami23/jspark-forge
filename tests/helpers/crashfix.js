@@ -63,10 +63,11 @@ function died(dir, opts = {}) {
     fs.appendFileSync(logPath(dir), opts.log.map(([s, k, d]) => logLine(s, k, d, sid)).join(''));
   }
   if (opts.inflight) {
-    const f = stateFile(dir, `inflight-${sid}.json`);
-    fs.writeFileSync(f, JSON.stringify(opts.inflight.map(e => ({ tool: e.tool, what: e.what, at: now - (e.agoSecs || 200) * 1000, agent: e.agent || null, id: null }))));
+    const d = stateFile(dir, `inflight-${sid}`);
+    fs.mkdirSync(d, { recursive: true });
+    opts.inflight.forEach((e, i) => fs.writeFileSync(path.join(d, `call-${i}.json`), JSON.stringify({ tool: e.tool, what: e.what, at: now - (e.agoSecs || 200) * 1000, agent: e.agent || null, id: null })));
     const t = new Date(now - (opts.inflightAgo === undefined ? 200 : opts.inflightAgo) * 1000);
-    fs.utimesSync(f, t, t);
+    fs.utimesSync(d, t, t);
   }
   return sess;
 }
@@ -84,10 +85,13 @@ function age(dir, secs) {
       for (const b of s.background || []) b.at -= ms;
       for (const h of Object.values(s.helpers || {})) h.at -= ms;
       fs.writeFileSync(f, JSON.stringify(s));
-    } else if (/^inflight-.+\.json$/.test(n)) {
-      const l = JSON.parse(fs.readFileSync(f, 'utf8'));
-      for (const e of l) e.at -= ms;
-      fs.writeFileSync(f, JSON.stringify(l));
+    } else if (/^inflight-[^.]+$/.test(n) && fs.statSync(f).isDirectory()) {
+      for (const c of fs.readdirSync(f)) {
+        const cf = path.join(f, c);
+        const e = JSON.parse(fs.readFileSync(cf, 'utf8'));
+        e.at -= ms;
+        fs.writeFileSync(cf, JSON.stringify(e));
+      }
       const t = new Date(Date.now() - ms);
       fs.utimesSync(f, t, t);
     }
