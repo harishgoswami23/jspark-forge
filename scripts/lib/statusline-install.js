@@ -85,4 +85,4 @@ function undo({ settings, home }) {
   return { ok: true, message };
 }
 
-module.exports = { install, undo, status, ourCommand };
+module.exports = { install, undo, status, ourCommand, readSettings, atomicWrite, indentOf };
