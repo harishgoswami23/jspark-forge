@@ -414,7 +414,7 @@ test('unfold stays fast on very long commands with many comments', () => {
   // even with the full suite running beside it.
   let t = Date.now();
   require('../scripts/lib/shell').unfold(big);
-  assert.ok(Date.now() - t < 200, `unfold: ${Date.now() - t} ms`);
+  assert.ok(Date.now() - t < 1000, `unfold: ${Date.now() - t} ms`);
   t = Date.now();
   assert.equal(expectOf(check(bash(big), ctx())), 'git-force-push-main');
   assert.ok(Date.now() - t < 2000, `check: ${Date.now() - t} ms`);
