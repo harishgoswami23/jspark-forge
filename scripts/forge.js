@@ -30,6 +30,7 @@ const uitip = require('./lib/uitip');
 const artifacts = require('./lib/artifacts'); // spec principle 9: a published page is kept as a local file
 const uiskills = require('./lib/uiskills'); // v0.5: Claude and its helpers load the design and brand skills before UI work
 const launch = require('./lib/launch'); // launch-scope guard (design-v0.3 section 2)
+const inflight = require('./lib/inflight'); // v0.5.1 crash recovery: calls started and not yet finished
 
 const event = process.argv[2] || '';
 const DEBOUNCE_MS = 5000;
@@ -371,7 +372,17 @@ const handlers = {
     return { lines, out };
   },
 
+  // v0.5.1 crash recovery: an allowed call that can change things is recorded as in flight (one small write, never throws).
   PreToolUse(dir, input) {
+    const res = handlers.preToolCore(dir, input);
+    try {
+      const denied = res && !Array.isArray(res) && res.out && res.out.hookSpecificOutput && res.out.hookSpecificOutput.permissionDecision === 'deny';
+      if (!denied && inflight.TOOLS.has(input.tool_name)) inflight.add(dir, input, log.envSecrets(dir));
+    } catch { /* fail open */ }
+    return res;
+  },
+
+  preToolCore(dir, input) {
     if (input.tool_name === 'AskUserQuestion') { // filed before the dialog shows: a cutoff cannot lose it (spec 5.2a)
       const n = waiting.add(dir, waiting.fromTool(input.tool_input, input.session_id));
       return n ? ['WAIT', `${n} asked`] : null;
@@ -429,6 +440,7 @@ const handlers = {
   },
 
   PostToolUse(dir, input) {
+    try { inflight.remove(dir, input, log.envSecrets(dir)); } catch { /* fail open */ } // the call finished
     const lines = [];
     const first = toolLine(dir, input);
     if (first) lines.push(first);
@@ -523,6 +535,7 @@ const handlers = {
   },
 
   PostToolUseFailure(dir, input) {
+    try { inflight.remove(dir, input, log.envSecrets(dir)); } catch { /* fail open */ } // the call ended (in failure)
     const ti = input.tool_input || {};
     if (input.tool_name === 'Bash' || input.tool_name === 'PowerShell') { try { graphRun.onCommand(dir, input, false); } catch { /* fail open */ } } // a gate command failed (design-v0.4 3)
     const what = ti.command || ti.file_path || ti.notebook_path || '';
@@ -541,6 +554,7 @@ const handlers = {
     const said = redact(String(input.last_assistant_message || ''), log.envSecrets(dir)).replace(/\s+/g, ' ').trim();
     if (said) sess.lastReply = { text: said.slice(-700), at: Date.now() };
     state.writeSession(dir, sid, sess);
+    inflight.clear(dir, sid); // a normal end: nothing is in flight
     const lines = [['STOP', '']];
     // The reply ends with a question for the user: filed only when there is work it can hold up ("Hello! What shall
     // we do?" is not waiting on anyone).
@@ -602,6 +616,7 @@ const handlers = {
       delete sess.helpers[input.agent_id];
       state.writeSession(dir, input.session_id, sess);
     }
+    if (input.agent_id) inflight.removeAgent(dir, input.session_id, input.agent_id); // a finished helper has nothing in flight
     return ['AGENT-', input.agent_type || ''];
   },
 };
