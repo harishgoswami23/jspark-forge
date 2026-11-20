@@ -286,7 +286,7 @@ const handlers = {
     // Only one that acts is a control message; otherwise ("done" with no graph running) it is an ordinary prompt.
     let graphMsg = null;
     try { graphMsg = graphRun.onPrompt(dir, prompt, input.session_id); } catch { /* fail open */ }
-    const control = /^\s*confirm\s+[\w-]+\s*$/i.test(prompt) || graphMsg !== null;
+    const control = confirm.isConfirmOnly(prompt) || graphMsg !== null; // every form the block message asks for
     if (!/^\s*\//.test(prompt) && !control) {
       const sess = state.readSession(dir, input.session_id);
       sess.lastPrompt = redact(prompt, log.envSecrets(dir)).replace(/\s+/g, ' ').trim().slice(0, 200);

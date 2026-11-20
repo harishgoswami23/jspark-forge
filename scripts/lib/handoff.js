@@ -129,7 +129,7 @@ function render(m, opts = {}) {
 // The log is written at every step and survives any cutoff, so the handoff's history comes from it, for every session
 // of the project (v0.5: a session that resumes must not lose what the one before it did). Today's file and the one
 // before it. -> [{ ts, time, id, kind, detail }], oldest first.
-const NOT_USER = /^\s*(?:<(?:agent-message|task-notification|system-reminder|local-command-stdout|local-command-stderr|command-name|command-message)\b|\[SYSTEM NOTIFICATION)/i;
+const NOT_USER = /^\s*(?:<(?:agent-message|teammate-message|cross-session-message|task-notification|system-reminder|local-command-stdout|local-command-stderr|command-name|command-message)\b|\[SYSTEM NOTIFICATION)/i;
 const isUserPrompt = p => !NOT_USER.test(String(p || ''));
 function logEntries(dir) {
   const d = path.join(forgeDir(dir), 'log');
@@ -151,7 +151,7 @@ function logEntries(dir) {
 }
 // Your real messages (not helper reports, not slash commands), oldest first.
 function requestsOf(entries) {
-  return entries.filter(e => e.kind === 'USER' && !e.id.includes('/') && isUserPrompt(e.detail) && !/^\s*\//.test(e.detail))
+  return entries.filter(e => e.kind === 'USER' && !e.id.includes('/') && isUserPrompt(e.detail) && !/^\s*\//.test(e.detail) && !require('./confirm').isConfirmOnly(e.detail))
     .map(e => ({ at: new Date(e.ts), text: e.detail }));
 }
 // own: ownPrefix(dir), worked out once per call (review M1: once per log line cost seconds on a full log).

@@ -119,7 +119,7 @@ jobs:
         if: steps.key.outputs.ok == 'true'
         shell: bash
         run: |
-          claude plugin marketplace add .
+          claude plugin marketplace add ./
           claude plugin install superpowers@jspark-forge --scope user
           claude plugin list
       # v0.5 ship gate: first say what Claude Code loaded (plugins, plugin_errors, the plugin's servers, hook lines),

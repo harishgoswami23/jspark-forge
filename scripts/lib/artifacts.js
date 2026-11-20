@@ -26,7 +26,7 @@ function read(dir) { // -> [{ date, title, file, url }]
   const out = [];
   for (const l of text.split(/\r?\n/)) {
     const m = l.match(/^- (\d{4}-\d{2}-\d{2}) \| (.*?) \| (.*?) \| (.*)$/);
-    if (m) out.push({ date: m[1], title: m[2], file: m[3], url: m[4] });
+    if (m) out.push({ date: m[1], title: clean(m[2]), file: clean(m[3]), url: clean(m[4]) }); // cleaned on read too: the file can come with git
   }
   return out;
 }
@@ -41,18 +41,33 @@ function onPublish(dir, toolInput, toolResponse, now = new Date()) {
     if (!fs.statSync(src).isFile()) return null;
     const rel = path.relative(dir, src);
     const inside = rel && !rel.startsWith('..') && !path.isAbsolute(rel);
+    const url = clean((JSON.stringify(toolResponse || '').match(/https:\/\/claude\.ai\/[A-Za-z0-9/_-]*artifact[A-Za-z0-9/_-]*/) || [])[0] || ti.url || 'no link recorded');
+    const listed = read(dir);
     let local = src;
     if (!inside) { // a temp or scratch file: keep a copy in the project's forge folder
-      local = path.join(paths.forgeDir(dir), 'artifacts', path.basename(src));
-      fs.mkdirSync(path.dirname(local), { recursive: true });
+      const folder = path.join(paths.forgeDir(dir), 'artifacts');
+      fs.mkdirSync(folder, { recursive: true });
+      const ext = path.extname(src);
+      const stem = path.basename(src, ext);
+      // Another page with the same file name keeps its own copy (second review S1): report.html, report-2.html, ...
+      for (let n = 1; ; n++) {
+        local = path.join(folder, n === 1 ? `${stem}${ext}` : `${stem}-${n}${ext}`);
+        const other = listed.find(i => i.file === paths.display(dir, local));
+        if (!fs.existsSync(local) || !other || other.url === url || n > 200) break;
+      }
       fs.copyFileSync(src, local);
     }
     const shown = paths.display(dir, local);
     let title = '';
-    try { title = (fs.readFileSync(src, 'utf8').slice(0, 20000).match(/<title[^>]*>([^<]*)<\/title>/i) || [])[1] || ''; } catch { /* binary or unreadable */ }
-    const url = (JSON.stringify(toolResponse || '').match(/https:\/\/claude\.ai\/[A-Za-z0-9/_-]*artifact[A-Za-z0-9/_-]*/) || [])[0] || ti.url || 'no link recorded';
-    const items = read(dir).filter(i => i.file !== shown);
-    items.push({ date: today(now), title: clean(title || ti.title || path.basename(src)), file: shown, url: clean(url) });
+    try { // the first 20 KB only: a page can be very large (second review N6)
+      const fd = fs.openSync(src, 'r');
+      const buf = Buffer.alloc(20000);
+      const got = fs.readSync(fd, buf, 0, buf.length, 0);
+      fs.closeSync(fd);
+      title = (buf.toString('utf8', 0, got).match(/<title[^>]*>([^<]*)<\/title>/i) || [])[1] || '';
+    } catch { /* unreadable */ }
+    const items = listed.filter(i => i.file !== shown);
+    items.push({ date: today(now), title: clean(title || ti.title || path.basename(src)), file: shown, url });
     write(dir, items);
     return `JSPARK Forge: a local copy of this page is kept at ${shown} (listed in ${paths.display(dir, listFile(dir))}). ` +
       'Tell the user that path together with the link; the link may stop working if they change account.';
@@ -65,7 +80,7 @@ function missing(dir) {
     const gone = read(dir).filter(i => !fs.existsSync(path.resolve(dir, i.file)));
     if (!gone.length) return null;
     return `JSPARK Forge: ${gone.length === 1 ? 'a listed page has' : `${gone.length} listed pages have`} no local copy any more: ` +
-      `${gone.map(i => `"${i.title}" (${i.file}; ${i.url})`).join(', ')}. Open the link while its account is signed in and ask Claude to save it as a file again.`;
+      `${gone.map(i => `"${i.title}" (${i.file}; ${i.url})`).join(', ')}. Open the link while its account is signed in and ask Claude to save it as a file again, or delete its line in ${paths.display(dir, listFile(dir))}.`;
   } catch { return null; }
 }
 

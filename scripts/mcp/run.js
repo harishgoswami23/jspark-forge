@@ -76,7 +76,7 @@ function main() {
   // pid and project say whose this record is; a normal end removes the pid (a killed launcher leaves it, and the doctor
   // sees that the process is gone).
   const base = { pin: spec.pin, mode, startedAt: Date.now(), exit: null, pid: process.pid };
-  process.on('exit', () => rec({ pid: null }));
+  process.on('exit', () => { try { const cur = (bundled.read(home, project) || {})[name]; if (cur && cur.pid === process.pid) rec({ pid: null }); } catch { /* fail open */ } });
   if (mode !== 'run') { rec(base); serveEmpty(name); return undefined; }
 
   let stopping = false;
