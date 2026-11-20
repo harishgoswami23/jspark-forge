@@ -367,6 +367,25 @@ test('a project whose committed files include launch.md is still adopted as your
   assert.ok(require('../scripts/lib/paths').isOwn(dir));
 });
 
+test('9: a project with a committed .jspark-forge/graphs/<name>.md is still judged made here', () => {
+  const setup = require('../scripts/lib/setup');
+  const make = extra => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-launch-graphs-'));
+    const g = (...a) => execFileSync('git', a, { cwd: dir, stdio: 'ignore' });
+    g('init', '-q', '-b', 'main'); g('config', 'core.autocrlf', 'false');
+    fs.mkdirSync(path.join(dir, '.jspark-forge', 'graphs'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.jspark-forge', 'rules.md'), '## Confirm\n');
+    for (const f of extra) { fs.mkdirSync(path.dirname(path.join(dir, '.jspark-forge', f)), { recursive: true }); fs.writeFileSync(path.join(dir, '.jspark-forge', f), 'x\n'); }
+    g('add', '-A', '-f'); g('-c', 'user.email=someone@example.com', '-c', 'user.name=x', 'commit', '-qm', 'theirs');
+    return dir;
+  };
+  assert.equal(setup.stateMadeHere(make(['graphs/ship.md'])), true, 'one committed graph');
+  assert.equal(setup.stateMadeHere(make(['graphs/ship.md', 'graphs/other-one.md'])), true, 'two');
+  assert.equal(setup.stateMadeHere(make(['graphs/deep/ship.md'])), false, 'one level only');
+  assert.equal(setup.stateMadeHere(make(['graphs/ship.txt'])), false, 'only .md');
+  assert.equal(setup.stateMadeHere(make(['state/handoff.json'])), false, 'other tracked state still counts as foreign');
+});
+
 test('the default .gitignore and the "is on" message include launch.md', () => {
   const setup = require('../scripts/lib/setup');
   assert.match(setup.GITIGNORE, /^!launch\.md$/m);

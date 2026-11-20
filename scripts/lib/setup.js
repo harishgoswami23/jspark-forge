@@ -112,7 +112,8 @@ function stateMadeHere(dir) {
   const tracked = git(dir, ['-c', 'core.quotePath=false', 'ls-files', '--', `:(icase)${paths.NAME}`]);
   if (!tracked.ok) return false;
   const allowed = new Set([`${paths.NAME}/rules.md`, `${paths.NAME}/.gitignore`, `${paths.NAME}/decisions.md`, `${paths.NAME}/launch.md`]); // the shared files
-  return tracked.out.split(/\r?\n/).filter(Boolean).every(p => allowed.has(p));
+  const graphFile = new RegExp(`^${paths.NAME.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/graphs/[^/]+\\.md$`); // committed graphs, one level (shared, owner 2026-11-20)
+  return tracked.out.split(/\r?\n/).filter(Boolean).every(p => allowed.has(p) || graphFile.test(p));
 }
 
 // -> 'created' (yours: files in the repo) | 'guest' (files in the guest folder) | 'exists' | 'skipped'
@@ -268,4 +269,4 @@ function machineMessages(home = claudeHome()) {
 }
 
 module.exports = { ensureProject, touchGuest, writeGuest, decide, git, startBudget, SETUP_BUDGET_MS, cleanOrigin, guestMessage, GUEST_DATA_LINE, machineMessages, inGitProject,
-  superpowersInstalled, claudeHome, ON_MESSAGE, SUPERPOWERS_TIP, GITIGNORE, shareGraphs };
+  superpowersInstalled, claudeHome, ON_MESSAGE, SUPERPOWERS_TIP, GITIGNORE, shareGraphs, stateMadeHere };
