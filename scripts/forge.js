@@ -153,11 +153,14 @@ const context = (ev, text) => ({ hookSpecificOutput: { hookEventName: ev, additi
 const notesOn = dir => loadRules(dir).settings.notes !== 'off';
 
 const WAIT_CTX = 'JSPARK Forge: these questions to the user are still open. Ask them again in one short list, ' +
-  "or carry on with work they do not block and say what is parked. Never act on a recommendation without the user's answer.";
+  "or carry on with work they do not block and say what is parked. Never act on a recommendation without the user's answer. " +
+  'State for each open question what it blocks (and whether the answer can be undone), and record it with: ' +
+  `node "${path.join(__dirname, 'forge.js').replace(/\\/g, '/')}" waiting --set <id> --blocks "<what it holds up>" --reversible yes|no`;
 function waitingNotice(dir) { // -> { msg, ctx } for session start, or null
   const items = waiting.read(dir);
   if (!items.length) return null;
-  const list = items.map((x, i) => `${i + 1}. ${waiting.line(x)}`).join('\n');
+  const titles = waiting.launchTitles(dir);
+  const list = items.map((x, i) => `${i + 1}. ${waiting.line(x, titles)}`).join('\n');
   return { msg: `Waiting on you (${items.length}):\n${list}\nAnswer here, or run /jspark-forge:waiting.`, ctx: `${WAIT_CTX}\n${list}` };
 }
 
@@ -860,11 +863,28 @@ function cliWaiting(args) {
     process.stdout.write(`Removed ${n} from the list; ${waiting.read(dir).length} still waiting.\n`);
     return;
   }
+  const flag = name => { const k = args.indexOf(name); return k >= 0 && args[k + 1] !== undefined && !String(args[k + 1]).startsWith('--') ? String(args[k + 1]) : undefined; };
+  const rev = flag('--reversible') === undefined ? undefined : /^(yes|y|true)$/i.test(flag('--reversible')) ? true : /^(no|n|false)$/i.test(flag('--reversible')) ? false : undefined;
+  if (args.includes('--set')) { // v0.5.1: what an open question blocks, and whether the answer can be undone (optional)
+    const id = flag('--set');
+    const x = id && waiting.set(dir, id, { blocks: flag('--blocks'), reversible: rev });
+    process.stdout.write(x ? `${x.id}: ${waiting.line(x)}\n` : `No open question ${id || ''} to update.\n`);
+    return;
+  }
+  if (args.includes('--add')) { // v0.5.1: Claude files an open question it found unfiled (/jspark-forge:check)
+    const q = flag('--add');
+    const sid = process.env.CLAUDE_CODE_SESSION_ID || 'manual';
+    const added = q ? waiting.add(dir, [{ question: q, session: sid, source: 'claude', blocks: flag('--blocks'), reversible: rev, recommendation: flag('--recommend') }]) : 0;
+    const x = added ? waiting.read(dir).filter(i => i.session === sid && i.question.startsWith(String(q).replace(/\s+/g, ' ').trim().slice(0, 100))).pop() : null;
+    process.stdout.write(x ? `Filed ${x.id}: ${waiting.line(x)}\n` : 'Not filed: it is already on the list, or no question was given.\n');
+    return;
+  }
   const items = waiting.read(dir);
   if (!items.length) { process.stdout.write('Nothing is waiting on you.\n'); return; }
   const now = Date.now();
+  const titles = waiting.launchTitles(dir);
   process.stdout.write(`${items.length} waiting on you (oldest first):\n${items.map((x, n) =>
-    `${n + 1}. [${x.id}] ${waiting.line(x)}${x.about ? ` (about: ${x.about})` : ''}${x.options.length ? `; options: ${x.options.join(' / ')}` : ''}; asked ${waiting.ago(now - x.askedAt)} ago`).join('\n')}\n`);
+    `${n + 1}. [${x.id}] ${waiting.line(x, titles)}${x.about ? ` (about: ${x.about})` : ''}${x.options.length ? `; options: ${x.options.join(' / ')}` : ''}; asked ${waiting.ago(now - x.askedAt)} ago`).join('\n')}\n`);
 }
 
 // `forge.js doctor` / `forge.js status` (spec 5.13c): read-only health check; what is saved now.
