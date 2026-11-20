@@ -238,6 +238,8 @@ const MODEL_MAP_LINE = 'JSPARK Forge model map: when a superpowers skill dispatc
 // A handler returns null, [kind, detail] (one log line), or { lines: [[kind, detail], ...], out: <hook JSON> }.
 const handlers = {
   SessionStart(dir, input) {
+    let selfBefore = null; // this session's own file as it was before this start wrote anything (the crash check judges it)
+    try { selfBefore = crashLib.snapshot(dir, input.session_id); } catch { /* fail open */ }
     log.rotate(dir, new Date());
     handoff.pruneArchive(dir);
     const rules = loadRules(dir);
@@ -278,7 +280,8 @@ const handlers = {
     rememberTranscript(dir, input); // so a later crash check can read the tail of this session's transcript
     // v0.5.1 crash recovery: another session of this project was cut off (not at compact or clear: the conversation goes on).
     let crashInfo = null;
-    try { if (input.source === 'startup' || input.source === 'resume') crashInfo = crashLib.check(dir, input.session_id, { mark: true }); } catch { /* fail open */ }
+    try { if (input.source === 'startup' || input.source === 'resume') crashInfo = crashLib.check(dir, input.session_id, { mark: true, own: true, self: selfBefore }); } catch { /* fail open */ }
+    crashLib.revive(dir, input.session_id); // this session is alive again (a resumed id may still carry an ended stamp)
     const rc = handoff.resumeContext(dir, input.session_id, input.source || 'startup', new Date(), { skipSince: !!crashInfo });
     if (crashInfo) { rc.context = `${rc.context}\n\n${crashInfo.block}`; msgs.unshift(crashInfo.userLine); }
     if (offerAfterCompact) rc.context = `${rc.context}\n\n${offerAfterCompact}`;
@@ -780,7 +783,7 @@ function cliShow(args) {
     else if (h && h.fromLog && mdBad) { const lc = handoff.logOnlyContext(dir); if (lc) text = `${lc}\n`; }
   } catch { /* fail open */ }
   try { // v0.5.1: a session cut off and not yet handled: the same crash check the start shows (nothing is marked here)
-    const c = crashLib.check(dir, process.env.CLAUDE_CODE_SESSION_ID);
+    const c = crashLib.check(dir, process.env.CLAUDE_CODE_SESSION_ID, { skipNewest: !process.env.CLAUDE_CODE_SESSION_ID });
     if (c) text = `${text}${text.endsWith('\n') ? '' : '\n'}\n${c.block}\n`;
   } catch { /* fail open */ }
   const i = (args || []).indexOf('--log');

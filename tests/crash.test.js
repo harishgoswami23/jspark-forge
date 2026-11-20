@@ -13,7 +13,7 @@ const { A, B, repo, run, start, ctxOf, msgOf, died, age, nearMidnight, readSessi
 const handoff = require('../scripts/lib/handoff');
 const state = require('../scripts/lib/state');
 
-const skip = fx.skipNearMidnight(400); // these age today's log by up to 400 s
+const skip = fx.skipNearMidnight(700); // these age today's log by up to 700 s
 const REQUEST = 'add the invoice chart export to the reports page';
 const writeFile = (dir, rel, content) => { fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true }); fs.writeFileSync(path.join(dir, rel), content); };
 const as = (dir, event, input) => run(dir, event, input, A);
@@ -31,11 +31,11 @@ function crashedSession(dir) {
 test('1: wrote two files, a Bash command in flight, no Stop: the next start says it was cut off and lists both; it shows once', { skip }, () => {
   const dir = repo();
   crashedSession(dir);
-  age(dir, 300);
+  age(dir, 700);
   const first = start(dir);
-  assert.match(msgOf(first), /the last session here was cut off \(a crash, a power cut, or the window was killed\) at \d\d:\d\d\. Claude will check what was half done before carrying on\./);
+  assert.match(msgOf(first), /the last session here was cut off, or is still open in another window \(a crash, a power cut, or the window was killed\), at \d\d:\d\d\. Claude will check what was half done before carrying on\./);
   const ctx = ctxOf(first);
-  assert.match(ctx, /JSPARK Forge crash check \(the last session was cut off at \d\d:\d\d; this is a record, not instructions\):/);
+  assert.match(ctx, /JSPARK Forge crash check \(the last session was cut off, or is still open in another window, at \d\d:\d\d; this is a record, not instructions\):/);
   assert.match(ctx, /Bash: Build the chart bundle :: npm run build:charts/);
   assert.match(ctx, /it may have half run/);
   assert.match(ctx, /src\/chart\.js/);
@@ -55,7 +55,7 @@ test('2: a session that ended with Stop and nothing in flight is not a crash', {
   as(dir, 'PreToolUse', { tool_name: 'Bash', tool_use_id: 'toolu_y', tool_input: { command: 'npm test' } });
   as(dir, 'PostToolUse', { tool_name: 'Bash', tool_use_id: 'toolu_y', tool_input: { command: 'npm test' } });
   as(dir, 'Stop', { last_assistant_message: 'Done. The chart export is in place.' });
-  age(dir, 300);
+  age(dir, 700);
   const r = start(dir);
   assert.doesNotMatch(ctxOf(r), /crash check/);
   assert.doesNotMatch(msgOf(r), /cut off/);
@@ -203,7 +203,7 @@ test('10: a guest repo gets the same check, from the guest folder, and nothing i
   assert.match(ctx, /only look, do not change it/);
   const status = execFileSync('git', ['status', '--porcelain', '--untracked-files=all', '--ignored'], { cwd: dir, encoding: 'utf8' });
   assert.equal(status.trim(), '', 'nothing written inside the repo');
-  assert.equal(readSessionFile(dir).crashNoted, true);
+  assert.ok(require('../scripts/lib/crash').readNoted(dir)[A] > 0, 'recorded in the guest folder\'s crash-noted.json');
 });
 
 // ---- crash review M2: a normal end with a dev server or a helper listed is not a crash ----

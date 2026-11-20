@@ -68,15 +68,22 @@ function died(dir, opts = {}) {
   fs.mkdirSync(path.dirname(stateFile(dir, 'x')), { recursive: true });
   fs.writeFileSync(stateFile(dir, `session-${sid}.json`), JSON.stringify(sess, null, 2));
   if (opts.log && opts.log.length) appendLog(dir, opts.log, sid);
+  // the session file's own time is the session's last hook run: by default the newest of the evidence written here (opts.seenAgo overrides)
+  const newest = [opts.lastSaveAgo === undefined ? 600 : opts.lastSaveAgo, ...(opts.log || []).map(l => l[0]), ...(opts.inflight ? [opts.inflightAgo === undefined ? 700 : opts.inflightAgo] : [])];
+  const seen = new Date(now - (opts.seenAgo === undefined ? Math.min(...newest) : opts.seenAgo) * 1000);
+  fs.utimesSync(stateFile(dir, `session-${sid}.json`), seen, seen);
   if (opts.inflight) {
     const d = stateFile(dir, `inflight-${sid}`);
     fs.mkdirSync(d, { recursive: true });
-    opts.inflight.forEach((e, i) => fs.writeFileSync(path.join(d, `call-${i}.json`), JSON.stringify({ tool: e.tool, what: e.what, at: now - (e.agoSecs || 200) * 1000, agent: e.agent || null, id: null })));
-    const t = new Date(now - (opts.inflightAgo === undefined ? 200 : opts.inflightAgo) * 1000);
+    opts.inflight.forEach((e, i) => fs.writeFileSync(path.join(d, `call-${i}.json`), JSON.stringify({ tool: e.tool, what: e.what, at: now - (e.agoSecs || 700) * 1000, agent: e.agent || null, id: null })));
+    const t = new Date(now - (opts.inflightAgo === undefined ? 700 : opts.inflightAgo) * 1000);
     fs.utimesSync(d, t, t);
   }
   return sess;
 }
+
+// A save through the product (handoff.save) is a real sign of life and moves the session file's time: put it back.
+const setSeen = (dir, sid, secsAgo) => { const t = new Date(Date.now() - secsAgo * 1000); fs.utimesSync(stateFile(dir, `session-${sid}.json`), t, t); };
 
 // Make everything the hooks wrote look `secs` older: session files' times, inflight file mtimes, today's log clock times.
 // (Log lines carry only a clock time; near midnight a shift would cross the day, so callers check `nearMidnight()`.)
@@ -90,7 +97,9 @@ function age(dir, secs) {
       if (s.lastSaveAt) s.lastSaveAt -= ms;
       for (const b of s.background || []) b.at -= ms;
       for (const h of Object.values(s.helpers || {})) h.at -= ms;
+      const mt = fs.statSync(f).mtimeMs;
       fs.writeFileSync(f, JSON.stringify(s));
+      fs.utimesSync(f, new Date(mt - ms), new Date(mt - ms));
     } else if (/^inflight-[^.]+$/.test(n) && fs.statSync(f).isDirectory()) {
       for (const c of fs.readdirSync(f)) {
         const cf = path.join(f, c);
@@ -119,4 +128,4 @@ function age(dir, secs) {
 const nearMidnight = (secs = 900) => { const d = new Date(); return d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds() < secs + 300; };
 const skipNearMidnight = (secs = 900) => (nearMidnight(secs) ? 'too close to midnight to put log lines in the past' : false);
 
-module.exports = { appendLog, age, nearMidnight, skipNearMidnight, FORGE, A, B, repo, run, show, out, ctxOf, msgOf, start, forge, stateFile, readSessionFile, logPath, logLine, hhmm, died };
+module.exports = { setSeen, appendLog, age, nearMidnight, skipNearMidnight, FORGE, A, B, repo, run, show, out, ctxOf, msgOf, start, forge, stateFile, readSessionFile, logPath, logLine, hhmm, died };

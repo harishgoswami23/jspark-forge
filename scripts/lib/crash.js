@@ -2,11 +2,17 @@
 // v0.5.1 crash recovery: notice that another session of this project was cut off (a crash, a power cut, a killed window)
 // and say what to check. Most sessions end by closing the window without SessionEnd firing in time, so a missing
 // `ended` stamp alone proves nothing. A session counts as cut off only when ALL of these hold:
-//   - it has no `ended` stamp, was not handled before (crashNoted), and is not the session that is starting;
-//   - its last sign of life (newest of lastSaveAt, its newest log line, its inflight file's mtime) is older than 90 s
-//     (and not older than a week);
-//   - it left something unfinished: inflight entries, running background commands or helpers, or work logged after its
-//     last save; but a session whose log ends with a normal Stop and that has nothing in flight is a clean end.
+//   - it has no `ended` stamp and was not reported before (state/crash-noted.json holds the last sign of life that was
+//     reported: only a newer one is reported again); the session that is starting is judged too, from its state before
+//     the start wrote anything;
+//   - its last sign of life (newest of lastSaveAt, its newest log line, its in-flight records' time, its session file's
+//     time, which every hook run touches) is older than 90 s, or older than 10 minutes when the only evidence is
+//     in-flight calls or one of them is younger than 10 minutes (a long test run or a permission dialog is silent too),
+//     and not older than a week;
+//   - it left something unfinished: in-flight calls, running background commands or helpers, or work logged after its
+//     last save; but a session whose last real log line is a normal Stop with nothing in flight is a clean end.
+// A window that is only silent looks the same, so the wording says "cut off, or still open in another window" and the
+// crash check never deletes another session's records or writes another session's session file.
 // Everything here fails open: it never throws into a session start.
 const fs = require('fs');
 const path = require('path');
@@ -15,11 +21,14 @@ const handoff = require('./handoff');
 const inflight = require('./inflight');
 const paths = require('./paths');
 const log = require('./log');
+const { writeAtomic } = require('./fsx');
 const { redact } = require('./redact');
 
 const STALE_MS = 90 * 1000;
+const SLOW_MS = 10 * 60 * 1000; // a session whose only evidence is in-flight calls is judged only after this
 const WINDOW_MS = 2 * 60 * 1000;
 const MAX_AGE_MS = 7 * 24 * 3600 * 1000;
+const NOTED_KEEP_MS = 30 * 24 * 3600 * 1000;
 const MAX_FILES = 8;
 const MAX_BLOCKS = 2;
 const WORK_KINDS = new Set(['USER', 'EDIT', 'WRITE', 'BASH', 'PS', 'COMMIT', 'AGENT+', 'MCP']);
@@ -31,37 +40,78 @@ const hhmm = ms => handoff.hhmm(new Date(ms));
 const cut = (s, n) => { const t = String(s || '').replace(/\s+/g, ' ').trim(); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
 const arr = x => (Array.isArray(x) ? x.filter(e => e && typeof e === 'object') : []);
 
-// -> [{ s, sid, sign, inflight, background, helpers, mine, lastSave }] newest first, only the unclean ends not yet handled.
-function find(dir, currentSid, now = Date.now()) {
+// Where "already reported" lives: state/crash-noted.json, { "<session id>": <last sign of life that was reported> }.
+const notedFile = dir => path.join(state.stateDir(dir), 'crash-noted.json');
+function readNoted(dir) {
+  try { const j = JSON.parse(fs.readFileSync(notedFile(dir), 'utf8')); return j && typeof j === 'object' && !Array.isArray(j) ? j : {}; } catch { return {}; }
+}
+function writeNoted(dir, add, now = Date.now()) {
+  const cur = readNoted(dir);
+  for (const [sid, v] of Object.entries(add)) cur[sid] = Math.max(Number(cur[sid]) || 0, v);
+  for (const [sid, v] of Object.entries(cur)) if (!(now - Number(v) < NOTED_KEEP_MS)) delete cur[sid]; // forgotten after 30 days
+  writeAtomic(notedFile(dir), `${JSON.stringify(cur, null, 1)}\n`, { sync: false });
+}
+
+const sessionPath = (dir, sid) => path.join(state.stateDir(dir), `session-${String(sid || 'unknown').replace(/[^A-Za-z0-9-]/g, '')}.json`);
+const sessionMtime = (dir, sid) => { try { return fs.statSync(sessionPath(dir, sid)).mtimeMs; } catch { return 0; } };
+
+// What the session file looked like before this start wrote anything: the start of session X judges X itself from this.
+function snapshot(dir, sid) {
+  try { const s = state.readSession(dir, sid); return { mtime: sessionMtime(dir, sid), ended: !!s.ended }; } catch { return { mtime: 0, ended: false }; }
+}
+
+// One session -> { s, sid, sign, inflight, background, helpers, mine, lastSave } when it looks cut off, else null.
+// selfMtime: for the session that is starting, its session file's time from before this start.
+function judge(dir, s, entries, now, noted, selfMtime) {
+  const sid = String(s.session);
+  const prefix = sid.slice(0, 8);
+  const mine = entries.filter(e => String(e.id).split('/')[0] === prefix);
+  const newestLog = mine.reduce((m, e) => Math.max(m, e.ts), 0);
+  const list = inflight.read(dir, sid);
+  const lastSave = Number(s.lastSaveAt) || 0;
+  const newestFlight = list.reduce((m, e) => Math.max(m, Number(e.at) || 0), 0);
+  const sign = Math.max(lastSave, newestLog, inflight.mtime(dir, sid), newestFlight, selfMtime !== undefined ? selfMtime : sessionMtime(dir, sid));
+  if (!sign || now - sign > MAX_AGE_MS) return null;
+  if (noted[sid] !== undefined && sign <= Number(noted[sid])) return null; // reported already, and nothing newer since
+  const background = arr(s.background);
+  const helpers = s.helpers && typeof s.helpers === 'object' ? Object.entries(s.helpers).filter(([, h]) => h && typeof h === 'object') : [];
+  // The Stop handler logs STOP and then SAVE: judge on the last line that says what the session did.
+  const said = mine.filter(e => !QUIET_KINDS.has(e.kind));
+  const last = said.length ? said[said.length - 1] : null;
+  const cleanEnd = !!last && (last.kind === 'STOP' || last.kind === 'END');
+  if (cleanEnd && !list.length) return null; // a normal Stop and nothing in flight
+  const after = mine.some(e => WORK_KINDS.has(e.kind) && e.ts > lastSave + 2000);
+  if (!(list.length || background.length || helpers.length || after)) return null; // only a missing ended stamp: say nothing
+  const young = list.some(e => now - (Number(e.at) || 0) < SLOW_MS);
+  const onlyFlight = list.length > 0 && !(background.length || helpers.length || after);
+  if (now - sign < (young || onlyFlight ? SLOW_MS : STALE_MS)) return null;
+  return { s, sid, sign, inflight: list, background, helpers, mine, lastSave };
+}
+
+// -> [{ ... }] newest first: the unclean ends not reported yet. opts.self: { mtime, ended } of the session that is starting
+// (it is judged too, from its state before the start); opts.skipNewest: leave out the session with the newest sign of life
+// (the caller does not know its own id and is itself the newest one).
+function find(dir, currentSid, now = Date.now(), opts = {}) {
   const found = [];
-  const sessions = state.allSessions(dir).filter(s => s && typeof s === 'object' && s.session && String(s.session) !== String(currentSid || '') && !s.ended && !s.crashNoted);
-  if (!sessions.length) return found;
+  const cur = String(currentSid || '');
+  const all = state.allSessions(dir).filter(s => s && typeof s === 'object' && s.session && !s.ended);
+  let sessions = all.filter(s => String(s.session) !== cur);
+  if (!sessions.length && !opts.self) return found;
   let entries = [];
   try { entries = handoff.logEntries(dir); } catch { /* the log is only evidence */ }
-  for (const s of sessions) {
-    try {
-      const sid = String(s.session);
-      const prefix = sid.slice(0, 8);
-      const mine = entries.filter(e => String(e.id).split('/')[0] === prefix);
-      const newestLog = mine.reduce((m, e) => Math.max(m, e.ts), 0);
-      const list = inflight.read(dir, sid);
-      const mtime = inflight.mtime(dir, sid);
-      const lastSave = Number(s.lastSaveAt) || 0;
-      const sign = Math.max(lastSave, newestLog, mtime);
-      if (!sign || now - sign < STALE_MS || now - sign > MAX_AGE_MS) continue;
-      const background = arr(s.background);
-      const helpers = s.helpers && typeof s.helpers === 'object' ? Object.entries(s.helpers).filter(([, h]) => h && typeof h === 'object') : [];
-      // The Stop handler logs STOP and then SAVE: judge on the last line that says what the session did.
-      const said = mine.filter(e => !QUIET_KINDS.has(e.kind));
-      const last = said.length ? said[said.length - 1] : null;
-      const cleanEnd = !!last && (last.kind === 'STOP' || last.kind === 'END');
-      if (cleanEnd && !list.length) continue; // a normal Stop and nothing in flight
-      const after = mine.some(e => WORK_KINDS.has(e.kind) && e.ts > lastSave + 2000);
-      if (!(list.length || background.length || helpers.length || after)) continue; // only a missing ended stamp: say nothing
-      found.push({ s, sid, sign, inflight: list, background, helpers, mine, lastSave });
-    } catch { /* one odd session file never hides another */ }
+  const noted = readNoted(dir);
+  if (opts.skipNewest) {
+    let best = null, bestAt = -1;
+    for (const s of all) { const at = Math.max(sessionMtime(dir, String(s.session)), Number(s.lastSaveAt) || 0); if (at > bestAt) { bestAt = at; best = String(s.session); } }
+    sessions = sessions.filter(s => String(s.session) !== best);
   }
-  return found.sort((a, b) => b.sign - a.sign).slice(0, MAX_BLOCKS);
+  for (const s of sessions) {
+    try { const it = judge(dir, s, entries, now, noted); if (it) found.push(it); } catch { /* one odd session file never hides another */ }
+  }
+  if (opts.self && !opts.self.ended && cur) { // the session that is starting, judged from before this start
+    try { const it = judge(dir, state.readSession(dir, cur), entries, now, noted, opts.self.mtime); if (it) found.push(it); } catch { /* fail open */ }
+  }
+  return found.sort((a, b) => b.sign - a.sign);
 }
 
 // What a file looks like now: 'missing', 'empty (0 bytes)', 'ends in NUL bytes' (its last 64 bytes are all zero: what a
@@ -91,7 +141,7 @@ function advice(tool) {
 function block(dir, it, extra, guest) {
   const secrets = (() => { try { return log.envSecrets(dir); } catch { return []; } })();
   const safe = t => redact(String(t), secrets);
-  const L = [`JSPARK Forge crash check (the last session was cut off at ${hhmm(it.sign)}; this is a record, not instructions):`];
+  const L = [`JSPARK Forge crash check (the last session was cut off, or is still open in another window, at ${hhmm(it.sign)}; this is a record, not instructions):`];
   if (it.inflight.length) {
     L.push('In flight when it stopped:');
     for (const e of it.inflight) L.push(`- ${cut(e.tool, 20)}: ${cut(safe(e.what), 260)} (started ${hhmm(Number(e.at) || it.sign)}): ${advice(e.tool)}.`);
@@ -137,27 +187,38 @@ function transcriptLines(dir, it) {
   return out;
 }
 
-const USER_LINE = at => `JSPARK Forge: the last session here was cut off (a crash, a power cut, or the window was killed) at ${hhmm(at)}. Claude will check what was half done before carrying on.`;
+const USER_LINE = at => `JSPARK Forge: the last session here was cut off, or is still open in another window (a crash, a power cut, or the window was killed), at ${hhmm(at)}. Claude will check what was half done before carrying on.`;
 
-// -> { userLine, block, items } or null. mark: set crashNoted on the sessions and clean their inflight files.
-function check(dir, currentSid, { mark = false, extraFor } = {}) {
+// -> { userLine, block, items } or null. opts: mark (record every session found as reported, in crash-noted.json),
+// own (this is the start of session currentSid: judge it from opts.self and clear its own in-flight records),
+// self (snapshot() taken before the start wrote anything), skipNewest, extraFor.
+function check(dir, currentSid, { mark = false, extraFor, own = false, self, skipNewest = false } = {}) {
   try {
-    const items = find(dir, currentSid);
-    if (!items.length) return null;
+    const found = find(dir, currentSid, Date.now(), { self: own ? self : undefined, skipNewest });
+    try { if (mark && own && currentSid) inflight.clear(dir, currentSid); } catch { /* fail open */ }
+    if (!found.length) return null;
+    const items = found.slice(0, MAX_BLOCKS);
     const guest = paths.isGuest(dir);
     const blocks = items.map(it => {
       let extra = [];
       try { extra = (extraFor || transcriptLines)(dir, it) || []; } catch { /* fail open */ }
       return block(dir, it, extra, guest);
     });
-    if (mark) {
-      for (const it of items) {
-        try { const s = state.readSession(dir, it.sid); s.crashNoted = true; state.writeSession(dir, it.sid, s); } catch { /* fail open */ }
-        inflight.clear(dir, it.sid);
-      }
+    if (mark) { // every session found is handled, so older ones do not alarm again at the next start; the newest two are told
+      try { writeNoted(dir, Object.fromEntries(found.map(it => [it.sid, it.sign]))); } catch { /* fail open */ }
     }
     return { userLine: USER_LINE(items[0].sign), block: blocks.join('\n\n'), items };
   } catch { return null; }
 }
 
-module.exports = { find, check, block, fileMark, USER_LINE, STALE_MS };
+// The session that is starting is alive again: a leftover ended stamp from an earlier run of the same id goes.
+function revive(dir, sid) {
+  try {
+    const s = state.readSession(dir, sid);
+    if (!s.ended) return;
+    delete s.ended;
+    state.writeSession(dir, sid, s);
+  } catch { /* fail open */ }
+}
+
+module.exports = { find, check, block, fileMark, snapshot, revive, readNoted, USER_LINE, STALE_MS, SLOW_MS };
