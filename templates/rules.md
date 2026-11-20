@@ -14,5 +14,11 @@ Example: - `drop database production` : production database
 ## Never
 
 ## Settings
-- notes: on
-- statusline-segment: on
+Every switch is on unless a line here, or in your own ~/.claude/jspark-forge/rules.md (for all your projects), says
+off. Copy a line below and remove "Example:" to set it for this project:
+Example: - notes: off
+Example: - statusline-segment: off
+Example: - code-map: off
+Example: - ui-skills: off
+Example: - playwright: off
+Example: - brand-skill: my-brand

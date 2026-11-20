@@ -27,10 +27,14 @@ const setup = require('./lib/setup');
 const paths = require('./lib/paths');
 const licence = require('./lib/licence');
 const uitip = require('./lib/uitip');
+const artifacts = require('./lib/artifacts'); // spec principle 9: a published page is kept as a local file
+const uiskills = require('./lib/uiskills'); // v0.5: Claude and its helpers load the design and brand skills before UI work
 const launch = require('./lib/launch'); // launch-scope guard (design-v0.3 section 2)
 
 const event = process.argv[2] || '';
 const DEBOUNCE_MS = 5000;
+const WORKING_MS = 60000; // v0.5: a save at most once a minute while tools run without writing files
+const NOTES_AFTER_ACTS = 12; // v0.5: tool calls after which Claude is asked for its notes with the next message
 
 // ---------- helpers ----------
 const isInitialised = dir => paths.isActive(dir);
@@ -73,9 +77,29 @@ function writtenFiles(dir, input) {
   let paths = [];
   if (t === 'Edit' || t === 'Write' || t === 'NotebookEdit') paths = [ti.file_path || ti.notebook_path];
   else if (t === 'Bash' || t === 'PowerShell') paths = writeTargets(ti.command || '', dialectOf(t));
-  return paths.filter(p => p && !/^\/dev\//.test(p) && !/^nul$/i.test(p) && !/[$`]/.test(p))
-    .map(p => path.resolve(toFs(cwd), toFs(p)))
-    .filter(abs => insideProject(dir, abs));
+  const abs = paths.filter(p => p && !/^\/dev\//.test(p) && !/^nul$/i.test(p) && !/[$`]/.test(p))
+    .map(p => path.resolve(toFs(cwd), toFs(p)));
+  return { inside: abs.filter(a => insideProject(dir, a)), elsewhere: otherProjects(dir, abs) };
+}
+// v0.5: files written in another git project (the work moved to a second folder). -> that project's top folder(s).
+// Not: anything under this project, Claude Code's own folder, or a file in no git project (temp and scratch files).
+function otherProjects(dir, absPaths) {
+  const out = [];
+  const home = path.resolve(setup.claudeHome());
+  const under = (base, p) => { const r = path.relative(base, p); return !r.startsWith('..') && !path.isAbsolute(r); };
+  for (const abs of absPaths) {
+    if (under(dir, abs) || under(home, abs)) continue;
+    let root = null;
+    for (let d = path.dirname(abs); ; d = path.dirname(d)) {
+      if (fs.existsSync(path.join(d, '.git'))) { root = d; break; }
+      if (path.dirname(d) === d) break;
+    }
+    if (!root || under(root, dir)) continue; // none, or this project sits inside that repo
+    try { root = fs.realpathSync.native(root); } catch { /* as written */ }
+    root = root.replace(/\\/g, '/');
+    if (!out.includes(root)) out.push(root);
+  }
+  return out;
 }
 
 const branchOf = dir => git.headBranch(dir) || ''; // read from .git/HEAD, no git process
@@ -95,6 +119,40 @@ function waitingNotice(dir) { // -> { msg, ctx } for session start, or null
   if (!items.length) return null;
   const list = items.map((x, i) => `${i + 1}. ${waiting.line(x)}`).join('\n');
   return { msg: `Waiting on you (${items.length}):\n${list}\nAnswer here, or run /jspark-forge:waiting.`, ctx: `${WAIT_CTX}\n${list}` };
+}
+
+// v0.5: the task tools (TodoWrite is off by default in current Claude Code; tools reference, "Task tool
+// availability"). task.taskList holds one entry per TaskCreate ({ id, content, status }, deleted ones included, so
+// positions stay true); task.todos is the list the handoff reads. The id comes from the tool result when it is there
+// ({ task: { id } }); otherwise a task is matched by its order (ids count up from 1; taskBase = tasks before this list).
+// -> true when the list changed.
+// Task ids start again in a new session (review S1): the list belongs to the session that made it; another session's
+// TaskCreate starts a new list and its TaskUpdate never changes the old one.
+function taskTool(task, t, ti, tr, sid) {
+  let list = Array.isArray(task.taskList) ? task.taskList : [];
+  const other = !!task.taskSession && task.taskSession !== sid;
+  if (t === 'TaskCreate') {
+    if (!ti.subject) return false;
+    if (other) { list = []; task.taskBase = 0; }
+    task.taskSession = sid;
+    const live = list.filter(x => x.status !== 'deleted');
+    if (live.length && live.every(x => x.status === 'completed')) { task.taskBase = (task.taskBase || 0) + list.length; list = []; } // a finished list: a new one starts
+    const id = (tr.task && tr.task.id) || tr.id || tr.taskId;
+    list.push({ id: id === undefined || id === null ? null : String(id), content: String(ti.subject), status: 'pending' });
+  } else {
+    if (other) return false;
+    const raw = ti.taskId !== undefined ? ti.taskId : ti.id !== undefined ? ti.id : ti.task_id;
+    if (raw === undefined || raw === null) return false;
+    const id = String(raw);
+    let x = list.find(e => e.id === id);
+    if (!x && /^\d+$/.test(id)) { const byOrder = list[Number(id) - 1 - (task.taskBase || 0)]; if (byOrder && !byOrder.id) x = byOrder; }
+    if (!x) return false;
+    if (ti.status) x.status = String(ti.status);
+    if (ti.subject) x.content = String(ti.subject);
+  }
+  task.taskList = list;
+  task.todos = list.filter(x => x.status !== 'deleted').map(x => ({ content: x.content, status: x.status }));
+  return true;
 }
 
 function doSave(dir, sid, reason, lines, opts) {
@@ -169,8 +227,19 @@ const handlers = {
     try {
       if (setup.superpowersInstalled(setup.claudeHome())) rc.context = `${rc.context}\n\n${MODEL_MAP_LINE}`;
     } catch { /* never break a session start */ }
+    try { // spec principle 9: local-first, account-independent (own projects)
+      if (paths.isOwn(dir)) {
+        rc.context = `${rc.context}\n\n${artifacts.RULE}`;
+        const gone = input.source === 'compact' ? null : artifacts.missing(dir);
+        if (gone) msgs.push(gone);
+      }
+    } catch { /* never break a session start */ }
+    try { // the UI rule, every session start in an own front-end project (compact included)
+      const ui = uiskills.line(dir);
+      if (ui) rc.context = `${rc.context}\n\n${ui}`;
+    } catch { /* never break a session start */ }
     // Code map (design-v0.3 1.1, 1.2): one line for Claude when the engine is in use (a refresh starts when HEAD moved);
-    // otherwise, once per own project with code, a tip naming the engine (owner Q-M1: name it, install nothing).
+    // the engine ships with the plugin, so there is no install tip.
     try { // a running build graph (design-v0.4 3); its own try, so a broken record never drops the code-map line
       const gr = graphRun.current(dir);
       if (gr) rc.context = `${rc.context}\n\nJSPARK Forge: ${gr.text} Show it to the user and wait before continuing it (node "${path.join(__dirname, 'forge.js').replace(/\\/g, '/')}" graph next ${gr.task.replace('Build graph ', '')}).`;
@@ -178,8 +247,6 @@ const handlers = {
     try {
       const ml = mapLayer.sessionLine(dir);
       if (ml) rc.context = `${rc.context}\n\n${ml}`;
-      const mt = mapLayer.tip(dir);
-      if (mt) msgs.push(mt);
     } catch { /* never break a session start */ }
     // Decision memory (design-v0.2 1.6): the index of titles for Claude; for the user, entries that arrived with git
     // (once) and one line when some need a look. Off in guest repos (the functions check).
@@ -210,16 +277,21 @@ const handlers = {
 
   UserPromptSubmit(dir, input) {
     const prompt = String(input.prompt || '');
+    // v0.5: a helper's report or a system notice arrives through this hook too. It is not the user's message: it is
+    // logged as NOTE, never becomes "your last request", and can never grant a CONFIRM.
+    if (!handoff.isUserPrompt(prompt)) return { lines: [['NOTE', prompt]], out: null };
     const lines = [['USER', prompt]];
+    let real = false;
     // Build graph (design-v0.4 3): the user's own TRUST GRAPH <name> or DONE <step> (whole message, attended only).
     // Only one that acts is a control message; otherwise ("done" with no graph running) it is an ordinary prompt.
     let graphMsg = null;
     try { graphMsg = graphRun.onPrompt(dir, prompt, input.session_id); } catch { /* fail open */ }
-    const control = /^\s*confirm\s+[\w-]+\s*$/i.test(prompt) || graphMsg !== null;
+    const control = confirm.isConfirmOnly(prompt) || graphMsg !== null; // every form the block message asks for
     if (!/^\s*\//.test(prompt) && !control) {
       const sess = state.readSession(dir, input.session_id);
       sess.lastPrompt = redact(prompt, log.envSecrets(dir)).replace(/\s+/g, ' ').trim().slice(0, 200);
       state.writeSession(dir, input.session_id, sess);
+      real = true;
       // The user replied: a question Claude ended its last reply with is answered (spec 5.2a).
       const n = waiting.remove(dir, x => x.source === 'reply' && x.session === input.session_id);
       if (n) lines.push(['WAIT', `${n} answered`]);
@@ -240,7 +312,12 @@ const handlers = {
     let scopeNudge = null;
     try { scopeNudge = launch.nudge(dir, input, sess); } catch { /* fail open */ }
     // ---- end launch-scope nudge
+    // v0.5: after a stretch of work, ask Claude for its notes (the only place the meaning of the work is written
+    // down). Before this they were asked for only at a commit, at compaction and at 80 % usage.
+    if (real && (sess.acts || 0) >= NOTES_AFTER_ACTS && notesOn(dir)) { parts.push(handoff.notesLine(dir)); sess.acts = 0; }
     state.writeSession(dir, input.session_id, sess);
+    // v0.5: every message from the user saves, so a turn cut off before its reply ends is still in the handoff.
+    if (real) doSave(dir, input.session_id, 'your message', lines);
     if (offer) parts.push(offer);
     if (scopeNudge) parts.push(scopeNudge);
     if (graphMsg) parts.push(graphMsg);
@@ -326,6 +403,11 @@ const handlers = {
       const text = [c, offer].filter(Boolean).join('\n\n');
       return { lines, out: text ? context('PostToolUse', text) : null };
     }
+    if (t === 'Artifact') { // a published page: keep its file in the project (spec principle 9)
+      const kept = paths.isOwn(dir) ? artifacts.onPublish(dir, ti, input.tool_response) : null;
+      if (kept) lines.push(['KEEP', String(ti.file_path || '')]);
+      return { lines, out: kept ? context('PostToolUse', kept) : null };
+    }
     if (t === 'AskUserQuestion') { // answered in the dialog
       const asked = new Set(waiting.fromTool(ti, sid).map(q => q.question.replace(/\s+/g, ' ').trim()));
       const n = waiting.remove(dir, x => x.session === sid && asked.has(x.question));
@@ -341,13 +423,23 @@ const handlers = {
       task.todos = ti.todos.map(x => ({ content: String(x.content || ''), status: String(x.status || 'pending') }));
       taskDirty = true;
     }
+    if ((t === 'TaskCreate' || t === 'TaskUpdate') && !input.agent_id && taskTool(task, t, ti, input.tool_response || {}, sid)) taskDirty = true;
     const bgId = input.tool_response && input.tool_response.backgroundTaskId;
     if (bgId && !sess.background.some(b => b.id === bgId)) {
       sess.background.push({ id: bgId, command: ti.command || '', description: ti.description || '', at: now });
       sessDirty = true;
     }
     if (t === 'ExitPlanMode' && !input.agent_id && memory.noteApproved(dir, sess, (input.tool_response || {}).plan)) sessDirty = true; // spike E
-    const written = writtenFiles(dir, input);
+    if (!input.agent_id) { sess.acts = (sess.acts || 0) + 1; sessDirty = true; } // counted for the notes reminder
+    const { inside: written, elsewhere } = writtenFiles(dir, input);
+    for (const root of elsewhere) { // work in another project folder: named in the handoff
+      task.elsewhere = [root].concat((task.elsewhere || []).filter(x => x !== root)).slice(0, 5);
+      taskDirty = true;
+    }
+    // The session has done work of its own (its last reply may replace the one in the handoff): any tool call of the
+    // main conversation except running forge.js itself (the resume skill's "show"). Review S2.
+    const ownTool = !input.agent_id && !/\bforge\.js\b/.test(String(ti.command || ''));
+    if ((written.length || elsewhere.length || ownTool) && !sess.worked) { sess.worked = true; sessDirty = true; }
     for (const abs of written) {
       const r = rel(dir, abs);
       if (r.startsWith('.superpowers/')) continue; // superpowers' own ledger and briefs: saves, but not "files touched"
@@ -369,7 +461,10 @@ const handlers = {
         reason = 'commit';
       }
     }
-    if (!reason && written.length && now - sess.lastSaveAt >= DEBOUNCE_MS) reason = 'file write';
+    if (reason && !sess.worked) { sess.worked = true; sessDirty = true; } // a commit
+    if (!reason && (written.length || elsewhere.length) && now - sess.lastSaveAt >= DEBOUNCE_MS) reason = 'file write';
+    // v0.5: commands, helpers and branch changes write no file, so a long turn of them was never saved.
+    if (!reason && now - sess.lastSaveAt >= WORKING_MS) reason = 'working';
     const offer = offerContext(dir, input, sess);
     if (offer) sessDirty = true;
     if (sessDirty) state.writeSession(dir, sid, sess);
@@ -393,6 +488,9 @@ const handlers = {
       sess.background = input.background_tasks.filter(b => b && b.status === 'running')
         .map(b => ({ id: b.id, command: b.command || '', description: b.description || '', at: (prev.get(b.id) || {}).at || Date.now() }));
     }
+    // v0.5: the end of Claude's reply usually says what was done and what is next; keep it for the handoff.
+    const said = redact(String(input.last_assistant_message || ''), log.envSecrets(dir)).replace(/\s+/g, ' ').trim();
+    if (said) sess.lastReply = { text: said.slice(-700), at: Date.now() };
     state.writeSession(dir, sid, sess);
     const lines = [['STOP', '']];
     // The reply ends with a question for the user: filed only when there is work it can hold up ("Hello! What shall
@@ -429,7 +527,9 @@ const handlers = {
       sess.helpers[input.agent_id] = { type: input.agent_type || 'agent', at: Date.now() };
       state.writeSession(dir, input.session_id, sess);
     }
-    return ['AGENT+', input.agent_type || ''];
+    let ui = null; // a helper that builds, plans or reviews gets the UI rule too (it does not see the session's)
+    try { ui = uiskills.helperLine(dir, input.agent_type); } catch { /* fail open */ }
+    return { lines: [['AGENT+', input.agent_type || '']], out: ui ? context('SubagentStart', ui) : null };
   },
 
   SubagentStop(dir, input) { // an unpaired stop (internal helpers) is ignored (design 16, deviation 6)

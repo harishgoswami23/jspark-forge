@@ -11,6 +11,9 @@ const os = require('os');
 const path = require('path');
 const statusline = require('./statusline-install');
 const paths = require('./paths');
+const autoupdate = require('./autoupdate');
+const companions = require('./companions');
+const { writeAtomic } = require('./fsx');
 
 
 const GITIGNORE = '*\n!.gitignore\n!rules.md\n!launch.md\n'; // launch.md is shared (design-v0.3 2.1)
@@ -156,18 +159,6 @@ function superpowersInstalled(home) {
 const SUPERPOWERS_TIP = 'Tip (shown once): JSPARK Forge works best with superpowers (https://github.com/obra/superpowers) for ' +
   'planning, tests first and reviews. Install it with: /plugin install superpowers@jspark-forge . Optional; JSPARK Forge never needs it.';
 
-// v0.4.2: Claude Code does not auto-update plugins from third-party marketplaces by default, and a marketplace cannot
-// switch it on for its users (Claude Code docs, plugins: "Keep plugins updated"). When JSPARK Forge came from its
-// marketplace and auto-update is off, say once how to turn it on. known_marketplaces.json is only read.
-function autoUpdateOff(home) {
-  const known = readJson(path.join(home, 'plugins', 'known_marketplaces.json'));
-  const m = known && typeof known === 'object' ? known['jspark-forge'] : null;
-  return !!m && typeof m === 'object' && m.autoUpdate !== true;
-}
-const AUTO_UPDATE_TIP = 'Tip (shown once): Claude Code does not update plugins from the jspark-forge marketplace by ' +
-  'itself. To get new JSPARK Forge versions automatically: type /plugin, open the Marketplaces tab, choose ' +
-  'jspark-forge and turn on auto-update. New versions then load the next time Claude Code starts.';
-
 // A wrapper copy installed by an older JSPARK Forge is replaced by the plugin's current one (it must know about guest
 // folders). Only when JSPARK Forge installed it (statusline.json is there); never touches settings.json.
 function refreshWrapper(home) {
@@ -232,7 +223,7 @@ function machineMessages(home = claudeHome()) {
       msgs.push('You have your own status line, so JSPARK Forge left it untouched. To let it save at 80 % and 95 % ' +
         'usage, run /jspark-forge:init once (it asks first and keeps your status line as it is).');
     }
-    changed = !!st.statusline;
+    if (st.statusline) changed = true;
   }
   // superpowers is a dependency (installed with JSPARK Forge from our marketplace). A user who already had it from
   // another marketplace now has it twice, so every skill shows twice: say once which copy to remove.
@@ -250,14 +241,14 @@ function machineMessages(home = claudeHome()) {
     st.superpowersSuggested = true;
     changed = true;
   }
-  if (!st.autoUpdateTip && autoUpdateOff(home)) {
-    msgs.push(AUTO_UPDATE_TIP);
-    st.autoUpdateTip = true;
-    changed = true;
-  }
+  const hadAu = st.autoUpdateSet;
+  const au = autoupdate.ensure(home, st);
+  if (au) msgs.push(au);
+  if (st.autoUpdateSet !== hadAu) changed = true;
+  const comp = companions.ensure(home, st); // writes its own flags first (two sessions at once), then starts the runners
+  if (comp.length) msgs.push(...comp);
   if (changed) {
-    fs.mkdirSync(path.dirname(stateFile), { recursive: true });
-    fs.writeFileSync(stateFile, JSON.stringify(st, null, 2) + '\n');
+    writeAtomic(stateFile, JSON.stringify(st, null, 2) + '\n');
   }
   return msgs;
 }

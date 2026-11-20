@@ -62,7 +62,7 @@ function checkHooks() {
       const t = Date.now();
       const r = spawnSync(process.execPath, [path.join(ROOT, 'scripts', 'forge.js'), h.event], { cwd: tmp, encoding: 'utf8', timeout: h.timeout,
         input: JSON.stringify({ session_id: 'doctor', cwd: tmp, source: 'startup', tool_name: 'Bash', tool_input: { command: 'echo ok' } }),
-        env: Object.assign({}, process.env, { CLAUDE_PROJECT_DIR: tmp, CLAUDE_CONFIG_DIR: tmp, JSPARK_FORGE_AUTO_STATUSLINE: 'off' }), windowsHide: true });
+        env: Object.assign({}, process.env, { CLAUDE_PROJECT_DIR: tmp, CLAUDE_CONFIG_DIR: tmp, JSPARK_FORGE_AUTO_STATUSLINE: 'off', JSPARK_FORGE_AUTO_SETUP: 'off' }), windowsHide: true });
       return { ms: Date.now() - t, ok: !r.error && r.status === 0 };
     };
     for (const h of list) {
@@ -128,6 +128,72 @@ function checkStatusLine(home, dir) {
   return out;
 }
 
+function checkAutoUpdate(home) {
+  const au = require('./autoupdate');
+  const st = au.state(home);
+  if (st === 'on') return ['ok', 'Auto-update: on'];
+  // Off by an explicit false, or JSPARK Forge already switched it on once and it is not on now: the user's choice.
+  if (st === 'off' || (st === 'undecided' && au.decided(home))) return ['ok', 'Auto-update: off by your choice (turn on: /plugin → Marketplaces → jspark-forge)'];
+  if (st === 'undecided') return ['FIX', 'Auto-update: not on yet, so new JSPARK Forge versions do not arrive. Fix: restart Claude Code (JSPARK Forge switches it on at the next start), or /plugin → Marketplaces → jspark-forge.'];
+  return ['ok', 'Auto-update: not installed from the jspark-forge marketplace (a local copy updates by hand)'];
+}
+
+// The two bundled servers: what the project's switches say first, then what the launcher recorded in bundled.json.
+function checkBundled(home, dir) {
+  const bundled = require('./bundled');
+  const folder = dir || process.cwd();
+  const rec = bundled.read(home, folder);
+  const out = [];
+  for (const [name, label] of [['codebase-memory', 'Code map'], ['playwright', 'Playwright']]) {
+    const mode = bundled.mode(name, folder);
+    const r = rec[name];
+    const s = bundled.SERVERS[name];
+    if (mode === 'off') out.push(['ok', `${label}: off by your choice`]);
+    else if (mode === 'no-frontend') out.push(['ok', 'Playwright: off here (no front end in this project)']);
+    else if (mode === 'node-too-old') out.push(['ok', `Playwright: off here (it needs Node.js 20 or newer; you have ${process.versions.node})`]);
+    else if (!r || typeof r !== 'object') out.push(['FIX', `${label}: the engine has not started. Fix: restart Claude Code; if it stays, update Claude Code.`]);
+    else if (r.exit) out.push(['FIX', `${label}: the engine did not start (${String(r.exit.reason || `exit code ${r.exit.code}`)}). Fix: check the network and that antivirus has not quarantined it, then restart Claude Code.`]);
+    else if (r.mode === 'installing' && !bundled.installed(home, name)) out.push(['ok', `${label}: the engine is being installed (first start); restart Claude Code in a minute`]);
+    else if (r.mode !== 'run' || !bundled.pidAlive(r.pid)) out.push(['FIX', `${label}: the engine is not running in this session. Fix: restart Claude Code; if it stays, run /mcp and check that the jspark-forge servers are on.`]);
+    else out.push(['ok', `${label}: engine running (${s.pkg} ${r.pin || s.pin})`]);
+  }
+  try {
+    const userHome = process.env.CLAUDE_CONFIG_DIR ? home : os.homedir(); // with a custom config folder, .claude.json lives in it
+    const e = require('./map').engines(dir, userHome);
+    if (e.bundled && e.own) out.splice(1, 0, ['FIX', "Code map: two engines (JSPARK Forge's and your own codebase-memory-mcp). Fix: remove yours with: claude mcp remove codebase-memory-mcp"]);
+  } catch { /* the check is a bonus */ }
+  return out;
+}
+
+// v0.5: in a front-end project, which skills Claude is told to load before UI work.
+function checkUiSkills(home, dir) {
+  if (!dir) return [];
+  const f = require('./uiskills').facts(dir, home);
+  if (!f) return [];
+  if (!f.on) return [['ok', 'UI skills: off by your choice (- ui-skills: off)']];
+  const fd = f.frontendDesign ? 'frontend-design' : 'frontend-design (once it is installed)';
+  return [['ok', f.brand
+    ? `UI skills: ${fd} and the brand skill ${f.brand} are loaded before UI work`
+    : `UI skills: ${fd} is loaded before UI work; no brand skill is named (name yours: - brand-skill: <name> under ## Settings in rules.md)`]];
+}
+
+function checkCompanions(home) {
+  const c = require('./companions');
+  const flags = (readJson(path.join(home, 'jspark-forge', 'state.json')) || {}).companions || {};
+  const results = c.results(home);
+  const missing = c.LIST.filter(x => !c.installed(home, x.name));
+  if (!missing.length) return [['ok', `UI companions: ${c.LIST.map(x => x.name).join(' and ')} installed`]];
+  return missing.map(x => {
+    const r = results[x.name];
+    if (!flags[x.name]) return ['ok', `UI companions: ${x.name} not added yet (JSPARK Forge adds it at the next start from its marketplace; or: /plugin install ${x.id})`];
+    if (r && r.ok === false) return ['FIX', `UI companions: ${x.name} could not be added (${r.reason || 'no reason recorded'}). Fix: /plugin install ${x.id}`];
+    // The flag is the time the install was started (companions.ensure). No result after 10 minutes: it never finished.
+    if (!r && !(typeof flags[x.name] === 'number' && Date.now() - flags[x.name] <= 10 * 60000)) return ['FIX', `UI companions: ${x.name} could not be added (no result from the install). Fix: /plugin install ${x.id}`];
+    if (!r) return ['ok', `UI companions: ${x.name} is being added; it loads the next time Claude Code starts`];
+    return ['ok', `UI companions: ${x.name} not installed (add: /plugin install ${x.id})`];
+  });
+}
+
 function newestUsage(dir) {
   const d = path.join(paths.forgeDir(dir), 'usage');
   let best = null;
@@ -136,7 +202,7 @@ function newestUsage(dir) {
 }
 
 function doctor(dir, home) {
-  const lines = [checkNode(), checkFiles(), checkHooks(), checkGit(), ...checkProject(dir), ...checkStatusLine(home, dir)];
+  const lines = [checkNode(), checkFiles(), checkHooks(), checkGit(), ...checkProject(dir), ...checkStatusLine(home, dir), checkAutoUpdate(home), ...checkBundled(home, dir), ...checkCompanions(home), ...checkUiSkills(home, dir)];
   const bad = lines.filter(l => l[0] === 'FIX').length;
   return `JSPARK Forge doctor: ${lines.length - bad} ok, ${bad} to fix\n${lines.map(([s, t]) => `${s.padEnd(4)} ${t}`).join('\n')}\n`;
 }

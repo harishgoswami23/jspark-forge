@@ -112,6 +112,21 @@ jobs:
           "$env:USERPROFILE\.local\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
       - run: claude --version
         if: steps.key.outputs.ok == 'true'
+      # JSPARK Forge declares superpowers as a dependency. A plugin loaded with --plugin-dir is switched off when a
+      # dependency is not installed ("dependency-unsatisfied"), so no hook fired on a fresh runner (found by the load
+      # report, 2026-11-20). Install it from this repo's own marketplace, as a user's install does.
+      - name: install the superpowers dependency from this marketplace
+        if: steps.key.outputs.ok == 'true'
+        shell: bash
+        run: |
+          claude plugin marketplace add ./
+          claude plugin install superpowers@jspark-forge --scope user
+          claude plugin list
+      # v0.5 ship gate: first say what Claude Code loaded (plugins, plugin_errors, the plugin's servers, hook lines),
+      # so a job where no hook fires shows why.
+      - name: plugin load report
+        if: steps.key.outputs.ok == 'true'
+        run: node --test tests/integration/load.it.js
       - name: integration tests (hook-fire, headless, kill and resume)
         if: steps.key.outputs.ok == 'true'
         run: npm run test:integration

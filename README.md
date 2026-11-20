@@ -26,7 +26,10 @@ A Claude Code plugin for technical solo founders. Built for Claude Code, by JSPA
 ## What it does
 
 1. **Saves where you are, all the time.** A one-page handoff (task, step, next action, what was running, what is
-   waiting on you) is rewritten on every save trigger below.
+   waiting on you) is rewritten on every save trigger below. The task is your last real request (not "go on", and not a
+   helper's report); the four requests before it and the end of Claude's last reply are kept, work in another git
+   project is named ("Also worked in"), and step progress is read from Claude Code's task tools as well as the plan.
+   Resuming a session never wipes the history.
 2. **Shows it back after any cutoff, and asks first.** Open Claude Code again: JSPARK Forge shows where you were and
    asks "Continue?" before picking the old task back up. No command to type.
 3. **Blocks dangerous actions.** A published list, enforced by hooks, with a typed confirmation to override.
@@ -37,7 +40,8 @@ A Claude Code plugin for technical solo founders. Built for Claude Code, by JSPA
    until you answer it: in the status line (`⏳ 2 waiting on you · oldest 14h`), first thing at the next session
    start, and in the handoff, so a cutoff cannot bury it.
 
-Everything stays on your machine. No network calls, no telemetry.
+Your work stays on your machine. No telemetry. JSPARK Forge goes online only when `npm` installs the two servers (once, in the background, on
+their first start) and when it adds two companions with `claude plugin install` (see Install).
 
 ## How JSPARK Forge differs
 
@@ -49,7 +53,7 @@ Everything stays on your machine. No network calls, no telemetry.
 | Small: one job, a handful of hooks | n/a | Yes | No | **Yes** |
 
 Beyond the handoff (where you were), JSPARK Forge keeps the **why** (decision memory), the **what and where** (a code
-map, with the optional codebase-memory-mcp), **long builds** that survive a cutoff (build graphs), and a **launch
+map, with codebase-memory-mcp), **long builds** that survive a cutoff (build graphs), and a **launch
 list** against scope creep. It also has **guest mode** (review someone else's repo without writing anything into it),
 **readonly sources** (keep an old system next to the new one, never edited) and a health check
 (`/jspark-forge:doctor`). Each is described below.
@@ -66,11 +70,12 @@ offers *"Record the decision?"*; nothing is recorded without your yes. When a co
 
 ## Code map (the what and where)
 
-With [codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp) installed as an MCP server (JSPARK Forge
-never installs it), Claude can answer "who calls X" and "what breaks if I change Y" from a map of your code instead of
-reading file after file. JSPARK Forge switches on when the map is first used, keeps it fresh in the background after
-commits, and adds how fresh each answer is ("as of <commit>"). Without it, these features stay quiet and everything
-else works.
+[codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp) comes with JSPARK Forge, as a plugin server
+(version 0.12.1, installed once with `npm` into `~/.claude/jspark-forge/engines/` in the background on the first start, then started by a small launcher). Claude can answer
+"who calls X" and "what breaks if I change Y" from a map of your code instead of reading file after file. JSPARK Forge
+keeps the map fresh in the background after commits, and adds how fresh each answer is ("as of <commit>"). Switch it
+off with `- code-map: off` under `## Settings` in `rules.md`, or `JSPARK_FORGE_CODE_MAP=off`; then these features stay
+quiet and everything else works. `/jspark-forge:doctor` reports whether the engine started.
 
 Migrating from an old system listed as a readonly source (below)? Claude can index it as well, as its own map, and
 answer "where is X in the old code?". Those answers are labelled **old code**, with the old system's commit; if the old
@@ -101,13 +106,21 @@ tells you once which copy to remove.
 
 ## Building a UI?
 
-In your own front-end project, JSPARK Forge says one line, once, naming the companions you have not installed. It
-never installs anything. For top-quality UI work:
+Most of the UI kit arrives by itself (see Install): **frontend-design** and **Chrome DevTools MCP** (so Claude sees
+console errors, performance and layout shift) are added once in the background, and **Playwright MCP** (so Claude can
+check its own screens) ships with JSPARK Forge and serves tools only in projects with a front end. Only one step is
+yours, because it depends on the project. In your own React project, JSPARK Forge says one line, once, if it is
+missing:
 
-- **frontend-design** (Anthropic's plugin): `/plugin install frontend-design@claude-plugins-official`
-- **Playwright MCP**, so Claude can check its own screens: `claude mcp add playwright npx @playwright/mcp@0.0.86`
 - **shadcn MCP** (React projects): `npx shadcn@4.23.0 mcp init --client claude`
-- **Chrome DevTools MCP**, so Claude sees console errors, performance and layout shift: `/plugin install chrome-devtools-mcp@claude-plugins-official`
+
+**Having the skills is not the same as using them.** So in your own project with a front end, JSPARK Forge tells
+Claude at every session start, and every helper that builds, plans or reviews, to load frontend-design and your brand
+skill before it designs or changes anything a user sees, and to check the result on the real page. Name your brand
+skill once with `- brand-skill: <name>` under `## Settings`: in `~/.claude/jspark-forge/rules.md` for every project,
+or in a project's `rules.md` for that project. With none named, Claude is told to look for a brand skill among its
+skills and to ask you before it chooses colours or a typeface itself. `- ui-skills: off` switches the rule off, and
+`/jspark-forge:doctor` says which skills a project uses.
 
 Then give the product its own brand rules and build screens through a checked path:
 - **Brand skill:** copy `templates/brand-skill.md` to `skills/brand/SKILL.md` in your project and fill in colours,
@@ -136,16 +149,18 @@ It never blocks anything.
 
 ## When it saves (published list)
 
-1. After any tool call that writes or edits a file.
-2. After any commit.
-3. When Claude finishes a reply.
-4. Just before the conversation is compacted.
-5. When the session ends.
-6. At **80 %** of context or plan usage (quiet) and at **95 %** (forced, and you see:
+1. Every message from you.
+2. After any tool call that writes or edits a file.
+3. Once a minute while Claude works without writing files (commands, helpers, a new branch).
+4. After any commit.
+5. When Claude finishes a reply.
+6. Just before the conversation is compacted.
+7. When the session ends.
+8. At **80 %** of context or plan usage (quiet) and at **95 %** (forced, and you see:
    *"Usage at 95 %. Handoff saved. Next session, JSPARK Forge shows where you were."*).
 
-A crash or a hard limit gives no warning, so at most the current step is lost; the action log shows what happened
-inside it.
+A crash or a hard limit gives no warning, so at most the last minute of work is lost, and the next session is also
+given what the action log holds after the last save.
 
 ## What it blocks (published list)
 
@@ -192,12 +207,31 @@ Code starts (*"JSPARK Forge is off: it needs Node.js 18 or newer…"*) instead o
 /plugin install jspark-forge --marketplace harishgoswami23/jspark-forge
 ```
 
-Then **turn on updates, once**: type `/plugin`, open the **Marketplaces** tab, choose **jspark-forge** and turn on
-auto-update. Claude Code updates plugins from Anthropic's own directory by itself, but from any other marketplace only
-when you turn this on (a marketplace cannot do it for you). After that, each new JSPARK Forge version loads the next
-time Claude Code starts. If you skip it, JSPARK Forge reminds you once.
+That is the whole install. superpowers comes with it. On first start JSPARK Forge sets up, by itself, each with its undo:
 
-That is all. superpowers comes with it, and there is no setup step:
+- **Auto-update.** It switches on updates for the JSPARK Forge marketplace (one key in your `settings.json`, once per
+  machine), so each new version loads the next time Claude Code starts. Undo: `/plugin`, then **Marketplaces**, then
+  **jspark-forge**.
+- **The code map** (codebase-memory-mcp 0.12.1), as a plugin server. Undo: `- code-map: off` under `## Settings` in
+  `rules.md`, or `JSPARK_FORGE_CODE_MAP=off`.
+- **Playwright** (`@playwright/mcp` 0.0.86), as a plugin server, so Claude can check its own screens. It gives Claude
+  tools only in a project with a front end. It needs Node.js 20 or newer and stays off on Node.js 18 and 19. Undo:
+  `- playwright: off` under `## Settings` in `rules.md`, or `JSPARK_FORGE_PLAYWRIGHT=off`.
+- **frontend-design and Chrome DevTools**, added once, in the background, from Anthropic's plugin directory. They load
+  the next time Claude Code starts. Undo: `/plugin uninstall frontend-design@claude-plugins-official` and
+  `/plugin uninstall chrome-devtools-mcp@claude-plugins-official`.
+- **A status line**, only when you have none. Undo: `/jspark-forge:init --undo-statusline`.
+
+Undo for the two servers stops them but does not delete them. They sit in `~/.claude/jspark-forge/engines/` (under
+`CLAUDE_CONFIG_DIR` if you set it); delete that folder to remove them. They are installed again on the next start unless
+you have switched them off.
+
+To stop the automatic switch-on of auto-update and the two companions, set `JSPARK_FORGE_AUTO_SETUP=off`.
+
+What this adds to your machine, said plainly: each of the two servers is installed once with `npm` into `~/.claude/jspark-forge/engines/`, in the
+background, the first time it starts (not inside a hook; the first session may have to be restarted when the install ends), and the two companions are added with `claude plugin install`, once.
+Those are the only times JSPARK Forge goes online. On Windows, Defender has been seen to flag the code map engine's
+program wrongly (a false positive): allow it, or switch the code map off.
 
 - **Each git project switches on by itself** the first time you open Claude Code in it: a hidden `.jspark-forge/`
   folder appears. Commit `rules.md`, `decisions.md`, `launch.md` and `.gitignore` to share them; everything else
@@ -207,11 +241,13 @@ That is all. superpowers comes with it, and there is no setup step:
   `- statusline-segment: off` hides JSPARK Forge's part of the status line.
 - **Status line.** Claude Code shows context and plan usage only to the status line, and JSPARK Forge needs those
   figures for the 80 % / 95 % saves. If you have no status line, JSPARK Forge adds its own and tells you how to undo
-  it (`/jspark-forge:init --undo-statusline`). If you have your own, it is never touched: run `/jspark-forge:init`
-  once if you want JSPARK Forge to wrap it (it asks first; your status line looks exactly as now, with a short
-  "saved" note after it). Set `JSPARK_FORGE_AUTO_STATUSLINE=off` to stop JSPARK Forge adding one at all.
+  it. If you have your own, it is never touched: run `/jspark-forge:init` once if you want JSPARK Forge to wrap it (it
+  asks first; your status line looks exactly as now, with a short "saved" note after it). Set
+  `JSPARK_FORGE_AUTO_STATUSLINE=off` to stop JSPARK Forge adding one at all.
 
 On Claude Code older than 2.1.275: `/plugin marketplace add harishgoswami23/jspark-forge`, then `/plugin install jspark-forge`.
+v0.5 was tested on Claude Code 2.1.329. On an older Claude Code, the doctor says so when the code map engine does not
+start.
 
 ## Someone else's repo (guest mode)
 
@@ -292,12 +328,17 @@ What JSPARK Forge checks, what it guards, and what it can only ask for:
    before anyway).
 2. `/plugin uninstall jspark-forge`. superpowers stays installed; `claude plugin prune` removes it if nothing else
    needs it.
-3. Optional: delete the `.jspark-forge/` folder in your projects and `~/.claude/jspark-forge/`.
+3. frontend-design and Chrome DevTools stay installed: remove them with `/plugin uninstall <id>` (the ids are in
+   Install). The auto-update key can be turned off in `/plugin`, under **Marketplaces**.
+4. Optional: delete the `.jspark-forge/` folder in your projects and `~/.claude/jspark-forge/`.
 
 ## Privacy
 
-Nothing leaves your machine. The handoff holds paths and short text, never file contents. The log hides likely
-secrets (keys, tokens, passwords) before writing.
+Your files and the handoff stay on your machine. The handoff holds paths, short text and the last lines of Claude's reply, never file contents. The log
+hides likely secrets (keys, tokens, passwords) before writing. JSPARK Forge itself sends nothing anywhere. It goes
+online only through `npm` (the one-time install of the code map and Playwright servers) and through `claude plugin install`
+(once, for the two companions). Those two programs, and the servers they run, are not JSPARK Forge's own code. A hook
+never waits on a download.
 
 ## Every hook, documented
 

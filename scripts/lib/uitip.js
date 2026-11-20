@@ -7,6 +7,8 @@ const os = require('os');
 const path = require('path');
 const paths = require('./paths');
 const setup = require('./setup');
+const { installed: pluginsMention } = require('./companions');
+const bundled = require('./bundled');
 
 const FRONTEND_DEPS = ['react', 'react-dom', 'next', 'vue', 'nuxt', 'svelte', '@sveltejs/kit', 'astro', '@angular/core',
   'solid-js', 'preact', '@remix-run/react', 'vite'];
@@ -34,12 +36,8 @@ function hasFrontEndFiles(dir) {
   return false;
 }
 
-// Same detection as superpowers (installed_plugins.json text, or a folder in plugins/cache/<marketplace>/).
-function pluginsMention(home, name) {
-  const plugins = path.join(home, 'plugins');
-  if (readText(path.join(plugins, 'installed_plugins.json')).includes(name)) return true;
-  try { return fs.readdirSync(path.join(plugins, 'cache')).some(m => fs.existsSync(path.join(plugins, 'cache', m, name))); } catch { return false; }
-}
+// Does the project have a front end: a known framework in package.json, or html/tsx/jsx/vue/svelte files.
+const hasFrontEnd = dir => { const d = deps(dir); return FRONTEND_DEPS.some(n => n in d) || hasFrontEndFiles(dir); };
 
 function notice(dir) {
   try {
@@ -53,19 +51,21 @@ function notice(dir) {
 
     const mcp = readText(path.join(dir, '.mcp.json'));
     const userMcp = readText(path.join(os.homedir(), '.claude.json'));
+    const home = setup.claudeHome();
+    const tried = (readJson(path.join(home, 'jspark-forge', 'state.json')) || {}).companions || {}; // automatic install is over
     const missing = [];
-    if (!pluginsMention(setup.claudeHome(), 'frontend-design')) missing.push(['frontend-design', FD_INSTALL]);
-    if (!/playwright/i.test(mcp) && !/playwright/i.test(userMcp)) missing.push(['Playwright MCP', PW_INSTALL]);
+    if (tried['frontend-design'] && !pluginsMention(home, 'frontend-design')) missing.push(['frontend-design', FD_INSTALL]);
+    if (bundled.mode('playwright', dir) === 'off' && !/playwright/i.test(mcp) && !/playwright/i.test(userMcp)) missing.push(['Playwright MCP', PW_INSTALL]);
     if (isReact && !fs.existsSync(path.join(dir, 'components.json')) && !/shadcn/i.test(mcp)) missing.push(['shadcn MCP', SHADCN_INSTALL]);
-    if (!/chrome-devtools/i.test(mcp) && !/chrome-devtools/i.test(userMcp) && !pluginsMention(setup.claudeHome(), 'chrome-devtools-mcp')) missing.push(['Chrome DevTools MCP', DEVTOOLS_INSTALL]);
+    if (tried['chrome-devtools-mcp'] && !/chrome-devtools/i.test(mcp) && !/chrome-devtools/i.test(userMcp) && !pluginsMention(home, 'chrome-devtools-mcp')) missing.push(['Chrome DevTools MCP', DEVTOOLS_INSTALL]);
 
     // Remembered even when everything is installed: nothing to say, nothing to ask again.
     try { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, `${JSON.stringify(Object.assign(st, { uiCompanions: true }), null, 1)}\n`); } catch { /* fail open */ }
     if (!missing.length) return null;
     const parts = missing.map(([n, cmd]) => `${n} (${cmd})`);
     const list = parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
-    return `JSPARK Forge tip (once): for top-quality UI work here, add ${list}, so Claude can design and check its own screens. JSPARK Forge installs nothing itself.`;
+    return `JSPARK Forge tip (once): for top-quality UI work here, add ${list}, so Claude can design and check its own screens.`;
   } catch { return null; }
 }
 
-module.exports = { notice, FD_INSTALL, PW_INSTALL, SHADCN_INSTALL, DEVTOOLS_INSTALL };
+module.exports = { notice, hasFrontEnd, FD_INSTALL, PW_INSTALL, SHADCN_INSTALL, DEVTOOLS_INSTALL };

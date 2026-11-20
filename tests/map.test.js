@@ -186,14 +186,64 @@ test('a project path with a space works', () => {
   assert.match(mapAnswer(dir), /Code map current/);
 });
 
-test('the tip names the engine once, in an own project with code, when it is not installed', () => {
+const PLUGIN_TOOL = 'mcp__plugin_jspark-forge_codebase-memory__search_graph';
+const withoutOverride = fn => {
+  const prev = process.env.JSPARK_FORGE_MAP_CMD;
+  delete process.env.JSPARK_FORGE_MAP_CMD;
+  try { return fn(); } finally { if (prev !== undefined) process.env.JSPARK_FORGE_MAP_CMD = prev; }
+};
+
+test("the plugin's tool name switches the map on", () => {
+  const map = require('../scripts/lib/map');
+  const dir = project();
+  assert.equal(map.isEngineTool(PLUGIN_TOOL), true);
+  assert.equal(map.noteTool(dir, PLUGIN_TOOL), true);
+  assert.equal(mapState(dir).prefix, 'mcp__plugin_jspark-forge_codebase-memory__');
+});
+
+test("refresh runs the launcher when the plugin's engine is in use", () => {
+  const map = require('../scripts/lib/map');
+  const bundled = require('../scripts/lib/bundled');
+  const dir = project();
+  const want = [process.execPath, bundled.LAUNCHER, 'codebase-memory'];
+  withoutOverride(() => {
+    assert.deepEqual(map.engineCmd(dir), want, 'no prefix recorded yet');
+    map.noteTool(dir, PLUGIN_TOOL);
+    assert.deepEqual(map.engineCmd(dir), want);
+  });
+});
+
+test("the user's own engine still runs from PATH", () => {
+  const map = require('../scripts/lib/map');
+  const dir = project();
+  switchOn(dir); // prefix mcp__codebase-memory__
+  withoutOverride(() => assert.deepEqual(map.engineCmd(dir), ['codebase-memory-mcp']));
+});
+
+test('map.engines says which engines are set up (plugin and own)', () => {
+  const map = require('../scripts/lib/map');
   const dir = project();
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-map-home-'));
-  const extra = { CLAUDE_CONFIG_DIR: home, USERPROFILE: home, HOME: home, JSPARK_FORGE_AUTO_STATUSLINE: 'off' };
+  const prev = process.env.JSPARK_FORGE_CODE_MAP;
+  delete process.env.JSPARK_FORGE_CODE_MAP;
+  try {
+    assert.deepEqual(map.engines(dir, home), { bundled: true, own: false });
+    fs.writeFileSync(path.join(home, '.claude.json'), '{"mcpServers":{"codebase-memory":{"command":"x"}}}');
+    assert.equal(map.engines(dir, home).own, true);
+    fs.unlinkSync(path.join(home, '.claude.json'));
+    fs.writeFileSync(path.join(dir, '.mcp.json'), '{"mcpServers":{"codebase-memory":{}}}');
+    assert.equal(map.engines(dir, home).own, true);
+    process.env.JSPARK_FORGE_CODE_MAP = 'off';
+    assert.equal(map.engines(dir, home).bundled, false);
+  } finally { if (prev === undefined) delete process.env.JSPARK_FORGE_CODE_MAP; else process.env.JSPARK_FORGE_CODE_MAP = prev; }
+});
+
+test('SessionStart no longer shows the "add codebase-memory-mcp" tip', () => {
+  const dir = project();
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-map-home-'));
+  const extra = { CLAUDE_CONFIG_DIR: home, USERPROFILE: home, HOME: home, JSPARK_FORGE_AUTO_STATUSLINE: 'off', JSPARK_FORGE_AUTO_SETUP: 'off' };
   const first = hook(dir, 'SessionStart', {}, extra).systemMessage || '';
-  assert.match(first, /codebase-memory-mcp/);
-  assert.match(first, /github\.com\/DeusData\/codebase-memory-mcp/);
-  assert.ok(!/codebase-memory-mcp/.test(hook(dir, 'SessionStart', {}, extra).systemMessage || ''), 'once');
+  assert.ok(!/codebase-memory-mcp [(]/.test(first), first);
 });
 
 test('forge.js map status and /check show a map that is behind or failing', () => {
@@ -479,4 +529,61 @@ test('v0.4.1: an answer naming a project that is neither this one nor a readonly
   indexed(t);
   const c = ctxOf(hook(t.dir, 'PostToolUse', { tool_name: TOOL, tool_input: { name_pattern: 'x', project: 'P-other' }, tool_response: 'none' }));
   assert.ok(!/old code/.test(c));
+});
+
+// v0.5 review M2: through the launcher the refresh does not run in the project's folder; repo_path still reaches it.
+test('refresh through the launcher: neutral cwd, repo_path as an argument', () => {
+  const dir = project();
+  switchOn(dir);
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-map-m2-'));
+  const home = path.join(base, 'home');
+  fs.mkdirSync(home);
+  const probe = path.join(base, 'probe.js');
+  const out = path.join(base, 'probe.json');
+  fs.writeFileSync(probe, "require('fs').writeFileSync(process.env.PROBE_OUT, JSON.stringify({ cwd: process.cwd(), args: process.argv.slice(2), nd: process.env.NoDefaultCurrentDirectoryInExePath }));");
+  const launcher = require('../scripts/lib/bundled').LAUNCHER;
+  const r = spawnSync(process.execPath, [path.join(__dirname, '..', 'scripts', 'map-refresh.js'), dir], { encoding: 'utf8',
+    env: envFor(dir, { CLAUDE_CONFIG_DIR: home, PROBE_OUT: out, JSPARK_FORGE_MAP_CMD: JSON.stringify([process.execPath, launcher, 'codebase-memory']),
+      JSPARK_FORGE_BUNDLED_CMD: JSON.stringify({ 'codebase-memory': [process.execPath, probe] }) }), cwd: dir });
+  assert.match(r.stdout, /refreshed/, r.stdout + r.stderr);
+  const o = JSON.parse(fs.readFileSync(out, 'utf8'));
+  assert.equal(fs.realpathSync(o.cwd), fs.realpathSync(path.join(home, 'jspark-forge')));
+  assert.equal(o.nd, '1');
+  assert.deepEqual(o.args.slice(0, 3), ['cli', '--quiet', 'index_repository']);
+  assert.equal(fs.realpathSync(JSON.parse(o.args[3]).repo_path), fs.realpathSync(dir));
+});
+
+// v0.5 review S6: with the plugin's engine switched off, the map layer is off too (no launcher start per commit).
+test('code-map off with the plugin prefix recorded: the map layer is off, no refresh starts', () => {
+  const map = require('../scripts/lib/map');
+  const dir = project();
+  map.noteTool(dir, PLUGIN_TOOL);
+  assert.equal(map.isOn(dir), true);
+  fs.writeFileSync(path.join(dir, '.jspark-forge', 'rules.md'), '## Settings\n- code-map: off\n');
+  assert.equal(map.isOn(dir), false);
+  assert.equal(map.startRefresh(dir), false);
+  fs.writeFileSync(path.join(dir, '.jspark-forge', 'rules.md'), '## Settings\n');
+  assert.equal(map.isOn(dir), true, 'back on when the setting is gone');
+  switchOn(dir); // the user's own engine (other prefix) is not affected by the plugin's switch
+  const saved = process.env.JSPARK_FORGE_CODE_MAP;
+  process.env.JSPARK_FORGE_CODE_MAP = 'off';
+  try { assert.equal(map.isOn(dir), true); } finally { if (saved === undefined) delete process.env.JSPARK_FORGE_CODE_MAP; else process.env.JSPARK_FORGE_CODE_MAP = saved; }
+});
+
+test("map.engines does not read a reviewed (guest) repo's .mcp.json", () => {
+  const map = require('../scripts/lib/map');
+  const paths = require('../scripts/lib/paths');
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-map-guest-'));
+  const dir = path.join(base, 'repo');
+  fs.mkdirSync(dir);
+  fs.writeFileSync(path.join(dir, '.mcp.json'), '{"mcpServers":{"codebase-memory":{}}}');
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-map-home-'));
+  const prev = process.env.CLAUDE_CONFIG_DIR;
+  process.env.CLAUDE_CONFIG_DIR = home;
+  try {
+    assert.equal(map.engines(dir, home).own, true, 'a plain folder: its .mcp.json counts');
+    fs.mkdirSync(paths.guestDir(dir), { recursive: true });
+    assert.equal(paths.isGuest(dir), true);
+    assert.equal(map.engines(dir, home).own, false, 'a guest repo: the repo is not read');
+  } finally { if (prev === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = prev; }
 });

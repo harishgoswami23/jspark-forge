@@ -17,7 +17,8 @@ const T0 = Date.UTC(2026, 10, 19, 12, 0, 0);
 
 test('CONFIRM <id> in a prompt grants a token that is used once', () => {
   const d = dir();
-  assert.deepEqual(confirm.grantFromPrompt(d, 's1', 'ok, CONFIRM git-reset-hard', KNOWN, T0), ['git-reset-hard']);
+  assert.deepEqual(confirm.grantFromPrompt(d, 's1', 'ok, CONFIRM git-reset-hard', KNOWN, T0), [], 'not on a line of its own (v0.5 review S9)');
+  assert.deepEqual(confirm.grantFromPrompt(d, 's1', 'ok, do it\nCONFIRM git-reset-hard', KNOWN, T0), ['git-reset-hard']);
   assert.equal(confirm.consume(d, 's1', 'git-reset-hard', T0 + 1000), true);
   assert.equal(confirm.consume(d, 's1', 'git-reset-hard', T0 + 2000), false);
 });

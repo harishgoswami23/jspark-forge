@@ -46,3 +46,32 @@ test('v0.4.2: the version is set once, in plugin.json (Claude Code docs: not in 
   assert.equal(pkg.version, p.version, 'package.json follows plugin.json');
   assert.equal(byName('jspark-forge').version, undefined, 'no version in the marketplace entry');
 });
+
+const README = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');
+const installSection = () => {
+  const i = README.indexOf('\n## Install');
+  const j = README.indexOf('\n## ', i + 4);
+  return README.slice(i, j);
+};
+
+test('v0.5: the README install section has one command and lists what JSPARK Forge sets up with each undo', () => {
+  const s = installSection();
+  assert.equal((s.match(/^```/gm) || []).length, 2, 'exactly one fenced block');
+  for (const t of ['auto-update', 'code-map: off', 'playwright: off',
+    '/plugin uninstall frontend-design@claude-plugins-official', 'JSPARK_FORGE_AUTO_SETUP=off']) {
+    assert.ok(s.includes(t), t);
+  }
+  assert.ok(!s.includes('turn on updates'));
+});
+
+test('v0.5: the README no longer says JSPARK Forge never installs anything', () => {
+  assert.ok(!README.includes('never installs it'));
+  assert.ok(!README.includes('never installs anything'));
+});
+
+test('v0.5: versions are 0.5.0 in plugin.json and package.json', () => {
+  const p = JSON.parse(fs.readFileSync(path.join(ROOT, '.claude-plugin', 'plugin.json'), 'utf8'));
+  const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+  assert.equal(p.version, '0.5.0');
+  assert.equal(pkg.version, '0.5.0');
+});

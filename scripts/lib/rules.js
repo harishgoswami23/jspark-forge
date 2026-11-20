@@ -8,12 +8,14 @@ const BUILTINS = require('../../rules/default-blocklist.json');
 const paths = require('./paths');
 
 
-const SETTINGS = { notes: ['on', 'off'], 'statusline-segment': ['on', 'off'] };
+const SETTINGS = { notes: ['on', 'off'], 'statusline-segment': ['on', 'off'], 'code-map': ['on', 'off'], playwright: ['on', 'off'], 'ui-skills': ['on', 'off'] };
+// brand-skill (v0.5): a skill name, shown to Claude as text, so only a plain name is accepted.
+const SKILL_NAME = /^[A-Za-z0-9][A-Za-z0-9:_.-]{0,79}$/;
 
 const slug = s => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'rule';
 
 function parseRules(text) {
-  const out = { confirm: [], never: [], disabled: [], readonly: [], dbDev: [], settings: { notes: 'on', 'statusline-segment': 'on' }, errors: [] };
+  const out = { confirm: [], never: [], disabled: [], readonly: [], dbDev: [], settings: { notes: 'on', 'statusline-segment': 'on', 'code-map': 'on', playwright: 'on', 'ui-skills': 'on' }, explicit: [], errors: [] };
   const ids = new Set(Object.keys(BUILTINS));
   let section = null;
   let reCount = 0;
@@ -51,8 +53,12 @@ function parseRules(text) {
         for (const id of m[2].split(',').map(x => x.trim()).filter(Boolean)) {
           if (BUILTINS[id]) out.disabled.push(id); else out.errors.push({ line: n, message: `unknown block "${id}"` });
         }
+      } else if (m && key === 'brand-skill') {
+        if (SKILL_NAME.test(m[2])) { out.settings[key] = m[2]; out.explicit.push(key); }
+        else out.errors.push({ line: n, message: 'brand-skill takes one skill name (letters, digits, - _ . :)' });
       } else if (m && SETTINGS[key] && SETTINGS[key].includes(m[2].toLowerCase())) {
         out.settings[key] = m[2].toLowerCase();
+        out.explicit.push(key);
       } else {
         out.errors.push({ line: n, message: 'unknown setting' });
       }
@@ -105,7 +111,7 @@ function loadRules(projectDir, { claudeHome } = {}) {
     disabled: user.disabled,
     readonly: user.readonly.concat(repo.readonly), // adding a read-only source only restricts: a repo's own lines count
     dbDev: user.dbDev, // marking a database as dev relaxes the guard: only the user's own file counts (like disable:)
-    settings: Object.assign({}, user.settings, repo.settings),
+    settings: Object.assign({}, user.settings, Object.fromEntries(repo.explicit.map(k => [k, repo.settings[k]]))),
     errors: user.errors.map(e => Object.assign({ file: USER_LABEL }, e))
       .concat(repo.errors.map(e => Object.assign({ file: REPO_LABEL }, e)))
       .concat(repoDisable.map(x => ({ file: REPO_LABEL, line: x.n,

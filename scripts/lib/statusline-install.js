@@ -11,11 +11,18 @@ const REFRESH_S = 30;
 const fwd = p => p.replace(/\\/g, '/');
 const indentOf = text => { const m = text.match(/\n([ \t]+)"/); return m ? m[1] : 2; };
 
+// Writes a temp file beside the target and renames it over. A symlinked target is written through (the real file is
+// replaced, the link stays), and an existing file's permission bits are kept (review S7).
 function atomicWrite(file, data) {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.tmp`;
+  let target = file;
+  try { target = fs.realpathSync(file); } catch { /* new file */ }
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  let mode = null;
+  try { mode = fs.statSync(target).mode & 0o7777; } catch { /* new file */ }
+  const tmp = `${target}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, data);
-  fs.renameSync(tmp, file);
+  if (mode !== null && process.platform !== 'win32') { try { fs.chmodSync(tmp, mode); } catch { /* keep the default */ } }
+  fs.renameSync(tmp, target);
 }
 
 function readSettings(settings) {
@@ -85,4 +92,4 @@ function undo({ settings, home }) {
   return { ok: true, message };
 }
 
-module.exports = { install, undo, status, ourCommand };
+module.exports = { install, undo, status, ourCommand, readSettings, atomicWrite, indentOf };

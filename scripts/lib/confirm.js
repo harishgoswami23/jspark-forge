@@ -21,11 +21,26 @@ function read(dir) {
 }
 const write = (dir, tokens) => writeAtomic(fileOf(dir), JSON.stringify({ tokens }, null, 2) + '\n');
 
+// A line that is nothing but CONFIRM <id> (or "CONFIRM a and CONFIRM b"). Long lines are never one (and never tested:
+// the pattern is slow on them, second review N8).
+const ONE = '\\s*confirm\\s+[A-Za-z0-9][A-Za-z0-9-]*';
+const LINE = new RegExp(`^${ONE}(?:\\s*(?:,|&|and)?${ONE})*\\s*[.!]*\\s*$`, 'i');
+const isConfirmLine = l => l.length <= 200 && LINE.test(l);
+// Text the harness wraps in tags (a helper's or teammate's report, a notification, command output) is never the user
+// typing, wherever in the message it sits: a message that holds any of it grants nothing (second review S3).
+const WRAPPED = /<\/?(?:agent-message|teammate-message|cross-session-message|task-notification|system-reminder|local-command-[a-z-]+|command-name|command-message|bash-stdout|bash-stderr|pasted_content)\b|\[SYSTEM NOTIFICATION/i;
+// The whole message is CONFIRM lines and nothing else: a control message, not a request.
+const isConfirmOnly = prompt => { const ls = String(prompt || '').split(/\r?\n/).filter(l => l.trim()); return ls.length > 0 && ls.every(isConfirmLine); };
+
 function grantFromPrompt(dir, session, prompt, knownIds, now = Date.now()) {
+  if (WRAPPED.test(String(prompt || ''))) return [];
   const known = new Set(knownIds);
   const granted = [];
   const whole = String(prompt || '').trim().replace(/[.!]+$/, '');
-  for (const m of String(prompt || '').matchAll(/\bconfirm\s+([A-Za-z0-9][A-Za-z0-9-]*)/gi)) {
+  // Only a line that is nothing but CONFIRM <id> (or the "CONFIRM a and CONFIRM b" form a block message gives) counts:
+  // quoted or pasted text that mentions it grants nothing (review S9; seen with a helper's report on 2026-11-20).
+  const own = String(prompt || '').split(/\r?\n/).filter(isConfirmLine).join('\n');
+  for (const m of own.matchAll(/\bconfirm\s+([A-Za-z0-9][A-Za-z0-9-]*)/gi)) {
     if (!known.has(m[1]) || granted.includes(m[1])) continue;
     // A session-long CONFIRM must be the whole message (not inside pasted or quoted text). Fable code review, low.
     if (SESSION_LONG.has(m[1]) && !new RegExp(`^confirm\\s+${m[1]}$`, 'i').test(whole)) continue;
@@ -60,4 +75,4 @@ function consume(dir, session, id, now = Date.now()) {
   return true;
 }
 
-module.exports = { grantFromPrompt, has, consume, TTL_MS, SESSION_LONG };
+module.exports = { grantFromPrompt, has, consume, TTL_MS, SESSION_LONG, isConfirmOnly };

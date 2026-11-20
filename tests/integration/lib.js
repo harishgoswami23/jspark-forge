@@ -10,9 +10,15 @@ const { spawn, spawnSync, execFileSync } = require('child_process');
 const PLUGIN = path.resolve(__dirname, '..', '..');
 // Real Claude Code runs with the real login and config: never let automatic setup touch the real status line.
 process.env.JSPARK_FORGE_AUTO_STATUSLINE = 'off';
+process.env.JSPARK_FORGE_AUTO_SETUP = 'off';
+// The two servers that ship with the plugin start with no tools here: these tests must not download their programs
+// (npx) on the machine that runs them. FORGE_IT_REAL_SERVERS=1 lets them start for real (a cold CI machine).
+if (process.env.FORGE_IT_REAL_SERVERS !== '1') { process.env.JSPARK_FORGE_CODE_MAP = 'off'; process.env.JSPARK_FORGE_PLAYWRIGHT = 'off'; }
 const MODEL = process.env.FORGE_IT_MODEL || 'haiku';
 // Every folder a test file makes goes under one root, removed when the file ends; kept when a test failed, to look at.
-const ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-it-run-'));
+// The real (long) path: on Windows runners the temp folder is a short 8.3 path (RUNNER~1), the model then writes to
+// the long form, and Claude Code refuses the write as outside the working folder (seen 2026-11-20: no WRITE line).
+const ROOT = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-it-run-')));
 process.on('exit', code => {
   if (code || process.exitCode) { process.stderr.write(`integration files kept for a look: ${ROOT}
 `); return; }
@@ -61,6 +67,17 @@ function logText(dir) {
 const kinds = dir => new Set(logText(dir).split('\n').map(l => (l.match(/^\d\d:\d\d:\d\d \[[^\]]*\]\s+(\S+)/) || [])[1]).filter(Boolean));
 const gitStatus = dir => execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: dir, encoding: 'utf8' })
   .split('\n').filter(l => l && !l.includes('.jspark-forge/')).join('\n');
+// What Claude Code says it loaded (docs: headless, "Fail CI when a plugin or MCP server doesn't load"): the system/init
+// message of a stream-json run. -> { init, raw, status, err }
+function loadReport(dir) {
+  const r = spawnSync('claude', ['-p', 'Reply with the one word: ok', '--plugin-dir', PLUGIN, '--model', MODEL, '--output-format', 'stream-json', '--verbose'],
+    { cwd: dir, encoding: 'utf8', timeout: 300000, input: '' });
+  let init = null;
+  for (const line of String(r.stdout || '').split(/\r?\n/)) {
+    try { const m = JSON.parse(line); if (m && m.type === 'system' && m.subtype === 'init') { init = m; break; } } catch { /* not a message */ }
+  }
+  return { init, raw: r.stdout || '', status: r.status, err: r.stderr || '' };
+}
 const head = dir => execFileSync('git', ['rev-parse', '--short=7', 'HEAD'], { cwd: dir, encoding: 'utf8' }).trim();
 
-module.exports = { PLUGIN, tmp, MODEL, project, gitInit, initForge, claude, claudeBackground, killTree, logText, kinds, gitStatus, head };
+module.exports = { PLUGIN, tmp, MODEL, project, gitInit, initForge, claude, claudeBackground, killTree, logText, kinds, gitStatus, head, loadReport };
