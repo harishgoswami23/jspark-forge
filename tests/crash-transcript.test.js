@@ -122,7 +122,7 @@ test('the crash check shows Claude\'s last words and the unfinished tool call fr
   const ctx = ctxOf(start(dir));
   assert.match(ctx, /Claude's last words before the cutoff: "I am about to run the build and then the tests\."/);
   assert.match(ctx, /The last tool call it had started: Bash[^\n]*npm run build:all/);
-  assert.ok(ctx.indexOf("Claude's last words") < ctx.indexOf('Before you continue:'));
+  assert.ok(ctx.indexOf("Claude's last words") < ctx.indexOf('After the user says to continue:'));
 });
 
 test('a missing transcript file leaves the rest of the crash check intact', () => {

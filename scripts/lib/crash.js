@@ -179,8 +179,8 @@ function block(dir, it, extra, guest) {
   } catch { /* fail open */ }
   if (since.length) L.push('Logged after the last save:', ...since.map(x => `- ${x}`));
   for (const x of extra || []) L.push(x);
-  L.push('Before you continue: run git status, look at the files above, re-run the last test command if there was one, and tell the user in plain words what was half done. Do not repeat a command from the list without checking its effect first.');
-  if (guest) L.push('This repo is one the user is reviewing, not their own: only look, do not change it.');
+  L.push('After the user says to continue: run git status, look at the files above, and tell the user in plain words what was half done. Do not repeat a command from the list without checking its effect first.');
+  if (guest) L.push('This repo is one the user is reviewing, not their own: only look, do not change it. Only read-only checks here (git status, opening files); never re-run a command from the list.');
   return L.join('\n');
 }
 

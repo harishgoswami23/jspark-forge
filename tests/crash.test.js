@@ -40,7 +40,7 @@ test('1: wrote two files, a Bash command in flight, no Stop: the next start says
   assert.match(ctx, /it may have half run/);
   assert.match(ctx, /src\/chart\.js/);
   assert.match(ctx, /src\/export\.js/);
-  assert.match(ctx, /Before you continue: run git status/);
+  assert.match(ctx, /After the user says to continue: run git status/);
   const again = start(dir);
   assert.doesNotMatch(ctxOf(again), /crash check/);
   assert.doesNotMatch(msgOf(again), /cut off/);
@@ -203,6 +203,8 @@ test('10: a guest repo gets the same check, from the guest folder, and nothing i
   assert.match(msgOf(r), /cut off/);
   assert.doesNotMatch(ctx.slice(ctx.indexOf('JSPARK Forge crash check')), /\b(write|save|create) (it |them )?(in|into|to) (the|this) repo/i);
   assert.match(ctx, /only look, do not change it/);
+  assert.match(ctx, /Only read-only checks here \(git status, opening files\); never re-run a command from the list/);
+  assert.doesNotMatch(ctx, /re-run the last test/);
   const status = execFileSync('git', ['status', '--porcelain', '--untracked-files=all', '--ignored'], { cwd: dir, encoding: 'utf8' });
   assert.equal(status.trim(), '', 'nothing written inside the repo');
   assert.ok(require('../scripts/lib/crash').readNoted(dir)[A] > 0, 'recorded in the guest folder\'s crash-noted.json');

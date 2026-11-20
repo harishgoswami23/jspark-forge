@@ -31,7 +31,8 @@ test('a session cut off with a command in flight: the next start says so, to the
   assert.match(ctx, /Files written in the last 2 minutes before the cutoff:/);
   assert.match(ctx, /src\/report\.js/);
   assert.match(ctx, /src\/totals\.js/);
-  assert.match(ctx, /Before you continue: run git status, look at the files above, re-run the last test command if there was one, and tell the user in plain words what was half done\. Do not repeat a command from the list without checking its effect first\./);
+  assert.match(ctx, /After the user says to continue: run git status, look at the files above, and tell the user in plain words what was half done. Do not repeat a command from the list without checking its effect first./);
+  assert.doesNotMatch(ctx, /re-run the last test/);
 });
 
 test('the crash check comes after the handoff, and shows once', () => {
