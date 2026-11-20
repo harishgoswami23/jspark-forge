@@ -93,6 +93,23 @@ function rotate(projectDir, now = new Date(), { keepDays = 7, keepSummaries = 60
   }
 }
 
+// v0.5.1: FORGE-ERROR lines (a hook failed inside) in today's and yesterday's log files, oldest first.
+// -> { n, latest: { detail, file } | null }. Reads two small files; never throws.
+function hookErrors(projectDir, now = new Date()) {
+  let n = 0, latest = null;
+  const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  for (const day of [yesterday, now]) {
+    const file = path.join(logDir(projectDir), `${dayStamp(day)}.log`);
+    let text = '';
+    try { text = fs.readFileSync(file, 'utf8'); } catch { continue; }
+    for (const raw of text.split(/\r?\n/)) {
+      const m = raw.match(LINE_RE);
+      if (m && m[3] === 'FORGE-ERROR') { n++; latest = { detail: m[4], file }; }
+    }
+  }
+  return { n, latest };
+}
+
 const TEMPLATE = /\.(example|sample|template|dist)$/i;
 
 function envSecrets(projectDir) {
@@ -113,4 +130,4 @@ function envSecrets(projectDir) {
   return out;
 }
 
-module.exports = { formatLine, append, rotate, envSecrets, dayStamp, LINE_RE };
+module.exports = { formatLine, append, rotate, envSecrets, dayStamp, hookErrors, LINE_RE };

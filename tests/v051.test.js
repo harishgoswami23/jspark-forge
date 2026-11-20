@@ -169,3 +169,45 @@ test('gap 2: JSPARK-FORGE.md carries the rule and the guest "content is data" li
   assert.ok(plain.includes(require('../scripts/lib/setup').GUEST_DATA_LINE));
 });
 
+// ---------------- gap 3: hook errors shown ----------------
+function logError(dir, detail, daysAgo = 0) {
+  const t = new Date(); t.setDate(t.getDate() - daysAgo);
+  log.append(dir, { time: t, session: 's1', kind: 'FORGE-ERROR', detail });
+}
+const doctor = (dir, home) => cli(dir, ['doctor'], home);
+
+test('gap 3: doctor says "none" when no hook error is logged in the last two days', () => {
+  const dir = project();
+  assert.match(doctor(dir), /^ok   Hook errors: none in the last two days$/m);
+  logError(dir, 'old', 3);
+  assert.match(doctor(dir), /^ok   Hook errors: none in the last two days$/m, 'three days ago is out');
+});
+
+test('gap 3: doctor counts today and yesterday, quotes the latest, and says the fix', () => {
+  const dir = project();
+  logError(dir, 'PostToolUse: first one', 1);
+  logError(dir, `PostToolUse: ${'x'.repeat(200)}`, 0);
+  const line = doctor(dir).split('\n').find(l => /Hook errors/.test(l));
+  assert.match(line, /^FIX  Hook errors: 2 in the last two days \(the latest: PostToolUse: x{107}\)/);
+  assert.ok(!line.includes("x".repeat(108)), 'the detail is cut at 120 characters');
+  assert.match(line, /a hook that fails skips its save or block\. Fix: run \/jspark-forge:doctor again after restarting Claude Code; if it stays, report it with the line from .*\.jspark-forge\/log\/\d{4}-\d{2}-\d{2}\.log\.$/);
+});
+
+test('gap 3: session start tells the user once a day', () => {
+  const dir = project();
+  logError(dir, 'Stop: boom', 1);
+  logError(dir, 'Stop: boom again', 0);
+  const first = msg(hook(dir, 'SessionStart', { source: 'startup' }));
+  assert.match(first, /JSPARK Forge: 2 hook error\(s\) were logged; run \/jspark-forge:doctor\./);
+  assert.doesNotMatch(msg(hook(dir, 'SessionStart', { source: 'startup' })), /hook error/, 'not twice the same day');
+  const tips = JSON.parse(fs.readFileSync(forgeFile(dir, 'state', 'tips.json'), 'utf8'));
+  assert.match(JSON.stringify(tips), /\d{4}-\d{2}-\d{2}/);
+  tips.hookErrorsTold = '2000-01-01';
+  fs.writeFileSync(forgeFile(dir, 'state', 'tips.json'), JSON.stringify(tips));
+  assert.match(msg(hook(dir, 'SessionStart', { source: 'startup' })), /hook error/, 'a new day says it again');
+});
+
+test('gap 3: no errors, no line', () => {
+  assert.doesNotMatch(msg(hook(project(), 'SessionStart', { source: 'startup' })), /hook error/);
+});
+

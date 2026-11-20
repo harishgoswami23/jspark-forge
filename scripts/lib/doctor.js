@@ -104,6 +104,11 @@ function checkProject(dir) {
       ? ['ok', `Handoff: readable, saved ${meta.savedAt ? ago(Date.now() - meta.savedAt) : 'at an unknown time'}`]
       : ['FIX', 'Handoff: its record (state/handoff.json) is damaged, so the next session cannot offer to resume. Fix: run /jspark-forge:handoff to write a fresh one.']);
   } else out.push(['ok', 'Handoff: none yet (written once there is work to resume)']);
+  // Hook errors (v0.5.1): a hook that fails inside logs a FORGE-ERROR line and carries on, so nothing else shows it.
+  const he = require('./log').hookErrors(dir);
+  out.push(he.n === 0 ? ['ok', 'Hook errors: none in the last two days']
+    : ['FIX', `Hook errors: ${he.n} in the last two days (the latest: ${he.latest.detail.slice(0, 120)}); a hook that fails skips its save or block. ` +
+      `Fix: run /jspark-forge:doctor again after restarting Claude Code; if it stays, report it with the line from ${paths.display(dir, he.latest.file)}.`]);
   return out;
 }
 

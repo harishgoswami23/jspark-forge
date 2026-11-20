@@ -232,6 +232,20 @@ const handlers = {
     if (licItems.length) msgs.push(...licence.notices(dir, licItems));
     const uiTip = uitip.notice(dir); // UI/UX companions tip, once per own front-end project (spec 5.14)
     if (uiTip) msgs.push(uiTip);
+    try { // v0.5.1: hook errors were only logged; say so once a day (the date is kept in state/tips.json)
+      const he = log.hookErrors(dir);
+      const tipsFile = path.join(paths.forgeDir(dir), 'state', 'tips.json');
+      const todayStamp = log.dayStamp(new Date());
+      if (he.n > 0) {
+        let tips = {};
+        try { tips = JSON.parse(fs.readFileSync(tipsFile, 'utf8')) || {}; } catch { /* none yet */ }
+        if (tips.hookErrorsTold !== todayStamp) {
+          msgs.push(`JSPARK Forge: ${he.n} hook error(s) were logged; run /jspark-forge:doctor.`);
+          fs.mkdirSync(path.dirname(tipsFile), { recursive: true });
+          fs.writeFileSync(tipsFile, `${JSON.stringify(Object.assign(tips, { hookErrorsTold: todayStamp }), null, 1)}\n`);
+        }
+      }
+    } catch { /* never break a session start */ }
     if (rules.disabled.length) msgs.push(`JSPARK Forge: you switched off ${rules.disabled.join(', ')} in rules.md.`);
     let offerAfterCompact = null;
     if (input.source === 'compact') { // the summary dropped the decisions Claude was shown: show them again when relevant
