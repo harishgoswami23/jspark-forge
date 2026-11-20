@@ -282,6 +282,7 @@ const handlers = {
     let crashInfo = null;
     try { if (input.source === 'startup' || input.source === 'resume') crashInfo = crashLib.check(dir, input.session_id, { mark: true, own: true, self: selfBefore }); } catch { /* fail open */ }
     crashLib.revive(dir, input.session_id); // this session is alive again (a resumed id may still carry an ended stamp)
+    try { if (input.source === 'startup' || input.source === 'resume') crashLib.prune(dir, input.session_id); } catch { /* fail open */ } // old session files and in-flight records (at most 50 a start)
     const rc = handoff.resumeContext(dir, input.session_id, input.source || 'startup', new Date(), { skipSince: !!crashInfo });
     if (crashInfo) { rc.context = `${rc.context}\n\n${crashInfo.block}`; msgs.unshift(crashInfo.userLine); }
     if (offerAfterCompact) rc.context = `${rc.context}\n\n${offerAfterCompact}`;

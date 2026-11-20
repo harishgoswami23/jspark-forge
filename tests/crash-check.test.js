@@ -128,7 +128,11 @@ test('log lines after the last save appear once, inside the crash block (no seco
   handoff.save(dir, A, 'earlier', { force: true, now: new Date(Date.now() - 1000000) }); fx.setSeen(dir, A, 880);
   const ctx = ctxOf(start(dir));
   assert.match(ctx, /Logged after the last save:/);
-  assert.equal((ctx.match(/npm run build/g) || []).length >= 1, true);
+  const blockText = ctx.slice(ctx.search(HEAD)); // the crash block only (the handoff above has its own recent-actions line)
+  const count = re => (blockText.match(re) || []).length;
+  assert.equal(count(/Logged after the last save:/g), 1, 'the list appears exactly once');
+  assert.equal(count(/ran Run the build/g), 1, 'the logged command appears exactly once in it');
+  assert.equal(count(/npm run build/g), 1, 'and once in the in-flight list (that line names the command text)');
   assert.doesNotMatch(ctx, /after that save the log shows more work/);
 });
 
@@ -326,4 +330,48 @@ test('S7: the crash block strips the query string of URLs from in-flight calls, 
   assert.match(ctx, /https:\/\/b\.example\/hook/);
   assert.match(ctx, /https:\/\/c\.example\/dl/);
   assert.doesNotMatch(ctx, /SIGONE|SIGTWO|SIGTHREE/);
+});
+
+// ---- crash review S9: SessionStart prunes old session files and their in-flight records ----
+const DAY = 24 * 3600 * 1000;
+const sidN = n => `${String(n).padStart(8, '0')}-0000-0000-0000-000000000000`;
+function oldSession(dir, sid, { endedDaysAgo, ageDays, inflight }) {
+  died(dir, { sid, ended: endedDaysAgo === undefined ? null : { reason: 'other', at: Date.now() - endedDaysAgo * DAY }, inflight: inflight ? [{ tool: 'Bash', what: 'x', agoSecs: 700 }] : undefined, seenAgo: ageDays * 86400 });
+}
+
+test('S9: 200 old ended sessions: one start deletes at most 50, and the hook stays under its 10 s limit', () => {
+  const dir = repo();
+  for (let i = 1; i <= 200; i++) oldSession(dir, sidN(i), { endedDaysAgo: 8, ageDays: 8, inflight: i % 2 === 0 });
+  const t0 = Date.now();
+  const r = start(dir);
+  assert.equal(r.status, 0);
+  assert.ok(Date.now() - t0 < 10000, `took ${Date.now() - t0} ms`);
+  const left = fs.readdirSync(stateFile(dir, '')).filter(n => /^session-.+\.json$/.test(n)).length;
+  assert.ok(left <= 150 && left >= 149, `${left} left`);
+  const orphans = fs.readdirSync(stateFile(dir, '')).filter(n => /^inflight-/.test(n)).length;
+  assert.ok(orphans <= 100, 'their in-flight folders go with them (and never more deletions than 50 in all)');
+});
+
+test('S9: ended more than 7 days ago goes; ended 6 days ago stays; any session file older than 30 days goes; the starting session never does', () => {
+  const dir = repo();
+  oldSession(dir, sidN(1), { endedDaysAgo: 8, ageDays: 8, inflight: true });
+  oldSession(dir, sidN(2), { endedDaysAgo: 6, ageDays: 6 });
+  oldSession(dir, sidN(3), { ageDays: 31, inflight: true }); // never ended, untouched for 31 days
+  oldSession(dir, sidN(4), { ageDays: 20 }); // never ended, 20 days: stays
+  oldSession(dir, fx.B, { endedDaysAgo: 40, ageDays: 40 }); // the session that starts
+  start(dir);
+  const has = sid => fs.existsSync(stateFile(dir, `session-${sid}.json`));
+  assert.ok(!has(sidN(1)) && !fs.existsSync(stateFile(dir, `inflight-${sidN(1)}`)));
+  assert.ok(has(sidN(2)));
+  assert.ok(!has(sidN(3)) && !fs.existsSync(stateFile(dir, `inflight-${sidN(3)}`)));
+  assert.ok(has(sidN(4)));
+  assert.ok(has(fx.B), 'the starting session is never pruned');
+});
+
+test('S9: an in-flight record older than 7 days is cleaned, by any session\'s start', () => {
+  const dir = repo();
+  died(dir, { sid: A, lastSaveAgo: 100, inflight: [{ tool: 'Bash', what: 'old', agoSecs: 8 * 86400 }], inflightAgo: 8 * 86400, seenAgo: 1000 });
+  start(dir);
+  assert.ok(!fs.existsSync(stateFile(dir, `inflight-${A}`)));
+  assert.ok(fs.existsSync(stateFile(dir, `session-${A}.json`)), 'the session file stays');
 });

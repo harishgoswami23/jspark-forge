@@ -217,6 +217,42 @@ function check(dir, currentSid, { mark = false, extraFor, own = false, self, ski
   } catch { return null; }
 }
 
+// SessionStart housekeeping: session files of sessions that ended more than 7 days ago, any session file untouched for 30
+// days, and in-flight records older than 7 days. At most `limit` deletions per start (a start has 10 seconds); never the
+// session that is starting. A session's own in-flight records go with its file. -> the number of deletions.
+const ENDED_KEEP_MS = 7 * 24 * 3600 * 1000;
+const SESSION_KEEP_MS = 30 * 24 * 3600 * 1000;
+function prune(dir, currentSid, now = Date.now(), limit = 50) {
+  let n = 0;
+  try {
+    if (!eligible(dir)) return 0;
+    const sd = state.stateDir(dir);
+    const cur = String(currentSid || '').replace(/[^A-Za-z0-9-]/g, '');
+    const names = fs.readdirSync(sd);
+    const rm = p => { try { fs.rmSync(p, { recursive: true, force: true }); return true; } catch { return false; } };
+    for (const name of names) {
+      if (n >= limit) break;
+      const m = name.match(/^session-(.+)\.json$/);
+      if (!m || m[1] === cur) continue;
+      try {
+        const f = path.join(sd, name);
+        const age = now - fs.statSync(f).mtimeMs;
+        let old = age > SESSION_KEEP_MS;
+        if (!old && age > ENDED_KEEP_MS) { const s = JSON.parse(fs.readFileSync(f, 'utf8')); old = !!(s && s.ended && now - Number(s.ended.at || 0) > ENDED_KEEP_MS); }
+        if (!old) continue;
+        if (rm(f)) { n++; inflight.clear(dir, m[1]); }
+      } catch { /* one odd file never stops the rest */ }
+    }
+    for (const name of names) { // in-flight records nobody cleaned for a week
+      if (n >= limit) break;
+      const m = name.match(/^inflight-([A-Za-z0-9-]+?)(\.json)?$/);
+      if (!m || m[1] === cur) continue;
+      try { if (now - fs.statSync(path.join(sd, name)).mtimeMs > ENDED_KEEP_MS && rm(path.join(sd, name))) n++; } catch { /* gone already */ }
+    }
+  } catch { /* fail open */ }
+  return n;
+}
+
 // The session that is starting is alive again: a leftover ended stamp from an earlier run of the same id goes.
 function revive(dir, sid) {
   try {
@@ -227,4 +263,4 @@ function revive(dir, sid) {
   } catch { /* fail open */ }
 }
 
-module.exports = { find, check, block, fileMark, snapshot, revive, readNoted, USER_LINE, STALE_MS, SLOW_MS };
+module.exports = { find, check, block, fileMark, snapshot, revive, prune, readNoted, USER_LINE, STALE_MS, SLOW_MS };
