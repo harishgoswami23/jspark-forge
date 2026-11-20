@@ -94,3 +94,17 @@ test('user rules also apply to MCP tool inputs', () => {
   const r = check({ tool_name: 'mcp__infra__run', tool_input: { cmd: 'terraform destroy' }, cwd: PROJECT }, ctxWith(rules));
   assert.equal(r.id, 'terraform-destroy');
 });
+
+test('v0.5: code-map and playwright switches parse, default on, and a bad value is an unknown setting', () => {
+  const r = parseRules('## Settings\n- code-map: off\n- playwright: off\n');
+  assert.equal(r.errors.length, 0);
+  assert.equal(r.settings['code-map'], 'off');
+  assert.equal(r.settings.playwright, 'off');
+  const d = parseRules('');
+  assert.equal(d.settings['code-map'], 'on');
+  assert.equal(d.settings.playwright, 'on');
+  const bad = parseRules('## Settings\n- code-map: maybe\n');
+  assert.equal(bad.settings['code-map'], 'on');
+  assert.equal(bad.errors.length, 1);
+  assert.equal(bad.errors[0].message, 'unknown setting');
+});

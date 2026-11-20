@@ -41,6 +41,9 @@ function pluginsMention(home, name) {
   try { return fs.readdirSync(path.join(plugins, 'cache')).some(m => fs.existsSync(path.join(plugins, 'cache', m, name))); } catch { return false; }
 }
 
+// Does the project have a front end: a known framework in package.json, or html/tsx/jsx/vue/svelte files.
+const hasFrontEnd = dir => { const d = deps(dir); return FRONTEND_DEPS.some(n => n in d) || hasFrontEndFiles(dir); };
+
 function notice(dir) {
   try {
     if (!paths.isOwn(dir)) return null;
@@ -68,4 +71,4 @@ function notice(dir) {
   } catch { return null; }
 }
 
-module.exports = { notice, FD_INSTALL, PW_INSTALL, SHADCN_INSTALL, DEVTOOLS_INSTALL };
+module.exports = { notice, hasFrontEnd, FD_INSTALL, PW_INSTALL, SHADCN_INSTALL, DEVTOOLS_INSTALL };

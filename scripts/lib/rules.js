@@ -8,12 +8,12 @@ const BUILTINS = require('../../rules/default-blocklist.json');
 const paths = require('./paths');
 
 
-const SETTINGS = { notes: ['on', 'off'], 'statusline-segment': ['on', 'off'] };
+const SETTINGS = { notes: ['on', 'off'], 'statusline-segment': ['on', 'off'], 'code-map': ['on', 'off'], playwright: ['on', 'off'] };
 
 const slug = s => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'rule';
 
 function parseRules(text) {
-  const out = { confirm: [], never: [], disabled: [], readonly: [], dbDev: [], settings: { notes: 'on', 'statusline-segment': 'on' }, errors: [] };
+  const out = { confirm: [], never: [], disabled: [], readonly: [], dbDev: [], settings: { notes: 'on', 'statusline-segment': 'on', 'code-map': 'on', playwright: 'on' }, errors: [] };
   const ids = new Set(Object.keys(BUILTINS));
   let section = null;
   let reCount = 0;
