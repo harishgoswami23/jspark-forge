@@ -184,6 +184,18 @@ function taskTool(task, t, ti, tr, sid) {
   return true;
 }
 
+// v0.5.1 crash recovery: the session's transcript file, stored only when it changes (a resumed session may have a new one).
+function rememberTranscript(dir, input) {
+  try {
+    const tp = input.transcript_path;
+    if (typeof tp !== 'string' || !tp || !input.session_id) return;
+    const sess = state.readSession(dir, input.session_id);
+    if (sess.transcriptPath === tp) return;
+    sess.transcriptPath = tp;
+    state.writeSession(dir, input.session_id, sess);
+  } catch { /* never break a session start */ }
+}
+
 function doSave(dir, sid, reason, lines, opts) {
   if (handoff.save(dir, sid, reason, opts)) lines.push(['SAVE', reason]); // null: no work to resume, nothing written
 }
@@ -263,6 +275,7 @@ const handlers = {
       offerAfterCompact = offerContext(dir, input, sess);
       state.writeSession(dir, input.session_id, sess);
     }
+    rememberTranscript(dir, input); // so a later crash check can read the tail of this session's transcript
     // v0.5.1 crash recovery: another session of this project was cut off (not at compact or clear: the conversation goes on).
     let crashInfo = null;
     try { if (input.source === 'startup' || input.source === 'resume') crashInfo = crashLib.check(dir, input.session_id, { mark: true }); } catch { /* fail open */ }
@@ -357,6 +370,7 @@ const handlers = {
     // A new user turn: pending offers to record are delivered again (design-v0.2 1.4).
     const sess = state.readSession(dir, input.session_id);
     sess.turn = (sess.turn || 0) + 1;
+    if (typeof input.transcript_path === 'string' && input.transcript_path && sess.transcriptPath !== input.transcript_path) sess.transcriptPath = input.transcript_path;
     // A short reply ("yes", "skip", "edit: …") is most likely the answer to the last offer: do not repeat it with it.
     const offer = prompt.trim().length < 25 ? null : offerContext(dir, input, sess);
     // ---- Launch-scope nudge (design-v0.3 2.2): one conditional line, at most every 30 minutes (mutates sess).

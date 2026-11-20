@@ -126,6 +126,15 @@ function block(dir, it, extra, guest) {
   return L.join('\n');
 }
 
+// Part D: Claude's last words and the last tool call it had started, from the tail of that session's transcript.
+function transcriptLines(dir, it) {
+  const s = require('./transcript').summary(it.s.transcriptPath, (() => { try { return log.envSecrets(dir); } catch { return []; } })());
+  const out = [];
+  if (s.lastWords) out.push(`Claude's last words before the cutoff: "${s.lastWords}"`);
+  if (s.lastTool) out.push(`The last tool call it had started: ${s.lastTool}`);
+  return out;
+}
+
 const USER_LINE = at => `JSPARK Forge: the last session here was cut off (a crash, a power cut, or the window was killed) at ${hhmm(at)}. Claude will check what was half done before carrying on.`;
 
 // -> { userLine, block, items } or null. mark: set crashNoted on the sessions and clean their inflight files.
@@ -136,7 +145,7 @@ function check(dir, currentSid, { mark = false, extraFor } = {}) {
     const guest = paths.isGuest(dir);
     const blocks = items.map(it => {
       let extra = [];
-      try { if (extraFor) extra = extraFor(it) || []; } catch { /* fail open */ }
+      try { extra = (extraFor || transcriptLines)(dir, it) || []; } catch { /* fail open */ }
       return block(dir, it, extra, guest);
     });
     if (mark) {
