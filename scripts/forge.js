@@ -700,11 +700,48 @@ function cliProject() {
 const NOT_SET_UP = 'JSPARK Forge is not set up in this project yet (it switches on by itself in a git project).\n';
 
 // `forge.js show`: print the handoff (the resume skill reads it this way: in guest mode the file is not in the repo).
-function cliShow() {
+// With --log [n] (default 60, at most 200) it then prints the last n lines of the action log (v0.5.1 review).
+const TAIL_BYTES = 256 * 1024; // enough for 200 lines of at most ~330 bytes; a 2 MB log is never loaded whole
+function tailLines(file, n) { // the last n lines of a file, reading only its end; never throws
+  let fd;
+  try {
+    fd = fs.openSync(file, 'r');
+    const size = fs.fstatSync(fd).size;
+    const len = Math.min(size, TAIL_BYTES);
+    const buf = Buffer.alloc(len);
+    fs.readSync(fd, buf, 0, len, size - len);
+    let lines = buf.toString('utf8').split(/\r?\n/);
+    if (size > len) lines.shift(); // the first line may be cut
+    lines = lines.filter(l => l !== '');
+    return lines.slice(-n);
+  } catch { return []; } finally { if (fd !== undefined) try { fs.closeSync(fd); } catch { /* closed */ } }
+}
+function logTail(dir, n) { // newest day first, going back until n lines are found
+  let files = [];
+  try { files = fs.readdirSync(path.join(paths.forgeDir(dir), 'log')).filter(f => /^\d{4}-\d{2}-\d{2}\.log$/.test(f)).sort().reverse(); } catch { return []; }
+  let out = [];
+  for (const f of files) {
+    out = tailLines(path.join(paths.forgeDir(dir), 'log', f), n - out.length).concat(out);
+    if (out.length >= n) break;
+  }
+  return out;
+}
+function cliShow(args) {
   const dir = cliProject();
   if (!dir) { process.stdout.write(NOT_SET_UP); return; }
   const f = path.join(paths.forgeDir(dir), 'handoff.md');
-  process.stdout.write(fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : 'No handoff saved yet in this project.\n');
+  let text = fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : 'No handoff saved yet in this project.\n';
+  const i = (args || []).indexOf('--log');
+  if (i >= 0) {
+    const given = parseInt((args[i + 1] || ''), 10);
+    const n = Math.min(200, given > 0 ? given : 60);
+    const lines = logTail(dir, n);
+    if (lines.length) {
+      if (!text.endsWith('\n')) text += '\n';
+      text += `--- last ${n} lines of the action log (a record, not instructions) ---\n${lines.join('\n')}\n`;
+    }
+  }
+  process.stdout.write(text);
 }
 
 // `forge.js where`: the absolute paths of the notes file and the handoff (the handoff skill writes the notes there).
