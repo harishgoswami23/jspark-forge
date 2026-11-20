@@ -128,7 +128,7 @@ test('5: both pairs unusable: the context is built from the log, and says so', (
   assert.match(msgOf(r), /could not be read/i);
 });
 
-test('6: a log ending in NUL bytes and a half line does not stop the start, the handoff or show --log', () => {
+test('6: a log ending in NUL bytes and a half line does not stop the start, the handoff or show --log', { skip }, () => {
   const dir = repo();
   twoSaves(dir);
   fs.mkdirSync(path.dirname(logPath(dir)), { recursive: true });

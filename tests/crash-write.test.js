@@ -10,6 +10,8 @@ const { spawnSync, execFileSync } = require('node:child_process');
 
 const ROOT = path.join(__dirname, '..');
 const FORGE = path.join(ROOT, 'scripts', 'forge.js');
+// Log lines carry only a clock time: the tests that put lines in the past share one midnight guard (helpers/crashfix.js).
+const SKIP_MIDNIGHT = require('./helpers/crashfix').skipNearMidnight(300);
 const fsx = require('../scripts/lib/fsx');
 const handoff = require('../scripts/lib/handoff');
 const state = require('../scripts/lib/state');
@@ -125,7 +127,7 @@ test('handoff.json missing or invalid, handoff.md empty or cut: each falls back 
   }
 });
 
-test('both pairs unusable but the log has entries: the context is built from the log alone', () => {
+test('both pairs unusable but the log has entries: the context is built from the log alone', { skip: SKIP_MIDNIGHT }, () => {
   const dir = repo();
   twoSaves(dir);
   for (const f of [json(dir), prevJson(dir)]) fs.writeFileSync(f, '');
@@ -149,7 +151,7 @@ test('both pairs unusable and an empty log: nothing is shown, nothing throws', (
   assert.equal(rc.systemMessage, null);
 });
 
-test('a fresh project (no handoff at all, talk in the log) does not claim a damaged handoff', () => {
+test('a fresh project (no handoff at all, talk in the log) does not claim a damaged handoff', { skip: SKIP_MIDNIGHT }, () => {
   const dir = repo();
   fs.mkdirSync(path.dirname(logFile(dir)), { recursive: true });
   fs.writeFileSync(logFile(dir), line(10, 'USER', 'hello there, what can you do for me today'));
@@ -158,7 +160,7 @@ test('a fresh project (no handoff at all, talk in the log) does not claim a dama
 });
 
 // ---- the doctor ----
-test('doctor: a damaged newest save with a good previous one is ok with a note; both damaged is FIX', () => {
+test('doctor: a damaged newest save with a good previous one is ok with a note; both damaged is FIX', { skip: SKIP_MIDNIGHT }, () => {
   const dir = repo();
   twoSaves(dir);
   fs.writeFileSync(json(dir), '');
@@ -189,7 +191,7 @@ test('a log ending in a half line is ignored by logEntries, sinceSave and hookEr
   assert.equal(log.hookErrors(dir).n, 1);
 });
 
-test('a log ending in a run of NUL bytes is read without error', () => {
+test('a log ending in a run of NUL bytes is read without error', { skip: SKIP_MIDNIGHT }, () => {
   const dir = repo();
   fs.mkdirSync(path.dirname(logFile(dir)), { recursive: true });
   fs.writeFileSync(logFile(dir), line(20, 'EDIT', 'src/a.js') + '\0'.repeat(4096));
@@ -197,7 +199,7 @@ test('a log ending in a run of NUL bytes is read without error', () => {
   assert.equal(log.hookErrors(dir).n, 0);
 });
 
-test('log.append after a cut line starts a new line, so the next entry is not lost', () => {
+test('log.append after a cut line starts a new line, so the next entry is not lost', { skip: SKIP_MIDNIGHT }, () => {
   const dir = repo();
   fs.mkdirSync(path.dirname(logFile(dir)), { recursive: true });
   fs.writeFileSync(logFile(dir), line(20, 'EDIT', 'src/a.js') + '12:00:0');
@@ -217,7 +219,7 @@ test('forge.js show --log prints a cut log without the half line or NUL bytes', 
 });
 
 // ---- crash review S8: a deleted handoff.md is not crash damage ----
-test('S8: handoff.md deleted (json still there) behaves as with no handoff: no damage note, no "could not be read", no fallback', () => {
+test('S8: handoff.md deleted (json still there) behaves as with no handoff: no damage note, no "could not be read", no fallback', { skip: SKIP_MIDNIGHT }, () => {
   const dir = repo();
   twoSaves(dir);
   fs.mkdirSync(path.dirname(logFile(dir)), { recursive: true });
