@@ -27,7 +27,15 @@ function updateState(dir, fn) {
 }
 
 const isEngineTool = name => /^mcp__/.test(String(name || '')) && ENGINE.test(String(name));
-const isOn = dir => paths.isOwn(dir) && !!readState(dir).prefix;
+// On once an engine tool was seen. The plugin's own engine switched off (code-map: off, JSPARK_FORGE_CODE_MAP=off)
+// takes the layer down with it: its launcher would only exit 1 "switched off" on every commit (review S6).
+function isOn(dir) {
+  if (!paths.isOwn(dir)) return false;
+  const prefix = readState(dir).prefix;
+  if (!prefix) return false;
+  if (PLUGIN_PREFIX.test(prefix)) { try { if (bundled.mode('codebase-memory', dir) !== 'run') return false; } catch { /* keep on */ } }
+  return true;
+}
 
 // -> stdout, or null when git failed, timed out or wrote more than maxBuffer (never read as "no output").
 function git(dir, args, { timeout = 3000, maxBuffer = 1024 * 1024 } = {}) {

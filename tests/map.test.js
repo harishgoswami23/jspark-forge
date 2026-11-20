@@ -552,3 +552,20 @@ test('refresh through the launcher: neutral cwd, repo_path as an argument', () =
   assert.deepEqual(o.args.slice(0, 3), ['cli', '--quiet', 'index_repository']);
   assert.equal(fs.realpathSync(JSON.parse(o.args[3]).repo_path), fs.realpathSync(dir));
 });
+
+// v0.5 review S6: with the plugin's engine switched off, the map layer is off too (no launcher start per commit).
+test('code-map off with the plugin prefix recorded: the map layer is off, no refresh starts', () => {
+  const map = require('../scripts/lib/map');
+  const dir = project();
+  map.noteTool(dir, PLUGIN_TOOL);
+  assert.equal(map.isOn(dir), true);
+  fs.writeFileSync(path.join(dir, '.jspark-forge', 'rules.md'), '## Settings\n- code-map: off\n');
+  assert.equal(map.isOn(dir), false);
+  assert.equal(map.startRefresh(dir), false);
+  fs.writeFileSync(path.join(dir, '.jspark-forge', 'rules.md'), '## Settings\n');
+  assert.equal(map.isOn(dir), true, 'back on when the setting is gone');
+  switchOn(dir); // the user's own engine (other prefix) is not affected by the plugin's switch
+  const saved = process.env.JSPARK_FORGE_CODE_MAP;
+  process.env.JSPARK_FORGE_CODE_MAP = 'off';
+  try { assert.equal(map.isOn(dir), true); } finally { if (saved === undefined) delete process.env.JSPARK_FORGE_CODE_MAP; else process.env.JSPARK_FORGE_CODE_MAP = saved; }
+});
