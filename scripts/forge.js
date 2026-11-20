@@ -109,6 +109,7 @@ const TEMP_EXT = /\.(html?|md|pdf)$/i;
 function tempFileNote(dir, t, ti, sess) {
   try {
     if ((t !== 'Edit' && t !== 'Write') || !ti.file_path || !TEMP_EXT.test(String(ti.file_path))) return null;
+    if (!paths.isOwn(dir)) return null; // a guest repo: nothing is written there, so do not tell Claude to save into it
     const abs = path.resolve(toFs(String(ti.file_path)));
     const under = (base, p) => { const r = path.relative(base, p); return r !== '' && !r.startsWith('..') && !path.isAbsolute(r); };
     if (under(dir, abs)) return null; // anything inside the project, its forge folder included
