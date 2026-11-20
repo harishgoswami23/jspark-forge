@@ -112,9 +112,77 @@ function parsePs(raw) {
 // (a commit message is data; Fable verification N1). Nesting deeper than MAX_NEST sets pipelines.overflow and is
 // not followed (N2: the caller denies it); every character is read once, so the cost is linear.
 const MAX_NEST = 8;
+
+// Line continuations. Bash removes a backslash-newline before it splits words: outside quotes and inside "double
+// quotes" ("git push --fo\<newline>rce" is --force), but not inside 'single quotes', a comment or a heredoc body.
+// Git Bash also takes backslash-CRLF; Linux and macOS bash do not. A text without one is returned unchanged.
+const CONT_CRLF = process.platform === 'win32';
+function unfold(s) {
+  if (!(CONT_CRLF ? /\\\r?\n/ : /\\\n/).test(s)) return s;
+  const cont = i => (s[i] !== '\\' ? 0 : s[i + 1] === '\n' ? 2 : CONT_CRLF && s[i + 1] === '\r' && s[i + 2] === '\n' ? 3 : 0);
+  const stack = []; // 'dq' (double quotes), 'bt' (backticks) or { depth } for a $( )
+  const heredocs = [];
+  let out = '';
+  let i = 0;
+  while (i < s.length) {
+    const k = cont(i);
+    if (k) { i += k; continue; }
+    const c = s[i];
+    const top = stack[stack.length - 1];
+    if (c === '\\') { out += s.slice(i, i + 2); i += 2; continue; }
+    if (c === '$' && s[i + 1] === '(') { stack.push({ depth: 1 }); out += '$('; i += 2; continue; }
+    if (c === '`') { if (top === 'bt') stack.pop(); else stack.push('bt'); out += c; i++; continue; }
+    if (top === 'dq') { if (c === '"') stack.pop(); out += c; i++; continue; }
+    if (c === '"') { stack.push('dq'); out += c; i++; continue; }
+    if (c === "'") { const e = s.indexOf("'", i + 1); const end = e < 0 ? s.length : e + 1; out += s.slice(i, end); i = end; continue; }
+    if (c === '#' && (!out || /[\s;&|()<>]/.test(out[out.length - 1]))) {
+      const e = s.indexOf('\n', i); const end = e < 0 ? s.length : e; out += s.slice(i, end); i = end; continue;
+    }
+    if (typeof top === 'object') {
+      if (c === '(') top.depth++;
+      else if (c === ')' && --top.depth === 0) stack.pop();
+    }
+    if (c === '<' && s[i + 1] === '<') {
+      if (s[i + 2] === '<') { out += '<<<'; i += 3; continue; }
+      out += '<<'; i += 2;
+      const strip = s[i] === '-'; if (strip) { out += '-'; i++; }
+      while (s[i] === ' ' || s[i] === '\t') out += s[i++];
+      let delim = '';
+      while (i < s.length) { // the same word rules as lexBash, continuations removed
+        const kk = cont(i);
+        if (kk) { i += kk; continue; }
+        if (/[\s;|&<>()]/.test(s[i])) break;
+        if (s[i] === "'" || s[i] === '"') {
+          const e = s.indexOf(s[i], i + 1); const end = e < 0 ? s.length : e + 1;
+          delim += s.slice(i + 1, e < 0 ? s.length : e); out += s.slice(i, end); i = end; continue;
+        }
+        if (s[i] === '\\') { delim += s[i + 1] || ''; out += s.slice(i, i + 2); i += 2; continue; }
+        delim += s[i]; out += s[i++];
+      }
+      if (delim) heredocs.push({ delim, strip });
+      continue;
+    }
+    out += c; i++;
+    if (c === '\n' && heredocs.length) { // heredoc bodies are data: copied as they are, up to their delimiter line
+      for (const h of heredocs.splice(0)) {
+        while (i < s.length) {
+          const e = s.indexOf('\n', i);
+          const line = s.slice(i, e < 0 ? s.length : e);
+          const cmp = (h.strip ? line.replace(/^\t+/, '') : line).replace(/\r$/, '');
+          if (typeof top === 'object' && cmp === `${h.delim})`) { const p = line.lastIndexOf(')'); out += line.slice(0, p); i += p; break; }
+          const end = e < 0 ? s.length : e + 1;
+          out += s.slice(i, end); i = end;
+          if (cmp === h.delim) break;
+        }
+      }
+    }
+  }
+  return out;
+}
+
 function parse(raw, opts = {}) {
   if (opts.dialect === 'ps') return parsePs(raw);
-  const s = String(raw || '');
+  const s = unfold(String(raw || ''));
   const st = { depth: 0, overflow: false };
   const r = lexBash(s, 0, false, st);
   r.pipelines.overflow = st.overflow;
@@ -275,7 +343,7 @@ function cleanStage(st) {
 }
 
 // Wrappers and shell keywords that run the command after them ("then npm install", "timeout 60 make", "! npm test").
-const PREFIX = new Set(['sudo', 'env', 'command', 'nohup', 'time', 'exec', 'xargs', 'builtin', 'nice', 'doas', 'timeout',
+const PREFIX = new Set(['sudo', 'env', 'command', 'nohup', 'time', 'exec', 'xargs', 'builtin', 'nice', 'doas', 'timeout', 'winpty',
   'if', 'then', 'else', 'elif', 'do', 'while', 'until', '!']);
 const WITH_VALUE = { sudo: new Set(['-u', '-g', '-h', '-p', '-C']), xargs: new Set(['-I', '-n', '-P', '-L', '-d', '-s', '-E']), nice: new Set(['-n']),
   timeout: new Set(['-s', '--signal', '-k', '--kill-after']) };
@@ -307,4 +375,4 @@ function baseName(w) {
   return String(w).split(/[\\/]/).pop().toLowerCase().replace(/\.exe$/, '');
 }
 
-module.exports = { parse, command, baseName };
+module.exports = { parse, command, baseName, unfold };
