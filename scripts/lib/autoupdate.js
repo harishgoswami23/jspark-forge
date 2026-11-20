@@ -51,7 +51,14 @@ function state(home) {
   const s = readSettings(path.join(home, 'settings.json'));
   const e = s && isObj(s.obj) && isObj(s.obj.extraKnownMarketplaces) ? s.obj.extraKnownMarketplaces[NAME] : null;
   const v = isObj(e) && has(e, 'autoUpdate') ? e.autoUpdate : k.autoUpdate;
-  return v === true ? 'on' : 'off';
+  if (v === true) return 'on';
+  return v === false ? 'off' : 'undecided';
 }
 
-module.exports = { ensure, state, MESSAGE };
+// Read-only, for the doctor: has JSPARK Forge already made its one decision on this machine (state.json)?
+function decided(home) {
+  const st = readJson(path.join(home, 'jspark-forge', 'state.json'));
+  return isObj(st) && st.autoUpdateSet === true;
+}
+
+module.exports = { ensure, state, decided, MESSAGE };

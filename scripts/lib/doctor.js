@@ -129,9 +129,12 @@ function checkStatusLine(home, dir) {
 }
 
 function checkAutoUpdate(home) {
-  const st = require('./autoupdate').state(home);
+  const au = require('./autoupdate');
+  const st = au.state(home);
   if (st === 'on') return ['ok', 'Auto-update: on'];
-  if (st === 'off') return ['FIX', 'Auto-update: off, so new JSPARK Forge versions do not arrive. Fix: /plugin → Marketplaces → jspark-forge → turn on auto-update.'];
+  // Off by an explicit false, or JSPARK Forge already switched it on once and it is not on now: the user's choice.
+  if (st === 'off' || (st === 'undecided' && au.decided(home))) return ['ok', 'Auto-update: off by your choice (turn on: /plugin → Marketplaces → jspark-forge)'];
+  if (st === 'undecided') return ['FIX', 'Auto-update: not on yet, so new JSPARK Forge versions do not arrive. Fix: restart Claude Code (JSPARK Forge switches it on at the next start), or /plugin → Marketplaces → jspark-forge.'];
   return ['ok', 'Auto-update: not installed from the jspark-forge marketplace (a local copy updates by hand)'];
 }
 

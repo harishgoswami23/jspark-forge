@@ -137,7 +137,16 @@ test('doctor: auto-update on, off, and not from the marketplace', () => {
   let home = cfg(); market(home, true);
   assert.match(doctorOut(dir, home, noOff), /^ok\s+Auto-update: on$/m);
   home = cfg(); market(home, false);
-  assert.match(doctorOut(dir, home, noOff), /^FIX\s+Auto-update: off, so new JSPARK Forge versions do not arrive\. Fix: \/plugin \u2192 Marketplaces \u2192 jspark-forge \u2192 turn on auto-update\.$/m);
+  assert.match(doctorOut(dir, home, noOff), /^ok\s+Auto-update: off by your choice \(turn on: \/plugin \u2192 Marketplaces \u2192 jspark-forge\)$/m);
+  // settings entry says off while known_marketplaces says on: the settings entry wins (F1)
+  home = cfg(); market(home, true); writeIn(home, 'settings.json', { extraKnownMarketplaces: { 'jspark-forge': { autoUpdate: false } } });
+  assert.match(doctorOut(dir, home, noOff), /^ok\s+Auto-update: off by your choice/m);
+  // undecided and JSPARK Forge has not switched it on yet: a FIX with the way to turn it on
+  home = cfg(); market(home);
+  assert.match(doctorOut(dir, home, noOff), /^FIX\s+Auto-update: .*Fix: restart Claude Code \(JSPARK Forge switches it on at the next start\), or \/plugin \u2192 Marketplaces \u2192 jspark-forge\.$/m);
+  // undecided, but JSPARK Forge already made its one decision and the key is gone again: the user's choice
+  writeIn(home, 'jspark-forge/state.json', { autoUpdateSet: true });
+  assert.match(doctorOut(dir, home, noOff), /^ok\s+Auto-update: off by your choice/m);
   home = cfg();
   assert.match(doctorOut(dir, home, noOff), /^ok\s+Auto-update: not installed from the jspark-forge marketplace \(a local copy updates by hand\)$/m);
 });
