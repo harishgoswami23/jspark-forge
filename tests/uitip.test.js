@@ -75,10 +75,10 @@ test('the second session gets nothing', () => {
 });
 
 test('installed companions are left out', () => {
-  const dir = project({ 'package.json': pkg({ react: '1' }), 'components.json': '{}', '.mcp.json': '{"mcpServers":{"playwright":{}}}' });
+  const dir = project({ 'package.json': pkg({ react: '1' }), 'components.json': '{}', '.mcp.json': '{"mcpServers":{"playwright":{},"chrome-devtools":{}}}' });
   const home = tmp('forge-uitip-home-');
   put(home, '.claude/plugins/installed_plugins.json', '{"frontend-design@claude-plugins-official":[]}');
-  assert.equal(session(dir, home).length, 0, 'all three installed: no line');
+  assert.equal(session(dir, home).length, 0, 'all installed: no line');
 
   const d2 = project({ 'package.json': pkg({ react: '1' }), 'components.json': '{}' });
   const h2 = tmp('forge-uitip-home-');
@@ -91,4 +91,13 @@ test('a guest repo gets nothing and nothing is written in it', () => {
   const dir = project({ 'package.json': pkg({ react: '1' }) }, { own: false });
   assert.equal(session(dir, tmp('forge-uitip-home-')).length, 0);
   assert.ok(!fs.existsSync(path.join(dir, '.jspark-forge')));
+});
+
+test('research 2026-11-20: the tip also names Chrome DevTools MCP (live page checks), left out once installed', () => {
+  const dir = project({ 'package.json': pkg({ vue: '^3.0.0' }) });
+  const [l] = session(dir, tmp('forge-uitip-home-'));
+  assert.ok(l.includes('/plugin install chrome-devtools-mcp@claude-plugins-official'), l);
+  const dir2 = project({ 'package.json': pkg({ vue: '^3.0.0' }), '.mcp.json': '{"mcpServers":{"chrome-devtools":{"command":"npx"}}}' });
+  const [l2] = session(dir2, tmp('forge-uitip-home-'));
+  assert.ok(!l2.includes('chrome-devtools'), l2);
 });

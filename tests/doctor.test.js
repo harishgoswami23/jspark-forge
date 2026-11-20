@@ -95,3 +95,14 @@ test('the doctor, status and upgrade skills run the script; upgrade asks first a
   assert.match(u, /claude plugin update jspark-forge@jspark-forge/);
   assert.match(u, /\/jspark-forge:doctor/);
 });
+
+test('doctor: one slow start on a busy machine is not "too slow" (best of two tries per hook)', () => {
+  const doc = require('../scripts/lib/doctor');
+  let calls = 0;
+  const fake = () => { calls++; return calls === 1 ? { ms: 5000, ok: true } : { ms: 50, ok: true }; };
+  const r = doc.timeHook({ event: 'SessionEnd', timeout: 1000 }, fake);
+  assert.equal(r.slow, false, 'the second, normal try counts');
+  assert.equal(r.ms, 50);
+  const slow = doc.timeHook({ event: 'SessionEnd', timeout: 1000 }, () => ({ ms: 950, ok: true }));
+  assert.equal(slow.slow, true, 'consistently near the limit is flagged');
+});

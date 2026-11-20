@@ -173,6 +173,16 @@ function save(dir, sid, reason, { refreshGit = true, now = new Date(), force = f
     if (lp) plan = Object.assign({}, plan, lp);
   }
   const f = taskFields({ todos: task.todos, plan, notes, lastRequest: sess.lastPrompt });
+  // A running build graph ranks first (design-v0.4 3, review M5): helpers' todos must not hide it.
+  try {
+    const gr = require('./graph-run').current(dir);
+    if (gr) {
+      const m = gr.step.match(/^(\d+) of (\d+) done(?:; (.*))?$/);
+      f.task = gr.task;
+      f.step = m ? { n: Math.min(Number(m[1]) + 1, Number(m[2])), m: Number(m[2]), text: m[3] || 'next step' } : { n: 1, m: 1, text: gr.step };
+      f.next = `continue the build graph: forge.js graph next ${gr.task.replace('Build graph ', '')}`;
+    }
+  } catch { /* fail open */ }
   let done = f.done;
   if (task.lastCommit) {
     const c = `last commit ${task.lastCommit.sha} "${cut(task.lastCommit.subject, 60)}"`;

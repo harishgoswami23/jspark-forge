@@ -78,7 +78,10 @@ function lintBrief(text, file) {
   return errs;
 }
 
-const lintFile = f => (path.basename(f) === 'SKILL.md' ? lintSkill : lintBrief)(fs.readFileSync(f, 'utf8'), f);
+// A build graph (design-v0.4 2): the graph's own validation, with its line numbers.
+const lintGraph = (text, f) => { const G = require('./graph'); return G.validate(G.parse(text)).map(e => ({ file: f, line: e.line, message: e.message })); };
+const isGraph = f => /[\\/]graphs[\\/][^\\/]+\.md$/i.test(f) && /^\S*#\s+Graph:/m.test(fs.readFileSync(f, 'utf8').slice(0, 2000));
+const lintFile = f => (path.basename(f) === 'SKILL.md' ? lintSkill : isGraph(f) ? lintGraph : lintBrief)(fs.readFileSync(f, 'utf8'), f);
 
 function defaultPaths(dir) {
   const out = [];
@@ -92,6 +95,10 @@ function defaultPaths(dir) {
   const briefs = path.join(require('./paths').forgeDir(dir), 'briefs');
   if (fs.existsSync(briefs)) {
     for (const n of fs.readdirSync(briefs).sort()) if (n.endsWith('.md')) out.push(path.join(briefs, n));
+  }
+  const graphs = path.join(require('./paths').repoForgeDir(dir), 'graphs');
+  if (fs.existsSync(graphs)) {
+    for (const n of fs.readdirSync(graphs).sort()) if (n.endsWith('.md')) out.push(path.join(graphs, n));
   }
   return out;
 }

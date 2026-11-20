@@ -270,6 +270,9 @@ function lexBash(s, start, nested, st) {
       }
       i++; continue;
     }
+    // Line continuation. Backslash-CR-LF continues only in Git Bash on Windows; Linux / macOS bash reads "\<CR>" as an
+    // escaped character and the newline ends the command (third review L1).
+    if (c === '\\' && (n === '\n' || (n === '\r' && s[i + 2] === '\n' && process.platform === 'win32'))) { i += n === '\n' ? 2 : 3; continue; }
     if (c === '\\') { buf += n === undefined ? '' : n; started = true; i += 2; continue; }
     if (c === '$' && n === '(') { i = sub(i + 1, i); continue; }
     if (c === '`') { i = tick(i); continue; }

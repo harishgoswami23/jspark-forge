@@ -1,0 +1,185 @@
+'use strict';
+// v0.4 build graph, the file (design-v0.4 section 2): parse steps and fields, validate before any run (unknown kind,
+// unknown helper, a need nobody gives, a field given twice, a cycle, a parallel naming a missing step, a gate without
+// run:, a human without say:), with file line numbers; compute the order.
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { parse, validate, order } = require('../scripts/lib/graph');
+
+const GOOD = `# Graph: ship-feature
+- max_parallel: 2
+
+## spec (agent)
+- helper: planner
+- brief: .jspark-forge/briefs/spec.md
+- gives: spec_path
+
+## plan (agent)
+- helper: planner
+- needs: spec_path
+- gives: plan_path
+
+## build-api (agent)
+- helper: builder
+- needs: plan_path
+- gives: commit, test_totals
+- estimate: 40k tokens, 15 min
+
+## build-ui (agent)
+- helper: builder
+- needs: plan_path
+- gives: ui_commit
+
+## build (parallel)
+- steps: build-api, build-ui
+
+## checks (gate)
+- after: build
+- run: npm test
+- run: npm run lint
+
+## merge (human)
+- after: checks
+- say: Review the branch and merge it into main.
+`;
+
+test('parse: name, settings, steps with kind and fields', () => {
+  const g = parse(GOOD);
+  assert.equal(g.name, 'ship-feature');
+  assert.equal(g.maxParallel, 2);
+  assert.deepEqual(g.steps.map(s => `${s.id}:${s.kind}`), ['spec:agent', 'plan:agent', 'build-api:agent', 'build-ui:agent', 'build:parallel', 'checks:gate', 'merge:human']);
+  const api = g.steps.find(s => s.id === 'build-api');
+  assert.equal(api.helper, 'builder');
+  assert.deepEqual(api.needs, ['plan_path']);
+  assert.deepEqual(api.gives, ['commit', 'test_totals']);
+  assert.equal(api.estimate, '40k tokens, 15 min');
+  assert.deepEqual(g.steps.find(s => s.id === 'checks').run, ['npm test', 'npm run lint']);
+  assert.equal(g.steps.find(s => s.id === 'merge').say, 'Review the branch and merge it into main.');
+});
+
+test('a valid graph has no errors, and its order respects after: and needs:', () => {
+  const g = parse(GOOD);
+  assert.deepEqual(validate(g), []);
+  const o = order(g);
+  const at = id => o.indexOf(id);
+  assert.ok(at('spec') < at('plan') && at('plan') < at('build-api') && at('build-api') < at('checks') && at('checks') < at('merge'));
+  assert.ok(at('build-ui') < at('checks'), 'a step inside a parallel runs before what comes after the parallel');
+});
+
+const errs = text => validate(parse(text)).map(e => `${e.line}:${e.message}`);
+test('every error kind is reported with its line', () => {
+  assert.match(errs('# Graph: x\n\n## a (robot)\n- helper: builder\n').join('|'), /^3:.*unknown kind "robot"/);
+  assert.match(errs('# Graph: x\n\n## a (agent)\n- helper: wizard\n').join('|'), /4:.*unknown helper "wizard"/);
+  assert.match(errs('# Graph: x\n\n## a (agent)\n- helper: builder\n- needs: plan_path\n').join('|'), /needs "plan_path", which no earlier step gives/);
+  assert.match(errs('# Graph: x\n\n## a (agent)\n- helper: builder\n- gives: x\n\n## b (agent)\n- helper: builder\n- gives: x\n').join('|'), /"x" is given twice/);
+  assert.match(errs('# Graph: x\n\n## a (agent)\n- helper: builder\n- after: b\n\n## b (agent)\n- helper: builder\n- after: a\n').join('|'), /cycle/);
+  assert.match(errs('# Graph: x\n\n## p (parallel)\n- steps: ghost\n').join('|'), /names a missing step "ghost"/);
+  assert.match(errs('# Graph: x\n\n## g (gate)\n- after: \n').join('|'), /gate needs at least one "run:"/);
+  assert.match(errs('# Graph: x\n\n## h (human)\n').join('|'), /human step needs "say:"/);
+  assert.match(errs('# Graph: x\n\n## a (agent)\n- helper: builder\n\n## a (agent)\n- helper: builder\n').join('|'), /step "a" is defined twice/);
+  assert.match(errs('# Graph: x\n\n## a (agent)\n- helper: builder\n- after: nowhere\n').join('|'), /after a missing step "nowhere"/);
+  assert.match(errs('# Graph: x\n\n## Bad Id! (agent)\n- helper: builder\n').join('|'), /step id/);
+  assert.match(errs('# Graph: x\n\n## a (agent)\n- helper: builder\n- gives: Not-A-Name\n').join('|'), /field name/);
+  assert.match(errs('no title\n').join('|'), /# Graph: <name>/);
+});
+
+test('a graph with no steps is not valid (re-review, low)', () => {
+  assert.ok(errs('# Graph: empty\n').some(e => /at least one step/.test(e)));
+  assert.ok(errs('# Graph: empty\n- max_parallel: 2\n').some(e => /at least one step/.test(e)));
+});
+
+test('a need given only by a later step is an error (order, not just presence)', () => {
+  const e = errs('# Graph: x\n\n## a (agent)\n- helper: builder\n- needs: y\n\n## b (agent)\n- helper: builder\n- after: a\n- gives: y\n');
+  assert.ok(e.some(x => /needs "y"/.test(x)) || e.some(x => /cycle/.test(x)), e.join('|'));
+});
+
+test('cut from v0.4 (design section 6): plugin:agent helpers, model: and min_free_memory_mb are reported as not supported', () => {
+  assert.match(errs('# Graph: x\n\n## a (agent)\n- helper: myplugin:researcher\n').join('|'), /4:.*"myplugin:researcher" is not supported in v0\.4/);
+  assert.match(errs('# Graph: x\n\n## a (agent)\n- helper: checker\n- model: haiku\n').join('|'), /5:.*"model:" is not supported in v0\.4/);
+  assert.match(errs('# Graph: x\n- min_free_memory_mb: 1500\n\n## a (agent)\n- helper: checker\n').join('|'), /2:.*"min_free_memory_mb" is not supported in v0\.4/);
+});
+
+test('names: step ids start with a letter (at most 40 characters); the title names the file', () => {
+  assert.match(errs('# Graph: x\n\n## 9a (agent)\n- helper: builder\n').join('|'), /3:.*step id "9a"/);
+  assert.match(errs(`# Graph: x\n\n## a${'b'.repeat(40)} (agent)\n- helper: builder\n`).join('|'), /step id/);
+  assert.deepEqual(errs(`# Graph: x\n\n## a${'b'.repeat(39)} (agent)\n- helper: builder\n`), []);
+  const v = (t, n) => validate(parse(t), n).map(e => `${e.line}:${e.message}`).join('|');
+  assert.match(v('# Graph: totally other\n\n## a (agent)\n- helper: builder\n', 'g'), /1:.*"# Graph: g"/);
+  assert.equal(v('# Graph: g\n\n## a (agent)\n- helper: builder\n', 'g'), '');
+  assert.match(errs(`# Graph: x\n\n## a (agent)\n- helper: builder\n- gives: ${'f'.repeat(42)}\n`).join('|'), /field name/);
+});
+
+test('gate commands are printed exactly as written, so a line that cleaning would change is refused (review M2)', () => {
+  const run = r => errs(`# Graph: x\n\n## c (gate)\n- run: ${r}\n`).join('|');
+  assert.equal(run('npm test -- --grep "a b"'), '');
+  assert.equal(run(`npm test ${'x'.repeat(191)}`), '', '200 characters');
+  assert.match(run(`npm test ${'x'.repeat(192)}`), /at most 200 characters/);
+  assert.match(run('npm  test'), /one simple command/);
+  assert.match(run('npm\ttest'), /one simple command/);
+  assert.match(run(`npm test${String.fromCharCode(0x200b)}`), /one simple command/);
+});
+
+test('settings are bounded: max_parallel 1-8, memory a number', () => {
+  assert.match(errs('# Graph: x\n- max_parallel: 50\n\n## a (agent)\n- helper: builder\n').join('|'), /max_parallel/);
+  assert.equal(parse('# Graph: x\n\n## a (agent)\n- helper: builder\n').maxParallel, 1, 'default one at a time');
+});
+
+test('CRLF and a byte-order mark are read like plain text', () => {
+  const t = String.fromCharCode(0xfeff) + GOOD.replace(/\n/g, '\r\n');
+  assert.deepEqual(validate(parse(t)), []);
+  assert.equal(parse(t).steps.length, 7);
+});
+
+test('the three shipped templates are valid graphs (spec 5.10)', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  for (const n of ['software', 'documents', 'spike']) {
+    const g = parse(fs.readFileSync(path.join(__dirname, '..', 'templates', 'graphs', `${n}.md`), 'utf8'));
+    assert.deepEqual(validate(g), [], n);
+    assert.equal(order(g).length, g.steps.length, `${n}: every step can run`);
+  }
+});
+
+test('forge.js lint also checks build graphs in .jspark-forge/graphs/', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const lint = require('../scripts/lib/lint');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-lintg-'));
+  fs.mkdirSync(path.join(dir, '.jspark-forge', 'graphs'), { recursive: true });
+  fs.mkdirSync(path.join(dir, '.jspark-forge', 'state'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.jspark-forge', 'graphs', 'bad.md'), '# Graph: bad\n## a (robot)\n');
+  fs.writeFileSync(path.join(dir, '.jspark-forge', 'graphs', 'good.md'), '# Graph: good\n## a (agent)\n- helper: builder\n');
+  const out = lint.run(dir, []);
+  process.exitCode = 0;
+  assert.match(out, /bad\.md:2: unknown kind "robot"/);
+  assert.match(out, /ok .*good\.md/);
+});
+
+test('the ui template: design direction, the user approves the look, build, a screenshot check, review, final approval', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const g = parse(fs.readFileSync(path.join(__dirname, '..', 'templates', 'graphs', 'ui.md'), 'utf8'));
+  assert.deepEqual(validate(g), []);
+  const kinds = order(g).map(id => g.steps.find(s => s.id === id).kind);
+  const at = k => kinds.indexOf(k);
+  assert.ok(at('human') > -1 && at('human') < kinds.indexOf('gate'), 'the user approves the look before the build is checked');
+  const gate = g.steps.find(s => s.kind === 'gate');
+  assert.ok(gate.run.some(r => /playwright/.test(r)), 'the visual check is a Playwright run');
+  const runs = g.steps.filter(s => s.kind === 'gate').flatMap(s => s.run);
+  assert.ok(runs.some(r => r.includes('playwright test tests/a11y')), 'an accessibility gate (axe through Playwright)');
+  assert.ok(runs.some(r => r.includes('@lhci/cli autorun')), 'a Lighthouse CI gate');
+  const tpl = require('node:path').join(__dirname, '..', 'templates', 'ui');
+  for (const t of ['a11y.spec.ts', 'visual.spec.ts', 'lighthouserc.json']) assert.ok(fs.existsSync(require('node:path').join(tpl, t)), t);
+  assert.ok(g.steps.some(s => s.kind === 'agent' && s.helper === 'reviewer'), 'a design review');
+  assert.equal(g.steps.filter(s => s.kind === 'human').length, 2, 'approve the look, then the final approval');
+});
+
+test('the brand skill template passes the skill lint and names colours, type, spacing, components and voice', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const t = fs.readFileSync(path.join(__dirname, '..', 'templates', 'brand-skill.md'), 'utf8');
+  const { lintSkill } = require('../scripts/lib/lint');
+  assert.deepEqual(lintSkill(t, 'brand-skill.md'), []);
+  for (const w of ['Colours', 'Typography', 'Spacing', 'Components', 'Voice', 'Tokens', 'Accessibility', 'States', 'Avoid', 'Pre-ship check']) assert.match(t, new RegExp(w), w);
+});

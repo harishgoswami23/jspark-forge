@@ -1,7 +1,7 @@
 {
   "name": "jspark-forge",
   "displayName": "JSPARK Forge",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Resume after a crash, logout or limit. Rules enforced by hooks.",
   "author": {
     "name": "JSPARK AI"

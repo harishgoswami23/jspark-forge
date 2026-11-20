@@ -16,6 +16,8 @@ const FRONTEND_FILE = /\.(html|tsx|jsx|vue|svelte)$/i;
 const FD_INSTALL = '/plugin install frontend-design@claude-plugins-official';
 const PW_INSTALL = 'claude mcp add playwright npx @playwright/mcp@0.0.86';
 const SHADCN_INSTALL = 'npx shadcn@4.23.0 mcp init --client claude';
+// Research 2026-11-20 (docs/ui-research.md): console errors, performance and layout shift on the live page.
+const DEVTOOLS_INSTALL = '/plugin install chrome-devtools-mcp@claude-plugins-official';
 
 const readText = f => { try { return fs.readFileSync(f, 'utf8'); } catch { return ''; } };
 const readJson = f => { try { return JSON.parse(readText(f)); } catch { return null; } };
@@ -55,6 +57,7 @@ function notice(dir) {
     if (!pluginsMention(setup.claudeHome(), 'frontend-design')) missing.push(['frontend-design', FD_INSTALL]);
     if (!/playwright/i.test(mcp) && !/playwright/i.test(userMcp)) missing.push(['Playwright MCP', PW_INSTALL]);
     if (isReact && !fs.existsSync(path.join(dir, 'components.json')) && !/shadcn/i.test(mcp)) missing.push(['shadcn MCP', SHADCN_INSTALL]);
+    if (!/chrome-devtools/i.test(mcp) && !/chrome-devtools/i.test(userMcp) && !pluginsMention(setup.claudeHome(), 'chrome-devtools-mcp')) missing.push(['Chrome DevTools MCP', DEVTOOLS_INSTALL]);
 
     // Remembered even when everything is installed: nothing to say, nothing to ask again.
     try { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, `${JSON.stringify(Object.assign(st, { uiCompanions: true }), null, 1)}\n`); } catch { /* fail open */ }
@@ -65,4 +68,4 @@ function notice(dir) {
   } catch { return null; }
 }
 
-module.exports = { notice, FD_INSTALL, PW_INSTALL, SHADCN_INSTALL };
+module.exports = { notice, FD_INSTALL, PW_INSTALL, SHADCN_INSTALL, DEVTOOLS_INSTALL };

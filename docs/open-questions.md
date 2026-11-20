@@ -8,7 +8,7 @@ Claude Code already has a built-in `/resume` (it reopens a past conversation). P
 ours is `/jspark-forge:resume`. The pitch "type `/resume`" would open the built-in picker instead.
 **Decided (owner, 2026-11-03 review):** the pitch becomes *"Open Claude Code and pick up where you left off in 30
 seconds."* (README line one: *"Claude Code forgets. JSPARK Forge doesn't. Open Claude Code and pick up where you left
-off in 30 seconds."*). "Type `/resume`" is gone from the pitch and README; Forge shows "here's where we were" by
+off in 30 seconds."*). "Type `/resume`" is gone from the pitch and README; JSPARK Forge shows "here's where we were" by
 itself when Claude Code opens. `/jspark-forge:resume` stays as the on-demand command.
 
 ### Q2. [Decided] Run the plan-limit spikes on which account?
@@ -27,9 +27,9 @@ Committed: a co-founder or a second machine sees it. Not committed: no private p
 **Recommendation:** not committed by default (`.jspark-forge/.gitignore`); one setting in `.jspark-forge/rules.md` to
 commit it. `.jspark-forge/rules.md` itself is committed.
 
-### Q5. [Decided] Let Forge ask Claude to update its short notes (one extra short turn, about 3 times an hour)?
+### Q5. [Decided] Let JSPARK Forge ask Claude to update its short notes (one extra short turn, about 3 times an hour)?
 Without it the handoff has facts only (task list, files, commits); with it, it also has "what we agreed and why".
-**Decided (owner, 2026-11-03 review):** no Stop block and no extra turn in v0.1. Instead Forge adds the
+**Decided (owner, 2026-11-03 review):** no Stop block and no extra turn in v0.1. Instead JSPARK Forge adds the
 `additionalContext` line "update your notes now" before a `git commit` (PreToolUse), at compaction, and at the 80 %
 usage band (design 5.3). On by default, switchable off in `.jspark-forge/rules.md`.
 
@@ -43,7 +43,7 @@ steps.
 list is typed-confirm. Users add their own "Never" lines in `.jspark-forge/rules.md`.
 
 ### Q8. [Decided] Make "show and wait" hook-enforced?
-After a cutoff, Forge can refuse file changes and commands until the user has replied once (read-only look-ups still
+After a cutoff, JSPARK Forge can refuse file changes and commands until the user has replied once (read-only look-ups still
 allowed).
 **Decided (owner, 2026-11-03 review):** not in v0.1. The guard would fire on SessionStart `startup` in `claude -p`
 (CI, scripts) too and stall those runs, and Claude Code documents no hook input field that tells headless from
@@ -54,7 +54,7 @@ passes, v0.1.1 adds the guard and skips it in non-interactive runs.
 It is needed only for usage-limit saves; it changes a user setting.
 **Recommendation:** `/jspark-forge:init` asks, default yes, shows exactly what changes and how to undo.
 
-### Q10. Codebase-map refresh (v0.3): git hook or Forge's own hooks?
+### Q10. Codebase-map refresh (v0.3): git hook or JSPARK Forge's own hooks?
 A real git post-commit hook also catches commits made outside Claude but writes into the user's `.git/hooks` (and
 clashes with tools like husky).
 **Recommendation:** refresh after commits Claude makes, plus a catch-up at session start when `HEAD` moved; offer the

@@ -3,7 +3,7 @@
 // JSPARK Forge hook dispatcher: `node forge.js <HookEvent>` with the hook JSON on stdin (design section 3),
 // or `node forge.js save [--done]` from the /jspark-forge:handoff skill.
 // Hook rules: never raise; on any internal error print nothing, exit 0 (fail open) and log one FORGE-ERROR line.
-// Writes nothing in a project without .jspark-forge/ (created by /jspark-forge:init).
+// Writes nothing in a project without .jspark-forge/ (created automatically in a git project).
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -12,6 +12,7 @@ const { redact } = require('./lib/redact');
 const { check, BUILTINS, STOP, isGitCommit, writeTargets, changeTargets, toFs } = require('./lib/blocklist');
 const memory = require('./lib/memory');
 const mapLayer = require('./lib/map');
+const graphRun = require('./lib/graph-run');
 const dialectOf = tool => (tool === 'PowerShell' ? 'ps' : 'bash');
 const { loadRules } = require('./lib/rules');
 const confirm = require('./lib/confirm');
@@ -87,7 +88,7 @@ const preTool = (decision, reason) => ({ hookSpecificOutput: { hookEventName: 'P
 const context = (ev, text) => ({ hookSpecificOutput: { hookEventName: ev, additionalContext: text } });
 const notesOn = dir => loadRules(dir).settings.notes !== 'off';
 
-const WAIT_CTX = 'JSPARK Forge: these questions to the user are still open (spec 5.2a). Ask them again in one short list, ' +
+const WAIT_CTX = 'JSPARK Forge: these questions to the user are still open. Ask them again in one short list, ' +
   "or carry on with work they do not block and say what is parked. Never act on a recommendation without the user's answer.";
 function waitingNotice(dir) { // -> { msg, ctx } for session start, or null
   const items = waiting.read(dir);
@@ -170,6 +171,10 @@ const handlers = {
     } catch { /* never break a session start */ }
     // Code map (design-v0.3 1.1, 1.2): one line for Claude when the engine is in use (a refresh starts when HEAD moved);
     // otherwise, once per own project with code, a tip naming the engine (owner Q-M1: name it, install nothing).
+    try { // a running build graph (design-v0.4 3); its own try, so a broken record never drops the code-map line
+      const gr = graphRun.current(dir);
+      if (gr) rc.context = `${rc.context}\n\nJSPARK Forge: ${gr.text} Show it to the user and wait before continuing it (node "${path.join(__dirname, 'forge.js').replace(/\\/g, '/')}" graph next ${gr.task.replace('Build graph ', '')}).`;
+    } catch { /* never break a session start */ }
     try {
       const ml = mapLayer.sessionLine(dir);
       if (ml) rc.context = `${rc.context}\n\n${ml}`;
@@ -206,7 +211,12 @@ const handlers = {
   UserPromptSubmit(dir, input) {
     const prompt = String(input.prompt || '');
     const lines = [['USER', prompt]];
-    if (!/^\s*\//.test(prompt) && !/^\s*confirm\s+[\w-]+\s*$/i.test(prompt)) {
+    // Build graph (design-v0.4 3): the user's own TRUST GRAPH <name> or DONE <step> (whole message, attended only).
+    // Only one that acts is a control message; otherwise ("done" with no graph running) it is an ordinary prompt.
+    let graphMsg = null;
+    try { graphMsg = graphRun.onPrompt(dir, prompt, input.session_id); } catch { /* fail open */ }
+    const control = /^\s*confirm\s+[\w-]+\s*$/i.test(prompt) || graphMsg !== null;
+    if (!/^\s*\//.test(prompt) && !control) {
       const sess = state.readSession(dir, input.session_id);
       sess.lastPrompt = redact(prompt, log.envSecrets(dir)).replace(/\s+/g, ' ').trim().slice(0, 200);
       state.writeSession(dir, input.session_id, sess);
@@ -233,7 +243,9 @@ const handlers = {
     state.writeSession(dir, input.session_id, sess);
     if (offer) parts.push(offer);
     if (scopeNudge) parts.push(scopeNudge);
+    if (graphMsg) parts.push(graphMsg);
     const out = parts.length ? context('UserPromptSubmit', parts.join('\n')) : null;
+    if (graphMsg) { lines.push(['GRAPH', graphMsg.slice(0, 120)]); out.systemMessage = graphMsg; }
     return { lines, out };
   },
 
@@ -253,6 +265,14 @@ const handlers = {
         lines.push(['CONFIRM', `${id} used :: ${String((input.tool_input || {}).command || '')}`]);
       }
     }
+    // An ask hit (forge-state's text matches, re-review 2026-11-20) needs no CONFIRM: Claude Code's own permission
+    // prompt decides. It is said alongside any other hit's reason.
+    const asks = hits.filter(h => h.ask);
+    hits = hits.filter(h => !h.ask);
+    const askNote = asks.length ? ` Also: ${asks[0].reason}` : '';
+    if (!hits.length && asks.length) {
+      return { lines: lines.concat([['ASK', `${asks[0].id} :: ${String(asks[0].matched || '')}`]]), out: preTool('ask', asks[0].reason) };
+    }
     const r = hits[0]; // hard hits first
     if (r) {
       const what = String(r.matched || '');
@@ -262,7 +282,7 @@ const handlers = {
       const plains = ids.map(id => hits.find(h => h.id === id).plain);
       if (!r.hard && ids.every(id => confirm.has(dir, input.session_id, id))) {
         for (const id of ids) confirm.consume(dir, input.session_id, id);
-        const out = preTool('ask', `JSPARK Forge: you typed ${ids.map(id => `CONFIRM ${id}`).join(' and ')}, so this is allowed once: ${plains.join('; and ')}.`);
+        const out = preTool('ask', `JSPARK Forge: you typed ${ids.map(id => `CONFIRM ${id}`).join(' and ')}, so this is allowed once: ${plains.join('; and ')}.${askNote}`);
         const n = decisionNotes(dir, input); // allowed: the decisions about its files come with it (design-v0.2 1.3)
         if (n) out.hookSpecificOutput.additionalContext = n.text;
         return { lines: lines.concat(ids.map(id => ['CONFIRM', `${id} used :: ${what}`]), n ? [['DECISION', n.ids.join(',')]] : []), out };
@@ -293,6 +313,11 @@ const handlers = {
     const sid = input.session_id;
     const t = input.tool_name || '';
     const ti = input.tool_input || {};
+    // Build graph evidence (design-v0.4 3): a gate command's exit status; a helper's tokens and time.
+    try {
+      if (t === 'Bash' || t === 'PowerShell') graphRun.onCommand(dir, input, true);
+      else if (t === 'Agent') graphRun.onAgentResult(dir, input);
+    } catch { /* fail open */ }
     if (mapLayer.isEngineTool(t)) { // a code map answer: its freshness and the notes on its files (design-v0.3 1.2, 1.4)
       const c = mapLayer.onTool(dir, input);
       const sess = state.readSession(dir, sid);
@@ -355,6 +380,7 @@ const handlers = {
 
   PostToolUseFailure(dir, input) {
     const ti = input.tool_input || {};
+    if (input.tool_name === 'Bash' || input.tool_name === 'PowerShell') { try { graphRun.onCommand(dir, input, false); } catch { /* fail open */ } } // a gate command failed (design-v0.4 3)
     const what = ti.command || ti.file_path || ti.notebook_path || '';
     return ['FAIL', [input.tool_name || '?', what, input.error || ''].filter(Boolean).join(' :: ')];
   },
@@ -397,6 +423,7 @@ const handlers = {
   },
 
   SubagentStart(dir, input) {
+    try { graphRun.onSubagentStart(dir, input); } catch { /* fail open */ } // evidence that a helper ran (design-v0.4 1)
     if (input.agent_id) {
       const sess = state.readSession(dir, input.session_id);
       sess.helpers[input.agent_id] = { type: input.agent_type || 'agent', at: Date.now() };
@@ -606,6 +633,27 @@ function cliMap(args) {
 // `forge.js lint [paths...]` (design-v0.2 section 3): check skills and briefs; default is the project's own.
 const cliLint = args => process.stdout.write(require('./lib/lint').run(cliProject() || process.cwd(), args));
 
+// `forge.js graph check|start|next|takeover|done|fail|rerun|stop|status <name> …` (design-v0.4 3). The session is the
+// one Claude Code gives the command (spike K).
+function cliGraph(args) {
+  const dir = cliProject();
+  if (!dir) { process.stdout.write(NOT_SET_UP); return; }
+  const [sub, name, a3, ...rest] = args || [];
+  const sid = process.env.CLAUDE_CODE_SESSION_ID || 'manual';
+  const fromAt = args.indexOf('--from');
+  const out = {
+    check: () => graphRun.check(dir, name), start: () => graphRun.start(dir, name, sid), next: () => graphRun.next(dir, name, sid),
+    takeover: () => graphRun.takeover(dir, name, sid),
+    done: () => graphRun.done(dir, name, a3, fromAt >= 0 ? args[fromAt + 1] : '', sid), fail: () => graphRun.fail(dir, name, a3, rest.join(' '), sid),
+    rerun: () => graphRun.rerun(dir, name, a3, sid), stop: () => graphRun.stop(dir, name, sid), status: () => graphRun.status(dir, name),
+  }[sub];
+  if (!out) { process.stdout.write('Usage: forge.js graph check|start|next|takeover|done|fail|rerun|stop|status <name> …\n'); return; }
+  try { process.stdout.write(out()); } catch (e) {
+    if (!e || !e.busy) throw e;
+    process.stdout.write(`Build graph ${String(name).replace(/[^a-z0-9-]/g, '')} is busy (another JSPARK Forge update holds it); nothing changed. Try again in a moment.\n`);
+  }
+}
+
 // `forge.js schema [table]` (design-v0.3 1.3): the database layout from migration files; read-only, never a live database.
 function cliSchema(args) {
   const dir = cliProject();
@@ -621,7 +669,7 @@ function cliLaunch(args) {
 }
 
 const CLI = { schema: cliSchema, lint: cliLint, save: cliSave, show: cliShow, where: cliWhere, waiting: cliWaiting, doctor: cliDoctor, status: cliStatus, decide: cliDecide,
-  decisions: cliMemory('list'), check: cliMemory('check'), map: cliMap, launch: cliLaunch };
+  decisions: cliMemory('list'), check: cliMemory('check'), map: cliMap, launch: cliLaunch, graph: cliGraph };
 if (CLI[event]) {
   try { CLI[event](process.argv.slice(3)); } catch (e) { process.stdout.write(`JSPARK Forge could not ${event}: ${e.message}\n`); }
 } else {

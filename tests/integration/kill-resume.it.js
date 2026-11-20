@@ -16,14 +16,14 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync, execFileSync } = require('node:child_process');
-const { PLUGIN, gitInit, initForge, claudeBackground, killTree, logText, gitStatus, head } = require('./lib');
+const { PLUGIN, tmp, gitInit, initForge, claudeBackground, killTree, logText, gitStatus, head } = require('./lib');
 
 const TAG = 'v4.28.1';
 const SHA = '94068edf593534d9c1b6b4edf71ecd55ff4b3124';
 const sleep = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
 function fixture() {
-  const dir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-it-kill-')), 'fastify');
+  const dir = path.join(tmp('forge-it-kill-'), 'fastify');
   const src = process.env.FORGE_FIXTURE_DIR || `https://github.com/fastify/fastify.git`;
   execFileSync('git', ['-c', 'advice.detachedHead=false', 'clone', '-q', '--depth', '1', '--branch', TAG,
     src.startsWith('http') ? src : `file://${path.resolve(src).replace(/\\/g, '/')}`, dir], { stdio: 'ignore' });

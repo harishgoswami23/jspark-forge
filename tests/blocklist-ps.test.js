@@ -14,6 +14,82 @@ const ps = (command, o = {}) => ({ tool_name: 'PowerShell', tool_input: { comman
 const bash = command => ({ tool_name: 'Bash', tool_input: { command }, cwd: PROJECT, _o: {} });
 
 const CASES = {
+  'forge-state': [
+    [ps("Set-Content .jspark-forge/state/graph-ship.json '{}'"), 'forge-state!'],
+    [ps("'{}' | Out-File .jspark-forge/state/graph-ship.json"), 'forge-state!'],
+    [ps('Remove-Item .jspark-forge/state/graph-active.json'), 'forge-state!'],
+    [ps("Set-Content .jspark-forge\\state\\graph-trust.json '{}'"), 'forge-state!'],
+    [ps('echo x > .jspark-forge/state/graph-ship.json'), 'forge-state!'],
+    [ps('Get-Content .jspark-forge/state/graph-ship.json'), null],
+    [ps("Set-Content .jspark-forge/state/report-a.json '{}'"), null],
+    [ps("Set-Content .jspark-forge/state/decide.json '{}'"), null],
+    [ps('Get-ChildItem .jspark-forge/state'), null],
+    [ps("Set-Content notes/graph-ship.json 'x'"), null],
+    // v0.4 review H3 and H1, PowerShell and cmd forms.
+    // re-review 2026-11-20: what only the text shows is an ask ('?')
+    [ps('[IO.File]::WriteAllText(".jspark-forge/state/graph-trust.json","{}")'), 'forge-state?'],
+    [ps('[System.IO.File]::WriteAllText((Join-Path .jspark-forge "state\\gr" + "aph-trust.json"),"{}")'), 'forge-state?'],
+    [ps('cmd /c "echo {} > .jspark-forge\\state\\graph-trust.json"'), 'forge-state!'],
+    [ps('Rename-Item .jspark-forge/state s2'), 'forge-state!'],
+    [ps('Rename-Item -Path .jspark-forge -NewName old'), 'forge-state!'],
+    [ps('cd .jspark-forge/state; Set-Content graph-trust.json x'), 'forge-state!'],
+    [ps('Set-Location .jspark-forge\\state; Set-Content graph-trust.json x'), 'forge-state!'],
+    [ps('$f=".jspark-forge/state/graph-trust.json"; Set-Content $f x'), 'forge-state?'],
+    [ps('Copy-Item graph-trust.json .jspark-forge/state'), 'forge-state!'],
+    [ps('Copy-Item x.json -Destination .jspark-forge/state/graph-trust.json'), 'forge-state!'],
+    [ps('Set-Content graph-trust.json x', { cwd: path.join(PROJECT, '.jspark-forge', 'state') }), 'forge-state!'],
+    [ps('Get-Content p.json | node C:/plugins/jspark-forge/scripts/forge.js UserPromptSubmit'), 'forge-state!'],
+    [ps('& node $forge SubagentStart'), 'forge-state!'],
+    [ps("node -e \"require('C:/plugins/jspark-forge/scripts/lib/graph-run.js').onCommand('.', {}, true)\""), 'forge-state?'],
+    [ps("$e='UserPromptSubmit'; '{}' | node C:\\p\\scripts\\forge.js $e"), 'forge-state!'],
+    [ps("Get-Content .jspark-forge\\state\\graph-demo.json -Raw | ConvertFrom-Json"), null],
+    [ps('Get-ChildItem .jspark-forge\\state\\graph-* | Select-Object Name'), null],
+    [ps("Select-String -Path scripts\\*.js -Pattern 'state/graph-'"), null],
+    [ps('node "C:\\p\\scripts\\forge.js" graph done demo build --from .jspark-forge\\state\\report-build.json'), null],
+    [ps('npx eslint src\\state\\graph-store.ts'), null],
+    [ps('Get-Content .jspark-forge\\state\\graph-g.json | Select-String running'), null],
+    [ps('Get-ChildItem .jspark-forge\\state\\graph-*'), null],
+    [ps('node C:/plugins/jspark-forge/scripts/forge.js graph status g'), null],
+    [ps('Set-Content .jspark-forge/state/report-b.json "{}"'), null],
+  ],
+  // Third security review 2026-11-20 (fix3). M1: a target given as an expression or through the pipeline is unknown.
+  'forge-state third review (fix3)': [
+    [ps("Set-Content (Join-Path $PWD '.jspark-forge\\state\\graph-trust.json') '{}'"), 'forge-state?'],
+    [ps("Set-Content (Resolve-Path .jspark-forge\\state\\graph-trust.json) '{}'"), 'forge-state?'],
+    [ps("'{}' | Set-Content (Get-Item .jspark-forge\\state\\graph-trust.json).FullName"), 'forge-state?'],
+    [ps("Get-Item .jspark-forge\\state\\graph-trust.json | Set-Content -Value '{}'"), 'forge-state?'],
+    [ps("(Get-Content .jspark-forge\\state\\graph-trust.json).Replace('a','b') | Out-File -FilePath (Resolve-Path .jspark-forge\\state\\graph-trust.json).Path"), 'forge-state?'],
+    [ps('Get-Item .jspark-forge\\state\\graph-trust.json | Remove-Item'), 'forge-state?'],
+    [ps('Get-ChildItem .jspark-forge\\state -Filter graph-*.json | Remove-Item'), 'forge-state?'],
+    [ps('Get-Content .jspark-forge\\state\\graph-g.json | Out-File C:\\tmp\\g.txt'), null],
+    [ps("Get-ChildItem .jspark-forge\\state | Select-Object Name | Out-File (Join-Path $env:TEMP 'names.txt')"), 'forge-state?'],
+    [ps('Get-ChildItem src | Remove-Item'), null],
+    [ps("Set-Content (Join-Path $PWD 'notes.txt') 'x'"), null],
+    // M3: a graph-*.json name without .jspark-forge
+    [ps("Get-ChildItem -Recurse -Filter graph-demo.json | % { (gc $_.FullName) -replace 'running','done' | sc $_.FullName }"), 'forge-state?'],
+    [ps("Get-ChildItem -Recurse -Force -Filter graph-demo.json | ForEach-Object { Set-Content $_ '{}' }"), 'forge-state?'],
+    [ps('Get-ChildItem -Recurse -Filter graph-demo.json'), null],
+    [ps('git add src\\state\\graph-store.ts'), null],
+    // M2
+    [ps(`python -c "import os; os.system('echo {} > .jspark-forge/state/graph-trust.json')"`), 'forge-state?'],
+    // L2: the 8.3 short name
+    [ps("Set-Content .JSPARK~1\\state\\graph-trust.json '{}'"), 'forge-state?'],
+    // L3: folder copies and extracts into the record folders
+    [ps('Copy-Item C:\\tmp\\jf .jspark-forge -Recurse -Force'), 'forge-state?'],
+    [ps('robocopy C:\\tmp\\jf .jspark-forge /E'), 'forge-state?'],
+    [ps('Expand-Archive C:\\tmp\\jf.zip -DestinationPath .jspark-forge -Force'), 'forge-state?'],
+    [ps('Expand-Archive C:\\tmp\\jf.zip .jspark-forge\\state'), 'forge-state?'],
+    [ps('tar -xf C:\\tmp\\jf.tar -C .jspark-forge'), 'forge-state?'],
+    [ps('Expand-Archive C:\\tmp\\x.zip -DestinationPath vendor'), null],
+    [ps('Copy-Item .jspark-forge C:\\tmp\\backup -Recurse'), null],
+    // L6
+    [ps("Set-Content .jspark-forge\\state\\confirm.json '{}'"), 'forge-state!'],
+    // L7: a copy of the record to elsewhere is a read
+    [ps('Copy-Item .jspark-forge\\state\\graph-trust.json $env:TEMP\\graph-trust.json'), null],
+    [ps('Copy-Item .jspark-forge\\state\\graph-demo.json -Destination "$env:TEMP\\g.json"'), null],
+    [ps('cp .jspark-forge\\state\\graph-demo.json $env:TMP\\g.json'), null],
+    [ps('Copy-Item $env:TEMP\\graph-trust.json .jspark-forge\\state\\graph-trust.json'), 'forge-state!'],
+  ],
   'rm-rf-outside': [
     [ps('Remove-Item -Recurse -Force ~'), 'rm-rf-outside!'],
     [ps('Remove-Item ~ -Recurse'), 'rm-rf-outside!'],
@@ -221,7 +297,7 @@ if (WIN) {
   ];
 }
 
-const expectOf = r => (r ? (r.hard ? `${r.id}!` : r.id) : null);
+const expectOf = r => (r ? (r.hard ? `${r.id}!` : r.ask ? `${r.id}?` : r.id) : null); // '?': an ask
 
 for (const [group, cases] of Object.entries(CASES)) {
   for (const [input, want] of cases) {
@@ -235,7 +311,7 @@ test('every published entry has >= 5 positive and >= 5 negative PowerShell cases
   for (const id of Object.keys(BUILTINS)) {
     if (id === 'readonly-source') continue; // covered, Bash and PowerShell, in tests/readonly.test.js
     const cases = (CASES[id] || []).filter(([i]) => i.tool_name === 'PowerShell');
-    const pos = cases.filter(([, w]) => w && w.replace('!', '') === id).length;
+    const pos = cases.filter(([, w]) => w && w.replace(/[!?]$/, '') === id).length;
     const neg = cases.filter(([, w]) => w === null).length;
     assert.ok(pos >= 5, `${id}: ${pos} positive`);
     assert.ok(neg >= 5, `${id}: ${neg} negative`);

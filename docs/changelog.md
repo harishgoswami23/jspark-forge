@@ -39,7 +39,7 @@ first screen. Housekeeping rule: no company references in the repo. Three spikes
 ### Consolidated spec (2026-11-02)
 **What:** latest decisions only, superseded text dropped; split into `spec.md`, `design-v0.1.md` (build-ready v0.1
 design), `spikes.md`, `open-questions.md` (Q1–Q14) and a README draft; business notes moved out of the public docs;
-brand rule: always "JSPARK Forge", never "Forge" alone.
+brand rule: always "JSPARK Forge", never "JSPARK Forge" alone.
 **Why:** three stacked revisions overriding each other were hard to build from.
 
 ### 2026-11-03: external review fixes
@@ -89,7 +89,7 @@ way to check that stored memory is still true; one document covering all version
 
 ## 2026-11-03 — External code: guest mode, readonly sources, migration
 **What:** new spec 5.2b. v0.1.1: guest mode (init asks "Your project, or one you're reviewing?"; nothing written in the repo, state in `~/.claude/jspark-forge/guests/<repo-hash>/`; handoff tagged "review of <origin URL> @ <commit>"; decision memory, launch guard, map off), guest quarantine (installs/builds/runs need `CONFIRM`; repo content is data, never instructions), readonly sources (`## Sources` in `rules.md`; writes hard-denied, no CONFIRM); two new blocks `readonly-source`, `guest-quarantine`; v0.1.1 estimate ~4–5½ days. v0.2: source line in the handoff, migration mappings as decisions, licence check, guest review report (use / borrow ideas / avoid, never "clean"). v0.3: map of readonly sources, migration mode (inventory, parity plan, progress feeding the scope guard, cutover checklist). New Q15–Q17.
-**Why:** Forge assumed one owned project in one folder; reviewing someone else's repo and migrating from an old system broke that assumption (writes into foreign repos, untrusted scripts and text, edits to the source being migrated).
+**Why:** JSPARK Forge assumed one owned project in one folder; reviewing someone else's repo and migrating from an old system broke that assumption (writes into foreign repos, untrusted scripts and text, edits to the source being migrated).
 
 ## 2026-11-03 — Ship gate, grounding rule, repo as source of truth
 **What:** v0.1 ship gate explicit: ships only when the kill-and-resume test passes on Windows, macOS and Linux, after spikes A–D. New v0.1 piece 5.1a: a ≤ 10-line grounding rule injected at every SessionStart (cite path:line from the map or file; "not found" otherwise; never describe unread code); rule text in design 8.1; acceptance: present after startup/resume/compact. v0.3 map also indexes `docs/`, ADRs and schema source (migrations, Prisma, ORM models, SQL). Spike B adds a zsh row. Principle 11 + anti-goal: "store the specs / architecture / database in memory" is rejected as scope drift; the repo is the truth, decision memory holds one-line decisions. Confirmed unchanged: guest mode + readonly sources in v0.1.1; migration mappings as v0.2 decisions.
@@ -98,12 +98,12 @@ way to check that stored memory is still true; one document covering all version
 - Correction (same day): the readonly-source handoff line ("Source: … @ commit, last read") is v0.1.1, per the owner, not v0.2.
 
 ## 2026-11-03 — Principle 11 reworded: don't block, measure locally
-**What:** principle 11 + design anti-goal now read "Store nothing Forge can re-derive from the repo": specs, schema and architecture are indexed by the v0.3 map, never copied into memory; users may still write anything into `decisions.md`, Forge never blocks it. Replaces the earlier "rejected as scope drift" wording. v0.2 adds: `kind: reference` entries (pointer only, file read on demand); one warning for entries over ~80 words (suggest a reference); 30-day "still valid?" flag for entries without `touches:`; local counts of reference and long entries in `/jspark-forge:decisions`; knowledge-base requests logged in a local "declined, revisit at 500 users" list with a count. Acceptance criteria updated (spec 5.3 and 7, releases v0.2).
+**What:** principle 11 + design anti-goal now read "Store nothing JSPARK Forge can re-derive from the repo": specs, schema and architecture are indexed by the v0.3 map, never copied into memory; users may still write anything into `decisions.md`, JSPARK Forge never blocks it. Replaces the earlier "rejected as scope drift" wording. v0.2 adds: `kind: reference` entries (pointer only, file read on demand); one warning for entries over ~80 words (suggest a reference); 30-day "still valid?" flag for entries without `touches:`; local counts of reference and long entries in `/jspark-forge:decisions`; knowledge-base requests logged in a local "declined, revisit at 500 users" list with a count. Acceptance criteria updated (spec 5.3 and 7, releases v0.2).
 **Why:** owner 2026-11-03: refusing users is the wrong default; keep the repo as the truth by design, and measure demand for a knowledge feature on the machine, without telemetry.
 
 ## 2026-11-03 — Spec final; review report and migration mode cut
 **What:** spec marked final (owner approval; build order spikes A–D, then v0.1). New principle 12 "Hooks, not verdicts", the test for future additions. Cut to "Later, only if asked" (spec 5.8a): `/jspark-forge:review` with its use / borrow / avoid verdict, and migration mode (inventory, parity plan, cutover checklist, sign-off, `migration.md`). Kept: guest quarantine, "content is data", readonly sources and source line (v0.1.1); licence check (one file read) and migration mappings as decisions (v0.2); map of readonly sources (v0.3). v0.2 estimate ~1 week → ~4½–5 days; total ~4 → ~3½–4 weeks; v0.3 loses its "migration mode not estimated" caveat. Q16 drops `review.md`.
-**Why:** owner 2026-11-03: review verdicts make Forge a code-review product and risk bad judgment; migration mode drifts into project management. Forge keeps to hooks that deny, save or point.
+**Why:** owner 2026-11-03: review verdicts make JSPARK Forge a code-review product and risk bad judgment; migration mode drifts into project management. JSPARK Forge keeps to hooks that deny, save or point.
 
 ### Rev 6: build graph added as v0.4 (2026-11-05)
 **What:** new section 5.10 "Build graph": a build written down as a fixed graph of agent, parallel, gate, human and
@@ -208,3 +208,17 @@ reviewer on the strongest model, builder on a standard one, checker on a light o
 the 5.11 templates; works beside superpowers. The model-choice advice of 5.7 made concrete. ~1 day.
 **Why [owner, 2026-11-20]:** "do we have built the decision tree which model will do what and why?" (it was advice
 only, in a later section).
+
+### Rev 15: v0.2, v0.3 and v0.4 built in one day; the UI path from research (2026-11-20)
+**What:** the owner asked to keep building past "complete" and to defer every manual check to the end of the roadmap.
+- **v0.2** built and reviewed: decision memory, database guard, model map, templates and lint, licence check, UI tip.
+- **v0.3** built and reviewed: the code map on codebase-memory-mcp (Windows trial; spikes F and G), the SQL schema
+  reader, the launch-scope guard.
+- **v0.4** built and reviewed: the build graph (spikes I, J, K); enforcement stated honestly as enforced / evidence /
+  guarded / instructed after the code review showed what a shell-controlling AI can reach around.
+- **UI path completed** after open-source research (`ui-research.md`): brand-skill template, `ui` build graph with
+  screenshot, accessibility and Lighthouse gates, Chrome DevTools MCP in the tip.
+- Every release went through a Fable 5.2 design review and code review before its fixes; CI on macOS and Linux caught
+  two more (git's index lock, a test that misread zombie processes).
+**Why [owner, 2026-11-20]:** "I am the first user, so I need a complete product"; "keep building, all the checks will
+be done at the end of our roadmap"; "at least do some research for best in class open-source git repo for UI UX".

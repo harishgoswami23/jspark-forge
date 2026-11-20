@@ -1,147 +1,174 @@
 # JSPARK Forge v0.4: design
 
-Status: draft for review, 2026-11-20. Scope: spec 5.10 (build graph). The owner asked to keep building past v0.3
-(2026-11-20). Earlier designs: [`design-v0.3.md`](design-v0.3.md) and before.
+Status: **revision 2, 2026-11-20**, after the Fable 5.2 design review (findings cited [R-H1] and so on). Scope: spec
+5.10 (build graph). The owner asked to keep building past v0.3 (2026-11-20). Earlier designs:
+[`design-v0.3.md`](design-v0.3.md) and before. **Build order:** spikes I, J, K first (section 0).
 
 ---
 
-## 1. The idea in one paragraph
+## 0. Spikes before code
 
-A build is written down once as a graph file: its steps, what each hands to the next, which run side by side, and
-where a person must act. **Claude runs it** (a plugin cannot start helpers by itself): the `/jspark-forge:build` skill
-asks JSPARK Forge for the next step, dispatches the named helper (v0.2 model map), and reports the result back.
-**JSPARK Forge holds the state and enforces the rules mechanically** (principle 12): it validates the graph before the
-run, saves after every step, runs gates as commands with exit codes, refuses outputs that were not declared, caps
-parallel steps, and completes a person's step only on the person's own typed `DONE <step>`. After a crash, a usage
-limit or a new session, the handoff and `/jspark-forge:resume` land on the running step.
+- **Spike I [R-H2]:** does a Bash / PowerShell command that exits non-zero reach PostToolUseFailure (and a zero exit
+  PostToolUse) with the exact command text, on Windows (here) and in CI? Decides whether gates run through Claude's
+  own tools (preferred) or not at all in v0.4.
+- **Spike J [R-M4]:** what PostToolUse on the Agent tool and SubagentStart / SubagentStop carry: the helper type, a
+  marker from the call's `description`, duration, usage, foreground vs background. Decides what evidence ties a report
+  to a helper and whether token actuals exist.
+- **Spike K:** is `CLAUDE_CODE_SESSION_ID` set for commands Claude runs through Bash, so `forge.js graph …` knows the
+  session.
+
+**Results (Windows, real `claude -p` with the probe plugin, 2026-11-20): all three pass.**
+- **I:** `node -e "process.exit(3)"` arrived at PostToolUseFailure with the exact command and `error: "Exit code 3"`;
+  `echo gate-ok` arrived at PostToolUse with its stdout. Gates run through Claude's own tools.
+- **J:** PreToolUse on Agent carries the call's `description` ("STEPMARK-42 tiny check"), so the build skill puts
+  `[graph <name>/<step>]` there; SubagentStart / SubagentStop carry `agent_id` and `agent_type`; PostToolUse on Agent
+  (foreground) carries `agentType`, `resolvedModel`, `totalDurationMs`, `totalTokens` and `usage`. **So token actuals
+  per step are available** for foreground helpers; background helpers are reported "not reported" until checked.
+- **K:** commands run through Bash see `CLAUDE_CODE_SESSION_ID` (the session's id).
+
+## 1. The idea, and what is actually enforced [R-H1]
+
+A build is written once as a graph file. **Claude runs it** through `/jspark-forge:build` (a plugin cannot start
+helpers itself): it asks JSPARK Forge for the next step, dispatches the named helper, and reports back. **JSPARK Forge
+keeps the record and checks what it can check.** It cannot control which tools Claude uses, so the honest split is:
+
+**Revision 3 (2026-11-20), after the Fable 5.2 code review.** The review showed that Claude, which controls a shell,
+could reach around several "enforced" rules (running JSPARK Forge's hooks itself, writing the state through paths the
+block list did not resolve, editing the graph mid-run). Every route it found is closed, but the honest word for
+anything that depends on recognising what a command does is **guarded**, not enforced: a program written to a file and
+run (`node fix.js`) can do anything the user's account can. So:
+
+| Rule | How | Level |
+|---|---|---|
+| The graph is valid before it runs (fields, order, no cycles) | `graph check`; refuses to start | **Enforced** |
+| The run uses the graph as it was at start | the steps that matter are snapshotted into the run state at `start` | **Enforced** (given the state is not written, below) |
+| Outputs are declared and real: a `*_path` exists, a `commit` resolves | checked on `done` | **Enforced** |
+| State and trust files are written only by JSPARK Forge | hard deny on any change resolving to this project's `.jspark-forge/state/graph-*` or its folders (Edit, Write, shell targets resolved from the working folder and through links, renames of the folders); a command that only *looks* like it may write them (variables, `xargs`, `find -exec`, interpreters, heredocs naming `.jspark-forge`) **asks** the user through Claude Code's normal prompt instead [revision 4] | **Guarded** (a script file can still write them) |
+| Claude cannot fake JSPARK Forge's own hook events (TRUST, DONE, helper evidence, gate results) | hard deny on running `forge.js` with a hook event, a variable or `--` as its command (parsed, line continuations included, `xargs` too); loading its hook modules from a one-liner asks | **Guarded** (same limit) |
+| A helper of the named type ran for that step | SubagentStart evidence of exactly `jspark-forge:<helper>`, from the run's session, after the step was handed out, used once (spike J) | **Evidence** |
+| Human steps and gates cannot be removed to skip them | TRUST GRAPH covers the ids of human steps and gates and the gate commands; any change to them asks for TRUST again [revision 4] | **Enforced** (given the state is not written) |
+| A gate passed | the exact command's real exit code from the hooks (spike I), only in the run's session, in the project folder, not in the background, not interrupted | **Evidence** |
+| A human step is done | only the user's own whole message `DONE <step>` in an attended session | **Enforced** by Claude Code's hooks (only real user messages reach UserPromptSubmit), **guarded** against shell imitation (row 5) |
+| Steps run in order; no more helpers than the cap; no work outside the graph | the skill; JSPARK Forge hands out steps in order and never more than the cap | **Instructed** |
+
+**Revision 4 (2026-11-20), after the Fable 5.2 re-review.** The hardening itself had a fail-open: a network path in a
+command made the link lookups take 42 s, past the hook's 3 s, so *no* rule answered. Lookups now skip network paths
+and, on Windows, other drive letters (a mapped drive looks local), and share a 500 ms budget; past it, paths are
+judged by their text. The text rules also refused everyday work as "never allowed" (`git add src/state/graph-store.ts`,
+JSPARK Forge's own `graph fail … "could not import"`). Product rule: a false refusal blocks real work and is
+worse than an extra prompt, so only certain targets are refused; guesses from text ask (decided overnight on the
+owner's behalf; owner to confirm).
+
+**Revision 5 (2026-11-20), after a third review of the safety check alone.** One more stall (a glob of many `*` made a
+backtracking match run past 3 s) is fixed with a wildcard loop; `state/confirm.json` is protected like the record;
+PowerShell expression and pipeline targets, interpreter code naming the record, folder copies and extracts into
+`.jspark-forge`, and `\\?\` spellings now ask or deny. Still only guarded, by design: a script handed the record's path
+as an argument (`python tools/x.py <path>`), `git apply` / `patch`, `xargs sed -i` on a search that never names a
+graph file, `tar -x` into the project root, `cd .j*-forge`, `/cygdrive` and `/mnt/c` spellings, `git clean -fdX` and
+`git stash -u`. None of these is a way past the published block list; they are routes to the build record only.
+
+What this means for the user, said in the README: the build graph keeps an honest record and stops ordinary mistakes
+and shortcuts; it is not a sandbox against an AI determined to cheat, and nothing that runs as your user account can
+be.
 
 ## 2. The graph file
 
-`.jspark-forge/graphs/<name>.md`, committed (versioned and reviewed like code; spec 5.10 named `forge/graphs/`, see
-section 8). One step per heading; fields as list items:
+`.jspark-forge/graphs/<name>.md`, committed. One step per heading; fields as list items (built: `scripts/lib/graph.js`,
+`templates/graphs/`).
 
-```markdown
-# Graph: ship-feature
-- max_parallel: 2
-- min_free_memory_mb: 1500
-
-## spec (agent)
-- helper: planner
-- brief: .jspark-forge/briefs/spec.md
-- gives: spec_path
-
-## plan (agent)
-- helper: planner
-- needs: spec_path
-- gives: plan_path
-
-## build-api (agent)
-- helper: builder
-- needs: plan_path
-- gives: commit, test_totals
-- estimate: 40k tokens, 15 min
-
-## build-ui (agent)
-- helper: builder
-- needs: plan_path
-- gives: ui_commit
-
-## build (parallel)
-- steps: build-api, build-ui
-
-## checks (gate)
-- after: build
-- run: npm test
-- run: npm run lint
-
-## merge (human)
-- after: checks
-- say: Review the branch and merge it into main.
-```
-
-- **Kinds:** `agent` (one helper: `helper` is one of the four v0.2 helpers or another named agent; optional `model`
-  overrides the helper's tier for this step; optional `brief`), `parallel` (`steps:` run side by side), `gate`
-  (`run:` lines, each a command; all must exit 0), `human` (`say:` one plain instruction). `save` is not a kind: the
-  runner saves after every step (spec 5.10).
-- **Order:** a step runs after the steps named in `after:` and after every step that gives a field it `needs:`. Steps
-  inside a `parallel` run after the `parallel`'s own `after:`. No cycles.
-- **Fields:** `gives:` and `needs:` are comma lists of names (`[a-z][a-z0-9_]*`). Every `needs` field must be given by
-  a step that runs before it; a field given twice is an error. Outputs are values (short strings, paths, numbers), at
-  most 500 characters each; free-text reports stay in the helper's reply and the handoff, never parsed (spec 5.10).
-- **Validation before any run** (`forge.js graph check <name>`, also part of `forge.js lint`): unknown kind, unknown
-  helper, a `needs` nobody gives, a cycle, a `parallel` naming a missing step, a `gate` without `run:`, a `human`
-  without `say:`. Errors name the file and line. A graph that fails never starts.
-- **Trust:** a graph file arrives with git like `decisions.md`. Its `run:` lines are commands that JSPARK Forge would
-  execute, so: graphs are off in guest repos; a graph that arrived with git (not written on this machine, tracked like
-  decisions' "arrived with git") is shown to the user and **does not run until the user types `TRUST GRAPH <name>`**
-  once; gate commands still pass through the block list (a gate cannot run `rm -rf ~`). Step text reaching Claude is
-  cleaned and framed as data.
+- **Kinds:** `agent` (`helper:` one of planner, reviewer, builder, checker: its model is its tier, so one model per
+  step as the spec asks; `brief:`; `needs:` / `gives:`), `parallel` (`steps:`), `gate` (`run:` lines), `human`
+  (`say:`). `after:` orders steps. Validation before any run, with file and line.
+- **Names [R-M2]:** graph names and step ids `[a-z][a-z0-9-]{0,39}`, checked by `graph check` and every CLI command.
+- **Gate commands:** one simple command per `run:` line, no shell operators (`;`, `&&`, `|`, `>`, backticks, `$( )`),
+  checked by `graph check`; each also passes the block list.
+- **Trust [R-H3]:** every graph with a gate needs the user's `TRUST GRAPH <name>` before its first run, and again
+  whenever its `run:` lines change (trust is kept per hash of those lines, in a protected state file). JSPARK Forge
+  shows the commands when it asks. "Arrived with git" plays no part: a graph Claude wrote is trusted the same way.
+  The README says plainly that `npm test` runs whatever the repo's scripts say.
+- Off in guest repos; text reaching Claude cleaned and framed as data.
 
 ## 3. Running
 
-- **`forge.js graph start <name>`** validates, records the run in `state/graph-<name>.json` (`{ run, steps: { id:
-  { state: waiting|running|done|failed|skipped, outputs, startedAt, doneAt, tokens, retries } }, asOf }`), and prints
-  the first steps.
-- **`forge.js graph next <name>`** prints the steps that can start now, each with everything the helper needs: the
-  helper name, the model, the brief path, the input values (from earlier outputs), the fields it must return, and the
-  line to report back. **Parallel cap:** at most `max_parallel` at once, fewer when free memory is under
-  `min_free_memory_mb` or plan usage is at 80 % or more (the usage bridge); never more (spec 5.10). A `human` step is
-  printed as an instruction to show the user and stop.
-- **`forge.js graph done <name> <step> --from <file.json>`** records an agent step's outputs: only declared fields,
-  all of them, each within its limit; anything else is refused and the step stays running. A step is done on its first
-  report; a second report is logged, not re-run (spec 5.10).
-- **`forge.js graph fail <name> <step> "<reason>"`**: a failed step is retried once (spec: "retry a failed node once,
-  then stop and show"), then the run stops and shows the step and reason.
-- **Gates run in JSPARK Forge**, not in Claude: `forge.js graph next` runs a ready gate's commands itself (through the
-  block list; each with a time limit, default 10 minutes), records exit codes and the last 20 lines of output, and
-  either marks it done or stops the run naming the failing command. No judgement involved.
-- **Human steps** complete only through the person: UserPromptSubmit sees the user's own message `DONE <step>` (the
-  whole message, like CONFIRM) and marks it done. Claude, helpers and `forge.js` cannot mark a human step done.
-- **Saves:** every state change writes the graph state and the handoff (spec 5.1); the handoff's Task/Step line becomes
-  "Build graph ship-feature: step 4 of 7 (build-api, running)".
-- **Resume:** session start shows the running graph (`build-api running; build-ui done; next: checks`) and the
-  show-and-wait rule applies; `/jspark-forge:resume` shows the graph with the current step marked.
-- **Cost:** before the run, `graph start` prints per step the estimate (the graph's `estimate:` or the actuals of the
-  last run of the same step), always marked "estimate"; after each agent step the actual tokens and minutes, taken
-  from the helper's hand-back (PostToolUse on the Agent tool reports usage when Claude Code gives it), else "not
-  reported".
+State: `.jspark-forge/state/graph-<name>.json` (protected), written under a lock [R-H5]:
+`{ run, hash (of the graph file), owner (session), startedAt, steps: { id: { state: waiting|running|done|failed|interrupted,
+outputs, handedAt, doneAt, retries } } }`.
+
+- **`graph start <name>`:** validates, checks trust, records the graph's hash and the owner session. Only one graph
+  runs per repo; a second live start is refused.
+- **`graph next <name>`:** prints the steps that can start, each with helper, brief, input values, the fields to
+  return and the exact report line. **No side effects beyond marking them handed out.** Cap: at most `max_parallel`;
+  nothing at the 95 % plan-usage band; plan windows only (not context), and "usage unknown" is printed and treated as
+  under the limit [R-M3]. A gate is printed as the commands Claude must run with its Bash or PowerShell tool, one at a
+  time; a human step as the instruction to show, then stop.
+- **Gates through Claude's tools [R-H2, spike I]:** PostToolUse / PostToolUseFailure in the main session see the exact
+  gate command and its exit status and record pass or fail. Claude Code's permissions, sandbox and other hooks apply as
+  for any command; there is no time-limit or process-tree problem of JSPARK Forge's own.
+- **`graph done <name> <step> --from <file.json>`** (outputs) and **`graph fail <name> <step> "<reason>"`** (retry once,
+  then stop and show). A second report with the same values is ignored; with different values it is refused loudly.
+- **The graph file changed mid-run** (hash differs): the run stops and says so; the user restarts it.
+- **Interrupted:** a different session finds steps `running` from the owner session → they become `interrupted` and the
+  user chooses (rerun, which does not use up the retry, or stop). A second live session on the same run is refused.
+- **`graph stop <name>`:** ends the run (state kept for the record).
+- **Human steps [R-M1]:** completed only by the user's own message, the whole message being `DONE <step>`, or just
+  `done` when exactly one human step waits; only for a step that is waiting now; only in attended sessions
+  (`CLAUDE_CODE_SESSION_ATTENDED=1`); answered with a system message; never stored as the handoff's last request.
+  `TRUST GRAPH <name>` follows the same rules. A DONE typed in another session completes the step; the looping session
+  sees it at its next `graph next`.
+- **Saves:** every change saves the handoff; a running graph ranks first for the Task / Step line ("Build graph
+  ship-feature: step 4 of 7, build-api running") [R-M5].
+- **Resume:** session start shows the run (done / running / interrupted / next); `/jspark-forge:resume` shows it and
+  waits.
+- **Cost [R-M4]:** minutes per step from `handedAt` to `doneAt` (mechanical); tokens only if spike J shows Claude Code
+  reports them, else "not reported". Estimates only from the graph's `estimate:` lines, marked "estimate".
 
 ## 4. The skill: `/jspark-forge:build <name>`
 
-The loop Claude follows: `graph start` (or continue) → `graph next` → for each agent step, dispatch the named helper
-with its brief and inputs (up to the cap, in parallel) → write the helper's declared outputs to a file → `graph done`
-→ repeat; for a human step, show the instruction and stop; when a gate fails, show the command and stop. It never adds
-steps, never skips a human step, never marks one done.
+Start or continue, take the next steps, dispatch each named helper (up to the cap) with its brief and inputs, write
+its declared outputs to a file and report them, run gate commands exactly as printed, show human steps and stop. It
+never adds steps, never skips a human step, never writes the state.
 
-## 5. Templates (spec 5.10)
+## 5. Templates
 
-`templates/graphs/`: `software.md` (spec, plan, tasks, gate, release), `documents.md` (research, draft, review,
-publish), `spike.md` (measure, decide, build). Generic, no company words; each passes `graph check`.
-`/jspark-forge:new-graph <template> <name>` copies one into `.jspark-forge/graphs/` without overwriting.
+`templates/graphs/software.md`, `documents.md`, `spike.md` (built; each validates). The build skill copies one into
+`.jspark-forge/graphs/` without overwriting (no separate command [R-cut]).
 
-## 6. Limits
+## 6. Cut from this version [R-cut]
 
-One graph runs at a time per repo (spec 5.10). No conditional edges beyond a gate's pass or fail. The parallel cap
-counts steps JSPARK Forge handed out; it cannot see helpers Claude starts on its own. Usage per step is reported only
-when Claude Code includes it in the hand-back.
+Per-step `model` override and "any other named agent" (the four helpers carry the model map); `min_free_memory_mb`
+(the plan-usage cap and `max_parallel` remain); token actuals and last-run estimates unless spike J allows; a separate
+`new-graph` command; JSPARK Forge running gate commands itself.
 
 ## 7. Tests
 
-- Parser and validation: every error kind with file and line; the three templates pass.
-- Running: order from `after` and fields; outputs refused when undeclared, missing or too long; a repeated report
-  ignored; retry once then stop; one graph at a time.
-- Parallel: never more than `max_parallel`; fewer under low memory or 80 % usage (both faked in tests).
-- Gates: commands run with exit codes, the failing one named, output tail kept; a blocked command refused; a time limit.
-- Human steps: only the user's own `DONE <step>` completes them (not a tool call, not text inside a longer message).
-- Trust: guest repos off; a graph from git waits for `TRUST GRAPH <name>`.
-- Kill and resume: a killed session resumes on the running step (state on disk, handoff line, session-start summary).
-- Integration (real Claude): the `spike` template runs end to end on a tiny repo with the checker helper and a gate.
+Validation (built); names; the protected state files (Edit, Write, shell redirect all denied); `done` refused when not
+running / wrong kind / missing, extra or too-long fields / a path that does not exist / a commit that does not resolve
+/ no helper evidence; locking under parallel reports; interrupted steps on a new session; `stop`; the hash check;
+trust per run-line hash; DONE / TRUST rules (whole message, waiting only, attended only, not stored); the cap (95 %,
+unknown usage); gate pass / fail from hook events; resume line and handoff rank. Integration (real Claude): the spike
+template end to end on a tiny repo (checker helper, a human step completed by a scripted user message, a gate).
 
-## 8. Deviations from spec 5.10
+## 8. Deviations from spec 5.10 [R-M6]
 
 | Spec | This design | Why |
 |---|---|---|
-| `forge/graphs/<name>.md`, `forge/graph-state.json` | `.jspark-forge/graphs/<name>.md`, `.jspark-forge/state/graph-<name>.json` | One JSPARK Forge folder per project |
-| "A runner that uses the platform's own workflow facility when present" | Claude runs the loop through the skill; JSPARK Forge holds state | Claude Code's workflow tool needs the user's opt-in each time; the graph file stays the same either way, so a workflow runner can be added later |
-| `save` as a node kind | Automatic after every step | The spec says it is automatic anyway |
-| Added | `TRUST GRAPH <name>`, `DONE <step>`, gates run by JSPARK Forge | A graph's commands are code that runs on the user's machine |
+| `forge/graphs/`, `forge/graph-state.json` | `.jspark-forge/graphs/`, `.jspark-forge/state/graph-<name>.json` | One JSPARK Forge folder |
+| Runner uses the platform's workflow facility when present | Claude runs the loop through the skill | The workflow tool needs the user's opt-in each time; the graph file is the same either way |
+| "Parallel never exceeds the cap" | JSPARK Forge never hands out more than the cap | It cannot see helpers Claude starts itself (stated in section 1) |
+| "A helper may choose a path the graph offers" | Not in v0.4 | No conditional edges beyond gate pass / fail (also a spec limit) |
+| Estimated tokens and time before, actuals after | Minutes measured; tokens only if reported; estimates from the graph | Token usage per helper is not reliably available (spike J) |
+| Three templates run end to end | One runs end to end in integration; all three validate | The other two need real briefs to mean anything |
+| A graph view in the dashboard | Not in v0.4 | The dashboard (5.8) is "later, only if asked" |
+| `save` as a node kind | Automatic after every change | The spec calls it automatic anyway |
+| Added | `TRUST GRAPH`, `DONE <step>`, protected state, `graph stop` | A graph's commands run on the user's machine; runs must be stoppable |
+
+## 9. UI path (spec 5.14 completed, owner 2026-11-20)
+
+The owner asked whether JSPARK Forge delivers world-class UI. Spec 5.14's brand-skill template was missing; added with
+a fifth graph template:
+- `templates/brand-skill.md`: a fill-in brand skill (colours, typography, spacing, components, voice, and a pre-ship
+  check against the running screen); passes the skill lint.
+- `templates/graphs/ui.md`: design direction (planner) → the user approves the look (human) → build (builder) → a
+  Playwright screenshot gate (`npx playwright test tests/ui`) → design review (reviewer) → final approval (human).
+Honest limit, said in the README: this makes a checked path the default; the look is only as good as the approved
+direction.
