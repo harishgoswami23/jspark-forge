@@ -1,18 +1,18 @@
 'use strict';
 // v0.5: the two MCP servers that ship with the plugin (code map, Playwright). This module holds the pins, the off
-// switches, how to start the pinned npm package without a shell, and the one record file the launcher writes and the
-// doctor reads: <claude home>/jspark-forge/bundled.json. Nothing here reaches the network; the launcher
-// (scripts/mcp/run.js) does the starting.
+// switches, where each pinned package is installed (once, by scripts/mcp/install.js, with npm and no shell), how
+// to start it with Node, and the one record file the launcher writes and the doctor reads: <claude home>/jspark-forge/bundled.json. Nothing here reaches the network; the installer and
+// the launcher (scripts/mcp/install.js, scripts/mcp/run.js) do the work.
 const fs = require('fs');
 const path = require('path');
 const paths = require('./paths');
 
 const SERVERS = {
-  'codebase-memory': { pkg: 'codebase-memory-mcp', pin: '0.12.1', env: 'JSPARK_FORGE_CODE_MAP', setting: 'code-map' },
-  playwright: { pkg: '@playwright/mcp', pin: '0.0.86', env: 'JSPARK_FORGE_PLAYWRIGHT', setting: 'playwright' },
+  'codebase-memory': { pkg: 'codebase-memory-mcp', safe: 'codebase-memory-mcp', pin: '0.12.1', env: 'JSPARK_FORGE_CODE_MAP', setting: 'code-map' },
+  playwright: { pkg: '@playwright/mcp', safe: 'playwright-mcp', pin: '0.0.86', env: 'JSPARK_FORGE_PLAYWRIGHT', setting: 'playwright' },
 };
 const LAUNCHER = path.join(__dirname, '..', 'mcp', 'run.js');
-const NO_NPX = 'npx was not found next to Node.js';
+const INSTALLER = path.join(__dirname, '..', 'mcp', 'install.js');
 
 // 'off' (env var or merged rules setting), 'no-frontend' or 'node-too-old' (Playwright only; `nodeMajor` or
 // JSPARK_FORGE_NODE_MAJOR lets tests inject the Node version), else 'run'. Never throws.
@@ -47,15 +47,70 @@ function childOptions(home) {
   return { cwd: neutralDir(home), env: Object.assign({}, process.env, { NoDefaultCurrentDirectoryInExePath: '1' }) };
 }
 
-// npm's own npx script run by the running Node: this module starts it with shell: false, so JSON arguments and paths with spaces arrive unchanged
-// (npx.cmd would need cmd.exe, which re-parses its arguments). Windows without it: null (the caller records why).
-function npxCommand() {
+// Where an engine lives once installed: <claude home>/jspark-forge/engines/<safe-name>-<pin>/. The marker file
+// installed.json is written by the installer only after npm succeeded; a folder without it is never used (a first
+// start that was cut short leaves a half-written folder, and that must not poison later starts).
+function engineDir(home, name) {
+  const s = SERVERS[name];
+  return path.join(home || paths.claudeHome(), 'jspark-forge', 'engines', `${s.safe}-${s.pin}`);
+}
+const lockFile = (home, name) => `${engineDir(home, name)}.lock`;
+const markerFile = (home, name) => path.join(engineDir(home, name), 'installed.json');
+function installed(home, name) {
+  try { return !!JSON.parse(fs.readFileSync(markerFile(home, name), 'utf8')); } catch { return false; }
+}
+// The engine's program: the "bin" of the installed package.json, a string or an object. null when it cannot be found.
+function binPath(home, name) {
+  try {
+    const s = SERVERS[name];
+    const root = path.join(engineDir(home, name), 'node_modules', ...s.pkg.split('/'));
+    const bin = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).bin;
+    let rel = typeof bin === 'string' ? bin : null;
+    if (bin && typeof bin === 'object') rel = bin[s.pkg] || bin[s.pkg.split('/').pop()] || Object.values(bin).find(v => typeof v === 'string') || null;
+    const p = rel ? path.join(root, rel) : null;
+    return p && fs.existsSync(p) ? p : null;
+  } catch { return null; }
+}
+
+// npm's own script run by the running Node, with shell: false, so paths with spaces arrive unchanged (npm.cmd would
+// need cmd.exe). Windows without it: null (the installer records why).
+function npmCommand() {
   const dir = path.dirname(process.execPath);
   const cli = process.platform === 'win32'
-    ? path.join(dir, 'node_modules', 'npm', 'bin', 'npx-cli.js')
-    : path.join(dir, '..', 'lib', 'node_modules', 'npm', 'bin', 'npx-cli.js');
+    ? path.join(dir, 'node_modules', 'npm', 'bin', 'npm-cli.js')
+    : path.join(dir, '..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js');
   if (fs.existsSync(cli)) return [process.execPath, cli];
-  return process.platform === 'win32' ? null : ['npx'];
+  return process.platform === 'win32' ? null : ['npm'];
+}
+function installOverride() {
+  const raw = process.env.JSPARK_FORGE_BUNDLED_INSTALL_CMD;
+  if (!raw) return null;
+  try {
+    const c = JSON.parse(raw);
+    return Array.isArray(c) && c.length && c.every(x => typeof x === 'string') ? c : null;
+  } catch { return null; }
+}
+// What the installer runs: npm install into the engine folder (or the test replacement with the folder and
+// <pkg>@<pin> appended). null when npm cannot be found.
+function installCommand(home, name) {
+  const s = SERVERS[name];
+  const dir = engineDir(home, name);
+  const spec = `${s.pkg}@${s.pin}`;
+  const o = installOverride();
+  if (o) return o.concat([dir, spec]);
+  const npm = npmCommand();
+  return npm ? [...npm, 'install', '--prefix', dir, '--no-audit', '--no-fund', '--no-save', spec] : null;
+}
+// The installer runs on its own (detached, no window, no output), so it outlives the launcher and the session that
+// started it. It takes its own lock; a second one finds the first and ends.
+function startInstaller(home, name, project) {
+  try {
+    const c = require('child_process').spawn(process.execPath, [INSTALLER, name], Object.assign({ detached: true, stdio: 'ignore', windowsHide: true, shell: false },
+      { cwd: neutralDir(home), env: Object.assign({}, process.env, { NoDefaultCurrentDirectoryInExePath: '1', CLAUDE_CONFIG_DIR: home, CLAUDE_PROJECT_DIR: project || '' }) }));
+    c.on('error', () => { /* the launcher notices that no marker comes */ });
+    c.unref();
+    return c;
+  } catch { return null; }
 }
 
 function override(name) {
@@ -68,12 +123,14 @@ function override(name) {
   } catch { return null; }
 }
 
-function command(name, extraArgs = []) {
+// The command that starts the engine: the test override, else Node on the installed bin; null while not installed.
+function command(name, extraArgs = [], home) {
   const o = override(name);
   if (o) return o.concat(extraArgs);
-  const s = SERVERS[name];
-  const npx = s && npxCommand();
-  return npx ? [...npx, '-y', `${s.pkg}@${s.pin}`, ...extraArgs] : null;
+  const h = home || paths.claudeHome();
+  if (!SERVERS[name] || !installed(h, name)) return null;
+  const bin = binPath(h, name);
+  return bin ? [process.execPath, bin, ...extraArgs] : null;
 }
 
 const file = home => path.join(home, 'jspark-forge', 'bundled.json');
@@ -124,4 +181,4 @@ function record(home, name, fields, project) {
   } catch { /* never throws */ }
 }
 
-module.exports = { SERVERS, LAUNCHER, NO_NPX, mode, npxCommand, neutralDir, childOptions, command, record, read, pidAlive, claudeHome: paths.claudeHome };
+module.exports = { SERVERS, LAUNCHER, INSTALLER, mode, engineDir, lockFile, installed, binPath, installCommand, startInstaller, neutralDir, childOptions, command, record, read, pidAlive, claudeHome: paths.claudeHome };

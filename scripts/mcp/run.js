@@ -1,11 +1,16 @@
 #!/usr/bin/env node
 'use strict';
 // v0.5 launcher for the bundled MCP servers. Claude Code starts `node run.js <name>` from the plugin's .mcp.json.
-// - server mode (no extra args): run the pinned package with inherited stdio, record how it went; when the server is
-//   switched off (or Playwright has no front end here) answer as an MCP server with no tools, so /mcp shows no error;
-// - pass-through mode (extra args, the map refresh): run the engine with those arguments and exit with its code.
-// The launcher's own spawn uses no shell (npm itself may still use cmd.exe on Windows), and runs the child in a neutral
-// folder, not the project's. stdout carries MCP messages only; problems are one line on stderr and exit 1.
+// The engines are installed once, by scripts/mcp/install.js (detached, so it survives the session), into
+// <claude home>/jspark-forge/engines/; the launcher starts the installed program with Node, never through npx.
+// - server mode (no extra args): run the engine with inherited stdio and record how it went. Not installed yet: start
+//   the installer, record mode "installing", wait for it (nothing on stdout meanwhile), then start the engine. When the
+//   server is switched off (or Playwright has no front end here) answer as an MCP server with no tools, so /mcp shows
+//   no error;
+// - pass-through mode (extra args, the map refresh): run the engine with those arguments and exit with its code; not
+//   installed yet: start the installer and say so.
+// The launcher's own spawn uses no shell, and runs the child in a neutral folder, not the project's. stdout carries MCP
+// messages only; problems are one line on stderr and exit 1.
 const { spawn } = require('child_process');
 const path = require('path');
 const bundled = require('../lib/bundled');
@@ -43,6 +48,9 @@ function start(cmd, home) {
   return spawn(cmd[0], cmd.slice(1), Object.assign({ stdio: 'inherit', windowsHide: true, shell: false }, bundled.childOptions(home)));
 }
 
+const WAIT_MS = 10 * 60 * 1000;
+const POLL_MS = 500;
+
 function main() {
   const [name, ...extra] = process.argv.slice(2);
   const spec = bundled.SERVERS[name];
@@ -53,8 +61,11 @@ function main() {
 
   if (extra.length) { // pass-through (map refresh)
     if (mode === 'off') return fail('switched off');
-    const cmd = bundled.command(name, extra);
-    if (!cmd) return fail(bundled.NO_NPX);
+    const cmd = bundled.command(name, extra, home);
+    if (!cmd) { // not installed (yet): make sure an installer runs, and say so
+      bundled.startInstaller(home, name, project);
+      return fail('the engine is still being installed');
+    }
     const child = start(cmd, home);
     child.on('error', e => fail(e.message));
     child.on('exit', (code, sig) => process.exit(code === null ? (sig ? 1 : 0) : code));
@@ -68,29 +79,53 @@ function main() {
   process.on('exit', () => rec({ pid: null }));
   if (mode !== 'run') { rec(base); serveEmpty(name); return undefined; }
 
-  const cmd = bundled.command(name);
-  if (!cmd) {
-    rec(Object.assign(base, { exit: { code: 1, at: Date.now(), reason: bundled.NO_NPX } }));
-    return fail(bundled.NO_NPX);
-  }
-  rec(base);
   let stopping = false;
   let done = false;
-  const child = start(cmd, home);
+  let child = null;
+  let timer = null;
   const finish = (code, reason) => {
     if (done) return;
     done = true;
+    if (timer) clearTimeout(timer);
     if (reason) rec({ exit: { code, at: Date.now(), reason } });
     if (reason && code !== 0 && /^exit code/.test(reason) === false) process.stderr.write(`jspark-forge: ${reason}\n`);
     process.exit(code);
   };
-  child.on('error', e => finish(1, e.message));
-  child.on('exit', (code, sig) => {
-    if (code === 0) return finish(0);
-    if (code === null) return stopping ? finish(0) : finish(1, `stopped by ${sig}`);
-    return finish(code, `exit code ${code}`);
+  for (const s of ['SIGTERM', 'SIGINT']) process.on(s, () => {
+    stopping = true;
+    if (child) { try { child.kill(s); } catch { /* gone */ } } else finish(0); // still waiting for the install: nothing to pass on
   });
-  for (const s of ['SIGTERM', 'SIGINT']) process.on(s, () => { stopping = true; try { child.kill(s); } catch { /* gone */ } });
+
+  const run = cmd => {
+    rec(Object.assign({}, base, { mode: 'run', exit: null }));
+    child = start(cmd, home);
+    child.on('error', e => finish(1, e.message));
+    child.on('exit', (code, sig) => {
+      if (code === 0) return finish(0);
+      if (code === null) return stopping ? finish(0) : finish(1, `stopped by ${sig}`);
+      return finish(code, `exit code ${code}`);
+    });
+  };
+
+  const cmd = bundled.command(name, [], home);
+  if (cmd) { rec(base); run(cmd); return undefined; }
+
+  // Not installed: the installer runs on its own (detached); wait here, writing nothing to stdout. If Claude Code
+  // ends this launcher meanwhile, the installer still finishes and the next start finds the engine.
+  rec(Object.assign({}, base, { mode: 'installing' }));
+  bundled.startInstaller(home, name, project);
+  const until = Date.now() + WAIT_MS;
+  const poll = () => {
+    if (done) return;
+    const c = bundled.command(name, [], home);
+    if (c) return run(c);
+    const r = bundled.read(home, project)[name];
+    if (r && r.exit) return finish(r.exit.code || 1, r.exit.reason || 'the install failed');
+    if (Date.now() > until) return finish(1, 'the install took longer than 10 minutes');
+    timer = setTimeout(poll, POLL_MS);
+    return undefined;
+  };
+  timer = setTimeout(poll, POLL_MS);
   return undefined;
 }
 

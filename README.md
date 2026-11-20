@@ -40,8 +40,8 @@ A Claude Code plugin for technical solo founders. Built for Claude Code, by JSPA
    until you answer it: in the status line (`⏳ 2 waiting on you · oldest 14h`), first thing at the next session
    start, and in the handoff, so a cutoff cannot bury it.
 
-Your work stays on your machine. No telemetry. JSPARK Forge goes online only when `npx` downloads the two servers on
-their first start and when it adds two companions with `claude plugin install` (see Install).
+Your work stays on your machine. No telemetry. JSPARK Forge goes online only when `npm` installs the two servers (once, in the background, on
+their first start) and when it adds two companions with `claude plugin install` (see Install).
 
 ## How JSPARK Forge differs
 
@@ -71,7 +71,7 @@ offers *"Record the decision?"*; nothing is recorded without your yes. When a co
 ## Code map (the what and where)
 
 [codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp) comes with JSPARK Forge, as a plugin server
-(version 0.12.1, started through a small launcher with `npx`, downloaded the first time it starts). Claude can answer
+(version 0.12.1, installed once with `npm` into `~/.claude/jspark-forge/engines/` in the background on the first start, then started by a small launcher). Claude can answer
 "who calls X" and "what breaks if I change Y" from a map of your code instead of reading file after file. JSPARK Forge
 keeps the map fresh in the background after commits, and adds how fresh each answer is ("as of <commit>"). Switch it
 off with `- code-map: off` under `## Settings` in `rules.md`, or `JSPARK_FORGE_CODE_MAP=off`; then these features stay
@@ -222,13 +222,14 @@ That is the whole install. superpowers comes with it. On first start JSPARK Forg
   `/plugin uninstall chrome-devtools-mcp@claude-plugins-official`.
 - **A status line**, only when you have none. Undo: `/jspark-forge:init --undo-statusline`.
 
-Undo for the two servers stops them but does not delete what `npx` downloaded; that sits in npm's cache, which
-`npm cache clean --force` clears.
+Undo for the two servers stops them but does not delete them. They sit in `~/.claude/jspark-forge/engines/` (under
+`CLAUDE_CONFIG_DIR` if you set it); delete that folder to remove them. They are installed again on the next start unless
+you have switched them off.
 
 To stop the automatic switch-on of auto-update and the two companions, set `JSPARK_FORGE_AUTO_SETUP=off`.
 
-What this adds to your machine, said plainly: the two servers run through `npx` and download their pinned packages the
-first time each one starts (not inside a hook), and the two companions are added with `claude plugin install`, once.
+What this adds to your machine, said plainly: each of the two servers is installed once with `npm` into `~/.claude/jspark-forge/engines/`, in the
+background, the first time it starts (not inside a hook; the first session may have to be restarted when the install ends), and the two companions are added with `claude plugin install`, once.
 Those are the only times JSPARK Forge goes online. On Windows, Defender has been seen to flag the code map engine's
 program wrongly (a false positive): allow it, or switch the code map off.
 
@@ -335,7 +336,7 @@ What JSPARK Forge checks, what it guards, and what it can only ask for:
 
 Your files and the handoff stay on your machine. The handoff holds paths, short text and the last lines of Claude's reply, never file contents. The log
 hides likely secrets (keys, tokens, passwords) before writing. JSPARK Forge itself sends nothing anywhere. It goes
-online only through `npx` (the first start of the code map and Playwright servers) and through `claude plugin install`
+online only through `npm` (the one-time install of the code map and Playwright servers) and through `claude plugin install`
 (once, for the two companions). Those two programs, and the servers they run, are not JSPARK Forge's own code. A hook
 never waits on a download.
 

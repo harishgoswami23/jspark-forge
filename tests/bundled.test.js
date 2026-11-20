@@ -65,17 +65,6 @@ const emptyServerChecks = (s, name, mode) => {
 };
 const restoreEnv = (k, v) => { if (v === undefined) delete process.env[k]; else process.env[k] = v; };
 
-test('server mode starts the pinned package', () => {
-  const saved = process.env.JSPARK_FORGE_BUNDLED_CMD;
-  delete process.env.JSPARK_FORGE_BUNDLED_CMD;
-  try {
-    assert.deepEqual(bundled.command('codebase-memory').slice(-2), ['-y', 'codebase-memory-mcp@0.12.1']);
-    assert.deepEqual(bundled.command('playwright').slice(-2), ['-y', '@playwright/mcp@0.0.86']);
-    assert.deepEqual(bundled.command('playwright', ['--x']).slice(-3), ['-y', '@playwright/mcp@0.0.86', '--x']);
-    assert.equal(bundled.SERVERS['codebase-memory'].env, 'JSPARK_FORGE_CODE_MAP');
-    assert.equal(bundled.SERVERS.playwright.setting, 'playwright');
-  } finally { restoreEnv('JSPARK_FORGE_BUNDLED_CMD', saved); }
-});
 
 test('the override takes a JSON object and appends extra arguments', () => {
   const saved = process.env.JSPARK_FORGE_BUNDLED_CMD;
@@ -228,14 +217,6 @@ test('stopping the launcher ends it, and (outside Windows) the engine process to
     while (bundled.pidAlive(enginePid) && Date.now() < end) await new Promise(res => setTimeout(res, 50));
     assert.equal(bundled.pidAlive(enginePid), false, 'the engine process is gone');
   }
-});
-
-test('npxCommand never needs a shell: its first element is an existing file or "npx"', () => {
-  const c = bundled.npxCommand();
-  if (c === null) { assert.equal(process.platform, 'win32'); return; }
-  assert.ok(Array.isArray(c));
-  assert.ok(c[0] === 'npx' || fs.existsSync(c[0]), c[0]);
-  if (c.length === 2) { assert.equal(c[0], process.execPath); assert.ok(fs.existsSync(c[1]), c[1]); }
 });
 
 test('record and read: atomic, shape kept, merges per server, never throws', () => {

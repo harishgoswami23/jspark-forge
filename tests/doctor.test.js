@@ -167,6 +167,16 @@ for (const [label, name, pin, front] of [['Code map', 'codebase-memory', '0.12.1
   });
 }
 
+for (const [label, name, front] of [['Code map', 'codebase-memory', false], ['Playwright', 'playwright', true]]) {
+  test(`doctor: ${label} installing (first start) is ok and says to restart in a minute; an install failure is a FIX with the reason`, () => {
+    const dir = project(); if (front) withFront(dir);
+    let home = cfg(); writeRec(home, dir, { [name]: { mode: 'installing', startedAt: Date.now(), exit: null, pid: process.pid, project: key(dir) } });
+    assert.match(doctorOut(dir, home, noOff), new RegExp(`^ok\\s+${label}: the engine is being installed \\(first start\\); restart Claude Code in a minute$`, 'm'));
+    home = cfg(); writeRec(home, dir, { [name]: { mode: 'installing', startedAt: Date.now(), exit: { code: 1, at: 1, reason: 'npm error code E404' }, pid: process.pid, project: key(dir) } });
+    assert.match(doctorOut(dir, home, noOff), new RegExp(`^FIX\\s+${label}: the engine did not start \\(npm error code E404\\)\\. Fix: `, 'm'));
+  });
+}
+
 test('doctor: Playwright is off here when the project has no front end', () => {
   const dir = project(); const home = cfg();
   assert.match(doctorOut(dir, home, noOff), /^ok\s+Playwright: off here \(no front end in this project\)$/m);
