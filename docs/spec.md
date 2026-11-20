@@ -11,7 +11,7 @@ revision history in [`changelog.md`](changelog.md).
 Tags: **[owner]** decided by the owner; **[owner, 2026-11-03 review]** owner decision from the accepted review;
 **[builder]** builder's call; **[spike]** depends on a spike; **[coordinator]** proposed by the coordinator and
 accepted with the owner's decisions of that date; **[updated 2026-11-20: v0.5]** text brought in line with the
-released product; **[owner decision open, 2026-11-20]** the owner has not decided yet (listed in section 12).
+released product; **[owner decision open, …]** the owner has not decided yet (none open as of 2026-11-20; the answers are in section 12).
 
 ---
 
@@ -70,11 +70,10 @@ Claude remembers."* The pitch never asks the user to type a command (Claude Code
 6. **Freshness is mechanical.** Anything stored (map, decisions) is refreshed or flagged by hooks, with dates.
 7. **Soft coupling.** Other tools (superpowers, scanners, map engines) are detected and used if present, never
    required; any read failure is skipped silently and tested. [updated 2026-11-20: v0.5] The map engine now ships
-   with the plugin and can be switched off (5.4). [owner decision open, 2026-11-20] superpowers is today a required
-   dependency and the plugin does not load without it: either this principle and 5.9 say "required", or the
-   dependency is removed.
+   with the plugin and can be switched off (5.4). [owner 2026-11-20] superpowers is the one exception: it is required, installed with
+   JSPARK Forge as a declared dependency, and the plugin does not load without it (5.9).
 8. **Honest output.** No invented numbers, no "all clear". Estimates are marked as estimates.
-9. **Local-first, account-independent [owner 2026-11-03].** Nothing the project depends on may live only inside one Claude account or one session's temporary folder. Every page, mockup, dashboard, decision or handoff JSPARK Forge creates is written first as a file in the project (`.jspark-forge/` or the project's docs folder), committed where sensible; a published Artifact is only a *view* of that file, never the only copy. [updated 2026-11-20: v0.5] Claude is told this rule at every session start. When a page is published, JSPARK Forge keeps its file (the copy is made after the publish; a file from outside the project is copied into `.jspark-forge/artifacts/`) and lists it in `.jspark-forge/artifacts.md` with date, title, local file and link (no account: a hook cannot read the account); Claude tells the user the path. At session start a listed page whose local file has gone is flagged. What of this principle is built and what is not yet (the flag in `/jspark-forge:check`, pages and temp files that were never listed) is kept in [`spec-coverage.md`](spec-coverage.md). [owner decision open, 2026-11-20] `artifacts.md` and `artifacts/` are git-ignored today, so they exist on one machine only: either commit them ("committed where sensible"), or keep them local. Reason: a design approved on one account became unreadable after a login switch.
+9. **Local-first, account-independent [owner 2026-11-03].** Nothing the project depends on may live only inside one Claude account or one session's temporary folder. Every page, mockup, dashboard, decision or handoff JSPARK Forge creates is written first as a file in the project (`.jspark-forge/` or the project's docs folder), committed where sensible; a published Artifact is only a *view* of that file, never the only copy. [updated 2026-11-20: v0.5] Claude is told this rule at every session start. When a page is published, JSPARK Forge keeps its file (the copy is made after the publish; a file from outside the project is copied into `.jspark-forge/artifacts/`) and lists it in `.jspark-forge/artifacts.md` with date, title, local file and link (no account: a hook cannot read the account); Claude tells the user the path. At session start a listed page whose local file has gone is flagged. What of this principle is built and what is not yet (the flag in `/jspark-forge:check`, pages and temp files that were never listed) is kept in [`spec-coverage.md`](spec-coverage.md). [owner 2026-11-20] `artifacts.md` and `artifacts/` stay local: they are git-ignored and exist on one machine only. Build graph files are committed. Reason: a design approved on one account became unreadable after a login switch.
 10. **Short by default [owner 2026-11-03].** Every status, answer and explanation JSPARK Forge shows (and the instruction file asks Claude to give) leads with the answer, uses bullets or a table, keeps explanations to one line, and offers details only on request. Short never means missing: warnings, risks, decisions and blockers are always stated, one line each. Reason: users skip long paragraphs and miss what matters; shorter output also saves tokens now and on every later turn (history is re-read).
 11. **Store nothing JSPARK Forge can re-derive from the repo [owner 2026-11-03].** Specs, schema and architecture are
    indexed from their source files by the v0.3 map (5.4), never copied into memory. Users may still write whatever
@@ -151,7 +150,7 @@ branch, Claude's own notes. Enough to resume the work, not a map of the system. 
 - **Notes reminder [owner, 2026-11-03 review; Q5 decided]:** no Stop block. JSPARK Forge adds `additionalContext` "update
   your notes now" at the moments notes matter: PreToolUse of a `git commit`, and the 80 % usage band (and at
   compaction, see design 5.3). No extra turn.
-- `/jspark-forge:resume` loads **only** the handoff, never the log [owner]. Target: back to work < 30 s.
+- `/jspark-forge:resume` starts from the handoff and may also read the action log, Claude's notes and the other files the handoff names, whenever they add to it [owner 2026-11-20] (until then: only the handoff, never the log). Target: back to work < 30 s.
   [updated 2026-11-20: v0.5] At session start the log lines written after the last save are added (the gap a crash
   leaves), never the whole log.
 - Short-term only: when a task is closed, the handoff is archived (and from v0.2 its lasting lessons move into
@@ -392,9 +391,8 @@ as context **just before** Claude edits one of those files. It does not describe
   stored in cents — don't change that."*
 - **Staleness:** when a commit changes files in an entry's `touches:`, JSPARK Forge flags *"Decision #12 may be stale: still
   valid?"* (at most once per entry per day). Answer yes → `last verified` = today; no → the user edits or retires it.
-  [owner decision open, 2026-11-20] The product flags at most once per entry per week, and only entries recorded or
-  verified more than 14 days ago: either the code follows this text (once a day), or this text follows the code
-  (once a week).
+  [owner 2026-11-20] At most once per entry per day, and only entries recorded or verified more than 14 days ago
+  (the code flagged once a week until v0.5.1).
 - At SessionStart only an index of titles is loaded (≤ 150 words); full entries just in time.
 - **Reference entries [owner 2026-11-03]:** `kind: reference` is a pointer to a file (e.g. `prisma/schema.prisma`,
   `docs/arch.md`); injected as the pointer only, the file read on demand.
@@ -429,7 +427,7 @@ as context **just before** Claude edits one of those files. It does not describe
 `/jspark-forge:check` (memory check).
 **Hooks** PostToolUse (commit, plan accepted, plan file written), PreToolUse (Edit/Write/NotebookEdit just-in-time),
 SessionStart.
-**Limits** one-line decisions by default (long entries accepted, warned once); ≤ 3 injected per edit; stale flag once per entry per day (day or week: [owner decision open, 2026-11-20], see Staleness above); entries > 200 → JSPARK Forge
+**Limits** one-line decisions by default (long entries accepted, warned once); ≤ 3 injected per edit; stale flag once per entry per day [owner 2026-11-20]; entries > 200 → JSPARK Forge
 suggests archiving retired ones.
 **Failure modes** user skips everything → no memory, no nagging beyond the one prompt; `touches:` globs that match
 nothing → flagged at SessionStart; superpowers files unreadable → skipped silently.
@@ -628,9 +626,8 @@ Hidden command (never in the README top section).
 
 ### 5.9 superpowers integration [owner]
 
-- **[owner decision open, 2026-11-20] Required or optional:** this section says both "declared dependency" and
-  "works fully without it"; today superpowers is a required dependency and the plugin does not load without it.
-  Either the spec says "required" (and the last line below and principle 7 change), or the dependency is removed.
+- **Required [owner 2026-11-20].** superpowers is a required, declared dependency: it is installed with JSPARK Forge, and the
+  plugin does not load without it.
 - **Installed with JSPARK Forge [owner 2026-11-19, supersedes "recommend, don't bundle or install"]:** `plugin.json`
   declares `"dependencies": ["superpowers"]`, resolved against the JSPARK Forge marketplace, so installing JSPARK
   JSPARK Forge installs superpowers (tested: "+ 1 dependency: superpowers"). Nothing is copied. A user who already had it from
@@ -647,8 +644,8 @@ Hidden command (never in the README top section).
   review notes as decision-memory sources. **v0.1 already reads one file [owner 2026-11-19]:** the plan's progress
   ledger (`.superpowers/sdd/<plan>/progress.md`), so the handoff shows "Task 3 of 8" for superpowers users.
 - Reads defensively: if the layout changes or a read fails, skip that source silently (covered by a test).
-- JSPARK Forge works fully without it. [owner decision open, 2026-11-20] Not true today: without superpowers the
-  plugin does not load (see the first point of this section).
+- JSPARK Forge does not run without it [owner 2026-11-20]: Claude Code switches the plugin off when the dependency is missing,
+  and the install puts both in place.
 
 
 ### 5.10 Build graph (v0.4; planned "only if users ask", built at the owner's request [owner 2026-11-19]) [owner 2026-11-05: add; builder: runner]
@@ -950,7 +947,7 @@ strength of model does each job without the user choosing every time. Built with
   under `~/.claude/jspark-forge/guests/<repo-hash>/` (nothing written in a guest repo, 5.2b).
 - The project folder is **hidden**: `.jspark-forge/` [owner, 2026-11-03 review]; its own `.gitignore` ignores
   everything except `rules.md` (and the later committed files `decisions.md`, `launch.md`). The local page copies
-  (`artifacts.md`, `artifacts/`) are ignored today [owner decision open, 2026-11-20; principle 9].
+  (`artifacts.md`, `artifacts/`) stay local, on this machine only [owner 2026-11-20]; build graph files (`graphs/*.md`) are committed [owner 2026-11-20].
 - Windows: path normalisation, atomic rename retries, LF files. v0.1 matches Bash / Git Bash command forms (also
   when Claude Code runs them through the PowerShell tool); PowerShell command forms come in v0.1.1.
 
@@ -964,7 +961,7 @@ strength of model does each job without the user choosing every time. Built with
 | **v0.1 Resume + hooks** | Handoff + save triggers (no 10-minute trigger) + usage bridge + show-and-wait (instructed only) + notes reminder (`additionalContext`, no extra turn) + action log; grounding rule at SessionStart (5.1a); block list (Bash / Git Bash forms) + typed confirm + rules.md; helper rule injection only if spike C passes; every hook documented; demo GIF; Win/Mac/Linux | **~1 week (real build)** | **Ship gate [owner 2026-11-03]:** ships only when the kill-and-resume test passes on Windows, macOS and Linux (after spikes A–D); grounding rule present after startup/resume/compact; resume < 30 s on ~50k-line repo, measured on a cold machine; no file changed before the user answers; a `claude -p` run with a handoff present is never stalled; every published block has tests; uninstall/undo leaves the status line as before; `claude plugin validate --strict` passes | Back to work **< 2 min** after a cutoff with no re-explaining |
 | **v0.1.1** | **Waiting on you** list (5.2a); PowerShell command forms for the block list and write detection; ~~hook-enforced show-and-wait guard~~ (dropped 2026-11-19 after design review: it would release before the turn it guards; show-and-wait stays instructed, design-v0.1.1 section 1) (skipped in non-interactive runs); **guest mode + quarantine, readonly sources** (5.2b) | ~4–5½ days (base ~2–3 + Waiting on you ~1 + external code ~1–1½) | PowerShell forms have the same ≥ 5 positive / ≥ 5 negative tests per entry; guard never fires in a detected headless run; guest mode writes nothing inside the repo (file-tree diff test); `readonly-source` and `guest-quarantine` have ≥ 5 positive / ≥ 5 negative tests | as v0.1 |
 | **First user (gate) [owner 2026-11-20, revised]** | The owner is the first user: each release is used on the owner's real work before the next one starts; what the owner hits is fixed first. Build continues to v0.3 (owner: "I am the first user, so I need a complete product"); v0.4 is decided after v0.3 is in use. The outside launch (20–50 users: plugin directory, superpowers community, a short demo) follows v0.3 | Calendar time between releases | Measured without telemetry (principle 3): installs, GitHub issues and stars, direct replies | Users who come back after a cutoff in a second week |
-| **v0.2 Decision memory (the "why")** (the centrepiece [owner 2026-11-20]) | One-line decisions, rules and lessons with the files they touch; offered after a commit that may have settled a choice and after a plan; injected just before Claude edits a touched file (PreToolUse `additionalContext`); stale flags; last verified; `/jspark-forge:check` memory check (read-only unless confirmed); superpowers sources; `kind: reference` pointers; long-entry warning; 30-day flag for entries without `touches:`; local counts in `/jspark-forge:decisions`. Not a description of code structure. Plus (5.2b): migration mappings as decisions, licence check | ~4½–5 days | The offer appears after a commit that may have settled a choice and after an accepted plan, never silent, recorded only after the user's yes [updated 2026-11-20: as built]; editing a touched file injects the entry; changed touched files raise one flag/day (day or week: [owner decision open, 2026-11-20], 5.3); `/jspark-forge:check` changes nothing without confirmation; superpowers absence or layout change does not break anything (test); a reference entry injects only its pointer; an entry over ~80 words is accepted with one warning, never blocked; an entry without `touches:` is flagged at 30 days; `/jspark-forge:decisions` shows reference and long-entry counts; a knowledge-base request is logged with a count, not refused | Claude **does not break a past decision** |
+| **v0.2 Decision memory (the "why")** (the centrepiece [owner 2026-11-20]) | One-line decisions, rules and lessons with the files they touch; offered after a commit that may have settled a choice and after a plan; injected just before Claude edits a touched file (PreToolUse `additionalContext`); stale flags; last verified; `/jspark-forge:check` memory check (read-only unless confirmed); superpowers sources; `kind: reference` pointers; long-entry warning; 30-day flag for entries without `touches:`; local counts in `/jspark-forge:decisions`. Not a description of code structure. Plus (5.2b): migration mappings as decisions, licence check | ~4½–5 days | The offer appears after a commit that may have settled a choice and after an accepted plan, never silent, recorded only after the user's yes [updated 2026-11-20: as built]; editing a touched file injects the entry; changed touched files raise one flag/day [owner 2026-11-20], 5.3; `/jspark-forge:check` changes nothing without confirmation; superpowers absence or layout change does not break anything (test); a reference entry injects only its pointer; an entry over ~80 words is accepted with one warning, never blocked; an entry without `touches:` is flagged at 30 days; `/jspark-forge:decisions` shows reference and long-entry counts; a knowledge-base request is logged with a count, not refused | Claude **does not break a past decision** |
 | **v0.2 Skill and brief templates (5.11)** | Skill template (trigger description, numbered parts with input → action → output path, skip-if-exists, non-overwriting outputs, verification step with evidence) and brief template (`CAN`/`CANNOT`, `Done`, `Setup` handshake, fixed-schema log, bounded retries, tie-break, `Stop`, declared `Outputs`); lint; plugin + plain instruction file from one source | ~1 week | Lint rejects a skill or brief missing any required field; a skill run twice makes no second fetch and no overwrite; a brief log survives a killed session; plugin and plain file carry the same rules (diff test) | Every helper brief in a build is written from the template without re-explaining scope |
 | **v0.2.1 Database guard (5.2c)** | Production databases read-only unless CONFIRM db-write; MCP, Bash and PowerShell forms; `database dev:` line in the user's own `rules.md` | ~1–1½ days | ≥ 5 positive / ≥ 5 negative tests per form; a SELECT is never blocked; a dev line relaxes only its own server | No unconfirmed write reaches a production database |
 | **v0.3 Map (the "what and where") + scope guard** | **Thin layer on an existing engine (5.4, integrate, don't build [owner 2026-11-20])**: freshness ("as of <commit>"), schema from source files, links to decisions, on top of the engine's index. Codebase map: local index of files, symbols, routes and call relations, plus the schema source, kept fresh by the engine's own watcher as Claude edits and refreshed in the background after commits and when `HEAD` moved, queried instead of re-reading files, answers show "as of <commit>" (engine: codebase-memory-mcp, chosen after a Windows trial) [updated 2026-11-20: as built]; `/jspark-forge:check` extended to the map; `.jspark-forge/launch.md` via `/jspark-forge:launch`; scope facts; history-based range later; map of readonly sources (5.2b, built in v0.4.1). **Caveat:** a stale map is worse than none | ~1 week, **soft until the engine trial is done** (smaller: no engine is built) | File re-index never blocks the next tool call; map refresh < 10 s after commit on ~50k lines (or async with "as of"); answers always show last-refresh time; guard silent until launch.md exists; facts shown before any estimate; estimate only with ≥ 10 history items | **At least one feature shrunk or postponed** because the guard showed its cost |
@@ -1004,8 +1001,7 @@ strength of model does each job without the user choosing every time. Built with
   2026-11-03 review].
 - **Grounding-rule test (v0.1):** the rule text is in the injected context after `startup`, `resume` and `compact`.
 - **Soft-coupling test:** superpowers missing, present, and with a changed layout: JSPARK Forge keeps working.
-  [owner decision open, 2026-11-20] With superpowers as a required dependency the "missing" case cannot load the
-  plugin: either the test drops that case, or the dependency is removed (5.9).
+  [owner 2026-11-20] superpowers is required, so there is no "missing" case to test: the integration job installs it first.
 - **Template lint (v0.2):** skills and briefs missing a required field (trigger, verification, output path;
   `CAN`/`CANNOT`, `Done`, `Stop`, declared `Outputs`) are rejected before use; plugin and plain instruction file
   carry the same rules (5.11).
@@ -1050,7 +1046,7 @@ strength of model does each job without the user choosing every time. Built with
 
 | Area | Project | Role |
 |---|---|---|
-| How (method) | obra/superpowers (MIT) | Installed with JSPARK Forge as a declared dependency, nothing copied (5.9; required or optional: [owner decision open, 2026-11-20]) |
+| How (method) | obra/superpowers (MIT) | Installed with JSPARK Forge as a declared dependency, nothing copied (5.9; required [owner 2026-11-20]) |
 | Map | codebase-memory-mcp (MIT) | The engine: chosen in v0.3, installed pinned by JSPARK Forge from v0.5, never copied into this repo (5.4) [updated 2026-11-20: v0.5] |
 | Map | Serena (GPL app, MIT library per search); Graphify, CodeGraph (check) | Were trial candidates |
 | UI | frontend-design and Chrome DevTools MCP (Anthropic's plugin directory); Playwright MCP (`@playwright/mcp`); shadcn MCP (licences: check) | Added or shipped by JSPARK Forge, except shadcn, which is a manual tip (5.14) [updated 2026-11-20: v0.5] |
@@ -1088,12 +1084,12 @@ platforms without a workflow facility; Q19 graph file format (plain headings vs 
 2026-11-07: Q20 council quorum and tie rules (5.6); Q21 who signs a customer overlay (5.12); Q22 verification
 evidence format in the skill template (5.11).
 
-**Open owner decisions from the first spec-coverage check [owner decision open, 2026-11-20]** (marked in place; not
-yet numbered in `open-questions.md`):
-1. **superpowers: required or optional** (principle 7, 5.9, section 8). Today it is a required dependency and the
-   plugin does not load without it. Options: the spec says "required", or the dependency is removed.
-2. **Stale-decision flags: day or week** (5.3). The spec and design-v0.2 say at most once per entry per day; the
-   code flags once a week, and only entries recorded or verified over 14 days ago. Options: day, or week.
-3. **Local page copies: committed or local** (principle 9, section 6). `.jspark-forge/artifacts.md` and
-   `artifacts/` are git-ignored today, so they exist on one machine only. Options: commit them ("committed where
-   sensible"), or keep them local.
+**Owner decisions after the first spec-coverage check [owner 2026-11-20]** (applied in place):
+1. **superpowers is required** (principle 7, 5.9, section 8): a declared dependency, installed with JSPARK Forge.
+2. **Stale-decision flags: at most once per entry per day** (5.3), with the 14-day grace; the code follows from v0.5.1.
+3. **Local copies of published pages stay local** (principle 9, section 6): `.jspark-forge/artifacts.md` and
+   `artifacts/` are not committed.
+4. **Build graph files are committed** (5.10, section 6): `.jspark-forge/graphs/*.md`; their run state stays local.
+5. **Resume may read more than the handoff** (5.1): the action log, Claude's notes and the other files the handoff
+   names, whenever they add to it.
+6. The v0.5 row's acceptance criteria and success metric (section 7) are accepted as written.

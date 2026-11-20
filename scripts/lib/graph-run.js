@@ -114,6 +114,7 @@ function check(dir, n) {
 }
 
 function start(dir, n, sid) {
+  if (paths.isOwn(dir)) { try { require('./setup').shareGraphs(dir); } catch { /* fail open */ } } // graphs are committed (owner 2026-11-20)
   if (!paths.isOwn(dir)) return 'Build graphs are off in a repo you are reviewing.\n';
   const L = load(dir, n);
   if (L.error) return `${L.error}\n`;

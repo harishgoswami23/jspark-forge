@@ -16,7 +16,21 @@ const companions = require('./companions');
 const { writeAtomic } = require('./fsx');
 
 
-const GITIGNORE = '*\n!.gitignore\n!rules.md\n!launch.md\n'; // launch.md is shared (design-v0.3 2.1)
+// launch.md is shared (design-v0.3 2.1); so are the build graph files (owner 2026-11-20; their run state stays local).
+const GRAPH_LINES = ['!graphs/', '!graphs/*.md'];
+const GITIGNORE = `*\n!.gitignore\n!rules.md\n!launch.md\n${GRAPH_LINES.join('\n')}\n`;
+// A project set up before v0.5.1: add the graph lines to its .jspark-forge/.gitignore (in the file's own line ending).
+function shareGraphs(dir) {
+  const g = path.join(paths.repoForgeDir(dir), '.gitignore');
+  try {
+    const t = fs.readFileSync(g, 'utf8');
+    const have = new Set(t.split(/\r?\n/).map(l => l.trim()));
+    const add = GRAPH_LINES.filter(l => !have.has(l));
+    if (!add.length) return;
+    const eol = /\r\n/.test(t) ? '\r\n' : '\n';
+    fs.writeFileSync(g, `${t.replace(/\s*$/, eol)}${add.join(eol)}${eol}`);
+  } catch { /* no .gitignore: nothing hides the files */ }
+}
 const claudeHome = () => process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
 const readJson = f => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return null; } };
 
@@ -254,4 +268,4 @@ function machineMessages(home = claudeHome()) {
 }
 
 module.exports = { ensureProject, touchGuest, writeGuest, decide, git, startBudget, SETUP_BUDGET_MS, cleanOrigin, guestMessage, GUEST_DATA_LINE, machineMessages, inGitProject,
-  superpowersInstalled, claudeHome, ON_MESSAGE, SUPERPOWERS_TIP, GITIGNORE };
+  superpowersInstalled, claudeHome, ON_MESSAGE, SUPERPOWERS_TIP, GITIGNORE, shareGraphs };

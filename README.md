@@ -235,7 +235,7 @@ program wrongly (a false positive): allow it, or switch the code map off.
 
 - **Each git project switches on by itself** the first time you open Claude Code in it: a hidden `.jspark-forge/`
   folder appears. Commit `rules.md`, `decisions.md`, `launch.md` and `.gitignore` to share them; everything else
-  (handoff, log, build graphs and their state) stays local and git-ignored. Old archived handoffs and the files of
+  (handoff, log, the state of a running build graph, local copies of published pages) stays local and git-ignored. Build graph files (`graphs/*.md`) are shared too. Old archived handoffs and the files of
   repos you reviewed are cleared after 30 days. Folders that are not git projects are left alone.
 - **Two switches** under `## Settings` in `rules.md`: `- notes: off` stops the "add a note" reminder before commits;
   `- statusline-segment: off` hides JSPARK Forge's part of the status line.
@@ -282,7 +282,7 @@ guidance, not a lock: superpowers chooses a model for each helper it starts.
 ## Build graphs (long builds that survive a cutoff)
 
 Write a build once as steps in `.jspark-forge/graphs/<name>.md` (start from a template: software, documents, spike or
-ui; graphs stay local to your machine): which helper does each step, what it hands to the next, which steps run side by side, which checks must
+ui; commit the graph file to share it, its run state stays on your machine): which helper does each step, what it hands to the next, which steps run side by side, which checks must
 pass, and where you must act. `/jspark-forge:build <name>` runs it; JSPARK Forge keeps the record, so a crash, a usage
 limit or a new session picks up at the running step.
 

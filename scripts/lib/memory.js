@@ -167,7 +167,7 @@ function noteCommit(dir, sess, lc) {
     for (const e of entries) {
       if (n >= 2) break;
       const v = Date.parse(e.lastVerified || e.date);
-      if (!e.touches.length || !Number.isFinite(v) || v > grace || Date.now() - (Date.parse(st.flags[e.id]) || 0) < 7 * 86400000) continue; // once a week at most
+      if (!e.touches.length || !Number.isFinite(v) || v > grace || st.flags[e.id] === day) continue; // at most once per entry per day (spec 5.3; owner 2026-11-20)
       const hit = rels.slice(0, MAX_FILES).find(r => score(e, r) > 0);
       const file = hit && clean(hit, 80);
       if (!file) continue;
