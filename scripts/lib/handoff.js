@@ -381,7 +381,8 @@ function summary(meta) {
 }
 
 // -> { systemMessage: string|null, context: string }
-function resumeContext(dir, sid, source, now = new Date()) {
+// opts.skipSince: the crash check shows the lines logged after the last save, so they are not shown twice.
+function resumeContext(dir, sid, source, now = new Date(), opts = {}) {
   const parts = [grounding()];
   const msgs = [];
   const h = openHandoff(dir);
@@ -409,7 +410,7 @@ function resumeContext(dir, sid, source, now = new Date()) {
       }
       parts.push(h.text);
       let since = [];
-      try { since = sinceSave(dir, h.meta.savedAt); } catch { /* fail open */ }
+      try { if (!opts.skipSince) since = sinceSave(dir, h.meta.savedAt); } catch { /* fail open */ }
       if (since.length) parts.push(`JSPARK Forge: after that save the log shows more work (the session was cut off before its next save); count it as part of where the work stands: ${since.join(' · ')}`);
       parts.push(WAIT_LINE);
       if (branchNote) parts.push(`JSPARK Forge: ${branchNote}`);
@@ -450,4 +451,4 @@ function pruneArchive(dir, now = new Date()) {
 }
 
 module.exports = { render, taskFields, parseNotes, save, hasWork, resumeContext, archive, pruneArchive, notesLine, grounding, shortRule, isUserPrompt, sinceSave,
-  logEntries, pairHealth, openHandoff, hhmm };
+  logEntries, pairHealth, openHandoff, logOnlyContext, hhmm };

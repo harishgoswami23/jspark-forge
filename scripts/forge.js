@@ -31,6 +31,7 @@ const artifacts = require('./lib/artifacts'); // spec principle 9: a published p
 const uiskills = require('./lib/uiskills'); // v0.5: Claude and its helpers load the design and brand skills before UI work
 const launch = require('./lib/launch'); // launch-scope guard (design-v0.3 section 2)
 const inflight = require('./lib/inflight'); // v0.5.1 crash recovery: calls started and not yet finished
+const crashLib = require('./lib/crash'); // v0.5.1 crash recovery: the check at the next start
 
 const event = process.argv[2] || '';
 const DEBOUNCE_MS = 5000;
@@ -262,7 +263,11 @@ const handlers = {
       offerAfterCompact = offerContext(dir, input, sess);
       state.writeSession(dir, input.session_id, sess);
     }
-    const rc = handoff.resumeContext(dir, input.session_id, input.source || 'startup');
+    // v0.5.1 crash recovery: another session of this project was cut off (not at compact or clear: the conversation goes on).
+    let crashInfo = null;
+    try { if (input.source === 'startup' || input.source === 'resume') crashInfo = crashLib.check(dir, input.session_id, { mark: true }); } catch { /* fail open */ }
+    const rc = handoff.resumeContext(dir, input.session_id, input.source || 'startup', new Date(), { skipSince: !!crashInfo });
+    if (crashInfo) { rc.context = `${rc.context}\n\n${crashInfo.block}`; msgs.unshift(crashInfo.userLine); }
     if (offerAfterCompact) rc.context = `${rc.context}\n\n${offerAfterCompact}`;
     try { // short by default (spec principle 10): like the grounding rule, at every start, compact included; own and guest alike
       const sr = rules.settings['short-answers'] === 'off' ? null : handoff.shortRule();
@@ -752,6 +757,16 @@ function cliShow(args) {
   if (!dir) { process.stdout.write(NOT_SET_UP); return; }
   const f = path.join(paths.forgeDir(dir), 'handoff.md');
   let text = fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : 'No handoff saved yet in this project.\n';
+  try { // v0.5.1: a damaged newest save shows the one before it; both damaged shows what the log holds
+    const h = handoff.openHandoff(dir);
+    const mdBad = !fs.existsSync(f) || !text.trim() || text.includes('\0'); // an intact handoff.md is shown as it is
+    if (h && h.damaged && mdBad) text = `Note: the newest save was damaged (a crash can do that); the one before it is shown. Later work may be missing; check the log and git status.\n\n${h.text}\n`;
+    else if (h && h.fromLog && mdBad) { const lc = handoff.logOnlyContext(dir); if (lc) text = `${lc}\n`; }
+  } catch { /* fail open */ }
+  try { // v0.5.1: a session cut off and not yet handled: the same crash check the start shows (nothing is marked here)
+    const c = crashLib.check(dir, process.env.CLAUDE_CODE_SESSION_ID);
+    if (c) text = `${text}${text.endsWith('\n') ? '' : '\n'}\n${c.block}\n`;
+  } catch { /* fail open */ }
   const i = (args || []).indexOf('--log');
   if (i >= 0) {
     const given = parseInt((args[i + 1] || ''), 10);
