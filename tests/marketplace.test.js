@@ -38,3 +38,11 @@ test('JSPARK Forge declares superpowers as a dependency, so installing one insta
   assert.deepEqual(p.dependencies, ['superpowers'], 'bare name: resolved against our own marketplace');
   assert.deepEqual(byName('jspark-forge').dependencies, ['superpowers'], 'marketplace entry matches plugin.json');
 });
+
+test('v0.4.2: the version is set once, in plugin.json (Claude Code docs: not in both plugin.json and the marketplace entry)', () => {
+  const p = JSON.parse(fs.readFileSync(path.join(ROOT, '.claude-plugin', 'plugin.json'), 'utf8'));
+  const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+  assert.match(p.version, /^\d+\.\d+\.\d+$/);
+  assert.equal(pkg.version, p.version, 'package.json follows plugin.json');
+  assert.equal(byName('jspark-forge').version, undefined, 'no version in the marketplace entry');
+});

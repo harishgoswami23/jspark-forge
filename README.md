@@ -192,6 +192,11 @@ Code starts (*"JSPARK Forge is off: it needs Node.js 18 or newer…"*) instead o
 /plugin install jspark-forge --marketplace harishgoswami23/jspark-forge
 ```
 
+Then **turn on updates, once**: type `/plugin`, open the **Marketplaces** tab, choose **jspark-forge** and turn on
+auto-update. Claude Code updates plugins from Anthropic's own directory by itself, but from any other marketplace only
+when you turn this on (a marketplace cannot do it for you). After that, each new JSPARK Forge version loads the next
+time Claude Code starts. If you skip it, JSPARK Forge reminds you once.
+
 That is all. superpowers comes with it, and there is no setup step:
 
 - **Each git project switches on by itself** the first time you open Claude Code in it: a hidden `.jspark-forge/`

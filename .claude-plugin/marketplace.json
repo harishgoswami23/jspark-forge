@@ -11,7 +11,6 @@
       "name": "jspark-forge",
       "source": "./",
       "description": "Resume after a crash, logout or limit. Rules enforced by hooks.",
-      "version": "0.4.1",
       "category": "development",
       "dependencies": [
         "superpowers"

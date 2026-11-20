@@ -156,6 +156,18 @@ function superpowersInstalled(home) {
 const SUPERPOWERS_TIP = 'Tip (shown once): JSPARK Forge works best with superpowers (https://github.com/obra/superpowers) for ' +
   'planning, tests first and reviews. Install it with: /plugin install superpowers@jspark-forge . Optional; JSPARK Forge never needs it.';
 
+// v0.4.2: Claude Code does not auto-update plugins from third-party marketplaces by default, and a marketplace cannot
+// switch it on for its users (Claude Code docs, plugins: "Keep plugins updated"). When JSPARK Forge came from its
+// marketplace and auto-update is off, say once how to turn it on. known_marketplaces.json is only read.
+function autoUpdateOff(home) {
+  const known = readJson(path.join(home, 'plugins', 'known_marketplaces.json'));
+  const m = known && typeof known === 'object' ? known['jspark-forge'] : null;
+  return !!m && typeof m === 'object' && m.autoUpdate !== true;
+}
+const AUTO_UPDATE_TIP = 'Tip (shown once): Claude Code does not update plugins from the jspark-forge marketplace by ' +
+  'itself. To get new JSPARK Forge versions automatically: type /plugin, open the Marketplaces tab, choose ' +
+  'jspark-forge and turn on auto-update. New versions then load the next time Claude Code starts.';
+
 // A wrapper copy installed by an older JSPARK Forge is replaced by the plugin's current one (it must know about guest
 // folders). Only when JSPARK Forge installed it (statusline.json is there); never touches settings.json.
 function refreshWrapper(home) {
@@ -236,6 +248,11 @@ function machineMessages(home = claudeHome()) {
   if (!st.superpowersSuggested && !superpowersInstalled(home)) {
     msgs.push(SUPERPOWERS_TIP);
     st.superpowersSuggested = true;
+    changed = true;
+  }
+  if (!st.autoUpdateTip && autoUpdateOff(home)) {
+    msgs.push(AUTO_UPDATE_TIP);
+    st.autoUpdateTip = true;
     changed = true;
   }
   if (changed) {

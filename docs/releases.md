@@ -20,6 +20,7 @@ that date; **[spike]** depends on a spike. Spike results override review decisio
 | v0.3 | Codebase map as a thin layer on an existing engine (integrate, don't build): freshness, schema from source files, links to decisions; launch-scope guard; map of readonly sources | ~1 week, **soft** |
 | v0.4 | Build graph: a build as a fixed graph of nodes, saved after every node, resumed on the running node (spec 5.10) | ~1½–2 weeks, **soft** |
 | v0.4.1 | Map of readonly sources ("where is X in the old code?"), promised for v0.3 and missed; open questions brought up to date | ~½ day |
+| v0.4.2 | Updates without a command: install steps turn on auto-update, a once-per-machine tip when it is off; version set in `plugin.json` only | ~1 hour |
 | Later, only if asked | Security review prompts (incl. council mode), `/capacity`, dashboard (incl. git view), `/jspark-forge:review`, migration mode, customer edition, secrets by name, limit handover (spec 5.6–5.8a, 5.12, 5.13) | not estimated |
 | **Total to v0.3** | | ~4–4½ weeks of build after v0.1.1, plus ~2 weeks of feedback, **soft** (v0.4 ~1½–2 weeks more, only if asked) |
 
