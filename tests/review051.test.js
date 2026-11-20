@@ -214,3 +214,21 @@ test('8: graph start of a graph that does not exist leaves .jspark-forge/.gitign
   cli(dir, ['graph', 'start', 'no-such-graph']);
   assert.ok(Buffer.compare(before, fs.readFileSync(g)) === 0);
 });
+
+// The reply's shape is not documented: a publish with a real file is kept even when no link can be read from it
+// (v0.5.0 did this; the first fix for finding 4 dropped it).
+test('4: a publish with a real source file is kept even when the reply has no link', () => {
+  const fs2 = require('node:fs'); const os2 = require('node:os'); const path2 = require('node:path');
+  const { execFileSync, spawnSync } = require('node:child_process');
+  const dir = fs2.mkdtempSync(path2.join(os2.tmpdir(), 'forge-r51-nolink-'));
+  execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: dir });
+  fs2.mkdirSync(path2.join(dir, '.jspark-forge', 'state'), { recursive: true });
+  require('../scripts/lib/paths').markOwn(dir);
+  const src = path2.join(fs2.mkdtempSync(path2.join(os2.tmpdir(), 'forge-r51-src-')), 'plan.html');
+  fs2.writeFileSync(src, '<html><head><title>Plan</title></head><body>x</body></html>');
+  spawnSync(process.execPath, [path2.join(__dirname, '..', 'scripts', 'forge.js'), 'PostToolUse'], { encoding: 'utf8',
+    input: JSON.stringify({ session_id: 's1', cwd: dir, hook_event_name: 'PostToolUse', tool_name: 'Artifact', tool_input: { file_path: src }, tool_response: { ok: true } }),
+    env: Object.assign({}, process.env, { CLAUDE_PROJECT_DIR: dir, JSPARK_FORGE_AUTO_STATUSLINE: 'off', JSPARK_FORGE_AUTO_SETUP: 'off' }) });
+  assert.ok(fs2.existsSync(path2.join(dir, '.jspark-forge', 'artifacts', 'plan.html')), 'the copy is kept');
+  assert.match(fs2.readFileSync(path2.join(dir, '.jspark-forge', 'artifacts.md'), 'utf8'), /Plan \| \.jspark-forge\/artifacts\/plan\.html \| no link recorded/);
+});

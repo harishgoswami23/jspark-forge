@@ -56,9 +56,14 @@ function publish(dir, toolInput, toolResponse, now = new Date()) {
   try {
     const ti = toolInput || {};
     if ((ti.action && ti.action !== 'publish') || ti.asset) return null;
-    const url = linkOf(toolResponse);
-    if (!url) return null;
-    const unkept = () => ({ text: recordUnkept(dir, ti, url, now), kept: null, unkept: url });
+    const link = linkOf(toolResponse);
+    // A publish with a real source file is kept even when no link can be read from the reply (the reply's shape is not
+    // documented): losing the copy is the worse mistake. With no link and no file there is no sign of a publish.
+    let hasFile = false;
+    try { hasFile = !!ti.file_path && fs.statSync(path.resolve(String(ti.file_path))).isFile(); } catch { /* no file */ }
+    if (!link && !hasFile) return null;
+    const url = link || 'no link recorded';
+    const unkept = () => (link ? { text: recordUnkept(dir, ti, url, now), kept: null, unkept: url } : null);
     try {
       if (!ti.file_path) return unkept();
       const src = path.resolve(String(ti.file_path));
