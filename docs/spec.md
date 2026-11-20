@@ -278,6 +278,11 @@ migrating from an old system kept next to the new one.
 
 **v0.3 additions [owner 2026-11-03]**
 - The codebase map can index readonly sources: *"where is X in the old code?"* (separate index, marked "old code").
+  **Built in v0.4.1** (missed in v0.3, found in the 2026-11-20 backlog review): the engine indexes each source as its
+  own project; JSPARK Forge records which project is which source and the source's commit, labels answers "old code",
+  says when the old code changed since its index, and lists sources at session start, in `map status` and in
+  `/jspark-forge:check`. No background refresh: the source is never edited by Claude, so a re-index is asked for only
+  when its commit moved.
 
 **Cut to "Later, only if asked" [owner 2026-11-03; principle 12]:** `/jspark-forge:review` (use / borrow / avoid
 verdict report) and migration mode (inventory, parity plan, cutover checklist, sign-off, `migration.md`). See 5.8a.

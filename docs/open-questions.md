@@ -3,6 +3,19 @@
 Most important first. Each has a recommendation; a "yes" to the recommendation is enough. Q1, Q5 and Q8 were
 decided by the owner on 2026-11-03 (external review); numbering is unchanged.
 
+**Status after v0.4.0 (2026-11-20), checked against the code.** The builds settled most of these:
+- **Built as recommended:** Q3 (Node.js 18 or newer required, checked by `/jspark-forge:doctor`), Q4 (the handoff
+  is not committed: `.jspark-forge/.gitignore` keeps only `rules.md`, `launch.md` and `decisions.md`), Q6 (`CONFIRM`
+  then Claude Code's yes/no prompt), Q15 and Q16 (guest state outside the repo, removed after 30 days unused), Q17
+  (package runners such as `npx` and `uvx` are quarantined in a guest repo), Q19 (plain Markdown headings with a few
+  `- key: value` lines per step), Q22 (`forge.js lint` requires an `Evidence:` line in the Verify part).
+- **Built differently:** Q9 (the status line is added automatically, once per machine, only when you have none; your
+  own status line is never touched, a one-time tip explains the choice; `/jspark-forge:init --undo-statusline`
+  undoes it), Q10 (JSPARK Forge's own hooks plus a catch-up at session start; no git hook is offered), Q12 (handoffs
+  older than 30 days are archived).
+- **Still open, for the "later, only if asked" pieces or for launch:** Q11 (dashboard), Q13 (usage statistics: none so
+  far), Q14 (demo GIF still to record), Q18, Q20, Q21. Q2 and Q7 stand as decided or recommended.
+
 ### Q1. [Decided] The `/resume` name clashes with Claude Code's own `/resume`
 Claude Code already has a built-in `/resume` (it reopens a past conversation). Plugin commands are namespaced, so
 ours is `/jspark-forge:resume`. The pitch "type `/resume`" would open the built-in picker instead.

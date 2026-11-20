@@ -391,3 +391,92 @@ test('low: after a compaction the changed-file list is sent again', () => {
   hook(dir, 'SessionStart', { source: 'compact' });
   assert.match(mapAnswer(dir), /src\/a\.js/);
 });
+
+// ---------- v0.4.1: map of readonly sources (spec 5.2b: "where is X in the old code?", separate index, "old code") ----------
+const IDX = 'mcp__codebase-memory__index_repository';
+function withLegacy({ git = true } = {}) {
+  const dir = project();
+  const legacy = path.join(path.dirname(dir), `${path.basename(dir)}-legacy`);
+  fs.mkdirSync(path.join(legacy, 'src'), { recursive: true });
+  fs.writeFileSync(path.join(legacy, 'src', 'old.js'), 'function oldTotal () {}\n');
+  if (git) {
+    const g = (...a) => execFileSync('git', a, { cwd: legacy, stdio: 'ignore' });
+    g('init', '-q', '-b', 'main'); g('config', 'user.email', 'me@example.com'); g('config', 'user.name', 'me');
+    g('add', '-A'); g('commit', '-qm', 'old start');
+  }
+  fs.writeFileSync(path.join(dir, '.jspark-forge', 'rules.md'), `## Sources\n- readonly: ../${path.basename(legacy)} : migrating from\n`);
+  return { dir, legacy, rel: `../${path.basename(legacy)}`, project: `P-${path.basename(legacy)}` };
+}
+const indexed = (t, repo) => hook(t.dir, 'PostToolUse', { tool_name: IDX, tool_input: { repo_path: repo || t.legacy },
+  tool_response: [{ type: 'text', text: `{"project":"${t.project}","nodes":3,"edges":1,"status":"indexed"}` }] });
+const oldAnswer = (t, extra) => ctxOf(hook(t.dir, 'PostToolUse', { tool_name: TOOL, tool_input: { name_pattern: 'oldTotal', project: t.project },
+  tool_response: 'results: 1\n  src/old.js 1-1' }, extra));
+
+test('v0.4.1: indexing a readonly source records it as old code, apart from this project\'s map', () => {
+  const t = withLegacy();
+  indexed(t);
+  const st = mapState(t.dir);
+  assert.ok(!st.sha, 'this project\'s map is not marked indexed');
+  const src = Object.values(st.sources || {})[0];
+  assert.equal(src.project, t.project);
+  assert.equal(src.sha, sh(t.legacy, 'rev-parse', 'HEAD'));
+  assert.equal(src.path, t.rel);
+});
+
+test('v0.4.1: a map answer from the old code is labelled "old code", with its commit, and never edited', () => {
+  const t = withLegacy();
+  indexed(t);
+  const c = oldAnswer(t);
+  const short = sh(t.legacy, 'rev-parse', '--short=7', 'HEAD');
+  assert.ok(c.includes(`old code: the readonly source ${t.rel} (as of ${short}`), c);
+  assert.match(c, /Say "old code" when you use it/);
+  assert.match(c, /never edit/);
+  assert.ok(!/Code map current|not been indexed/.test(c), 'not this project\'s freshness line');
+});
+
+test('v0.4.1: old code that changed since its index is said, with the one call that re-indexes it', () => {
+  const t = withLegacy();
+  indexed(t);
+  commit(t.legacy, 'src/new.js', 'x', 'old change');
+  const c = oldAnswer(t);
+  assert.match(c, /changed since it was indexed/);
+  assert.ok(c.includes(`index_repository with repo_path "${t.legacy.split(path.sep).join('/')}"`), c);
+});
+
+test('v0.4.1: a readonly source that is not a git repo: indexed, with the time, and no claim about changes', () => {
+  const t = withLegacy({ git: false });
+  indexed(t);
+  const c = oldAnswer(t);
+  assert.match(c, /old code: the readonly source .* \(indexed \d{4}-\d\d-\d\d \d\d:\d\d; not a git repo/);
+});
+
+test('v0.4.1: session start lists readonly sources once the map is on: not indexed yet (with the call) or as of', () => {
+  const t = withLegacy();
+  switchOn(t.dir);
+  const before = ctxOf(hook(t.dir, 'SessionStart', {}));
+  assert.match(before, /readonly source .* not indexed: for "where is X in the old code\?", call index_repository with repo_path "/);
+  indexed(t);
+  const after = ctxOf(hook(t.dir, 'SessionStart', { session_id: 'map-2' }));
+  assert.ok(after.includes(`readonly source ${t.rel}: old code indexed as of ${sh(t.legacy, 'rev-parse', '--short=7', 'HEAD')}`), after);
+  const off = withLegacy();
+  assert.ok(!/readonly source/.test(ctxOf(hook(off.dir, 'SessionStart', {}))), 'silent while the map layer is off');
+});
+
+test('v0.4.1: map status and /check show readonly sources; /check asks to re-index changed old code', () => {
+  const t = withLegacy();
+  switchOn(t.dir);
+  indexed(t);
+  const status = () => spawnSync(process.execPath, [FORGE, 'map', 'status'], { cwd: t.dir, encoding: 'utf8', env: envFor(t.dir) }).stdout;
+  assert.match(status(), /Old code \(readonly source .*\): indexed as of [0-9a-f]{7}/);
+  commit(t.legacy, 'src/new.js', 'x', 'old change');
+  assert.match(status(), /Old code \(readonly source .*\): changed since indexed/);
+  const check = spawnSync(process.execPath, [FORGE, 'check'], { cwd: t.dir, encoding: 'utf8', env: envFor(t.dir) }).stdout;
+  assert.match(check, /old code .* changed since it was indexed/);
+});
+
+test('v0.4.1: an answer naming a project that is neither this one nor a readonly source keeps the usual line', () => {
+  const t = withLegacy();
+  indexed(t);
+  const c = ctxOf(hook(t.dir, 'PostToolUse', { tool_name: TOOL, tool_input: { name_pattern: 'x', project: 'P-other' }, tool_response: 'none' }));
+  assert.ok(!/old code/.test(c));
+});
