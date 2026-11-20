@@ -102,6 +102,28 @@ function otherProjects(dir, absPaths) {
   return out;
 }
 
+// v0.5.1 (spec principle 9): an html, md or pdf file that Claude writes in the OS temp folder or a scratchpad folder,
+// outside the project, can vanish. One line per file per session (kept in sess.tempWarned). Cheap: the tool name and
+// the extension are checked first. Mutates sess; -> text or null.
+const TEMP_EXT = /\.(html?|md|pdf)$/i;
+function tempFileNote(dir, t, ti, sess) {
+  try {
+    if ((t !== 'Edit' && t !== 'Write') || !ti.file_path || !TEMP_EXT.test(String(ti.file_path))) return null;
+    const abs = path.resolve(toFs(String(ti.file_path)));
+    const under = (base, p) => { const r = path.relative(base, p); return r !== '' && !r.startsWith('..') && !path.isAbsolute(r); };
+    if (under(dir, abs)) return null; // anything inside the project, its forge folder included
+    const key = process.platform === 'win32' ? abs.toLowerCase() : abs;
+    const roots = [os.tmpdir()];
+    try { roots.push(fs.realpathSync.native(os.tmpdir())); } catch { /* as given */ }
+    const temp = roots.some(b => under(b, abs)) || abs.split(/[\\/]/).some(seg => seg.toLowerCase() === 'scratchpad');
+    if (!temp) return null;
+    const warned = Array.isArray(sess.tempWarned) ? sess.tempWarned : [];
+    if (warned.includes(key)) return null;
+    sess.tempWarned = warned.concat(key).slice(-50);
+    return `JSPARK Forge: ${abs.replace(/\\/g, '/')} is in a temporary folder and can vanish. If the user will need it, save it in the project and give them that path.`;
+  } catch { return null; }
+}
+
 const branchOf = dir => git.headBranch(dir) || ''; // read from .git/HEAD, no git process
 // quarantine: only in a guest repo after /jspark-forge:init --guest (one small file read, no git).
 const blockCtx = (dir, rules) => ({ projectDir: dir, home: os.homedir(), rules, branchOf,
@@ -467,10 +489,13 @@ const handlers = {
     if (!reason && now - sess.lastSaveAt >= WORKING_MS) reason = 'working';
     const offer = offerContext(dir, input, sess);
     if (offer) sessDirty = true;
+    const tempNote = tempFileNote(dir, t, ti, sess); // v0.5.1: a file in a temp folder can vanish
+    if (tempNote) sessDirty = true;
     if (sessDirty) state.writeSession(dir, sid, sess);
     if (taskDirty) state.writeTask(dir, task);
     if (reason) doSave(dir, sid, reason, lines);
-    return { lines, out: offer ? context('PostToolUse', offer) : null };
+    const text = [offer, tempNote].filter(Boolean).join('\n\n');
+    return { lines, out: text ? context('PostToolUse', text) : null };
   },
 
   PostToolUseFailure(dir, input) {
@@ -711,6 +736,8 @@ const cliMemory = fn => args => {
   if (fn === 'check') { // the code map's state too (design-v0.3 1.5)
     const ml = mapLayer.checkLines(dir);
     if (ml.length) out += `\n${ml.map(l => `- ${l}`).join('\n')}\n`;
+    const am = paths.isOwn(dir) ? artifacts.checkLines(dir) : []; // pages whose local copy has gone or was never kept (principle 9)
+    if (am.length) out += `\n${am.map(l => `- ${l}`).join('\n')}\n`;
   }
   process.stdout.write(out);
 };
