@@ -647,7 +647,9 @@ const handlers = {
     const parts = [handoff.grounding()];
     try { if (paths.isGuest(dir)) parts.push(setup.GUEST_DATA_LINE); } catch { /* fail open */ }
     try { const ui = uiskills.helperLine(dir, input.agent_type); if (ui) parts.push(ui); } catch { /* fail open */ }
-    return { lines: [['AGENT+', input.agent_type || '']], out: context('SubagentStart', parts.join('\n\n')) };
+    let tier = null; // the model map: the tier shows when one of JSPARK Forge's four helpers starts (spec 815-821)
+    try { tier = require('./lib/tiers').tierOfAgent(input.agent_type); } catch { /* fail open */ }
+    return { lines: [['AGENT+', `${input.agent_type || ''}${tier ? ` (${tier})` : ''}`]], out: context('SubagentStart', parts.join('\n\n')) };
   },
 
   // v0.5.1: a sign-in completed during the session (the account may have changed). A hook cannot see which account is
