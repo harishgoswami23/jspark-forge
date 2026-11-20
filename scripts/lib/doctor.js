@@ -150,6 +150,7 @@ function checkBundled(home, dir) {
     const s = bundled.SERVERS[name];
     if (mode === 'off') out.push(['ok', `${label}: off by your choice`]);
     else if (mode === 'no-frontend') out.push(['ok', 'Playwright: off here (no front end in this project)']);
+    else if (mode === 'node-too-old') out.push(['ok', `Playwright: off here (it needs Node.js 20 or newer; you have ${process.versions.node})`]);
     else if (!r || typeof r !== 'object') out.push(['FIX', `${label}: the engine has not started. Fix: restart Claude Code; if it stays, update Claude Code.`]);
     else if (r.exit) out.push(['FIX', `${label}: the engine did not start (${String(r.exit.reason || `exit code ${r.exit.code}`)}). Fix: check the network and that antivirus has not quarantined it, then restart Claude Code.`]);
     else if (r.mode !== 'run' || !bundled.pidAlive(r.pid)) out.push(['FIX', `${label}: the engine is not running in this session. Fix: restart Claude Code; if it stays, run /mcp and check that the jspark-forge servers are on.`]);

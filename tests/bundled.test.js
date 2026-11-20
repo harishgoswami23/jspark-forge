@@ -12,6 +12,8 @@ const { spawn, spawnSync } = require('node:child_process');
 const ROOT = path.join(__dirname, '..');
 const bundled = require('../scripts/lib/bundled');
 const uitip = require('../scripts/lib/uitip');
+// Playwright's pin needs Node 20 (review S10); these tests are about the launcher, so they pretend to have it.
+process.env.JSPARK_FORGE_NODE_MAJOR = '20';
 
 const tmp = (name = 'forge-bundled-') => fs.mkdtempSync(path.join(os.tmpdir(), name));
 // A fake engine: writes its arguments (JSON) to FAKE_OUT, prints one line, exits with FAKE_EXIT (default 0).
@@ -313,4 +315,28 @@ test('pidAlive: this process yes, a pid that does not exist no, junk no', () => 
   assert.equal(bundled.pidAlive(2147483000), false);
   assert.equal(bundled.pidAlive(null), false);
   assert.equal(bundled.pidAlive('x'), false);
+});
+
+// v0.5 review S10: @playwright/mcp 0.0.86 needs Node 20; below that the server stays off.
+test('playwright mode is node-too-old below Node 20 (only where it would run); off still wins', () => {
+  const s = setup({ frontEnd: true });
+  assert.equal(bundled.mode('playwright', s.project, 18), 'node-too-old');
+  assert.equal(bundled.mode('playwright', s.project, 19), 'node-too-old');
+  assert.equal(bundled.mode('playwright', s.project, 20), 'run');
+  assert.equal(bundled.mode('codebase-memory', s.project, 18), 'run', 'the code map has no such limit');
+  const bare = setup();
+  assert.equal(bundled.mode('playwright', bare.project, 18), 'no-frontend');
+  const saved = process.env.JSPARK_FORGE_NODE_MAJOR;
+  process.env.JSPARK_FORGE_NODE_MAJOR = '18';
+  try { assert.equal(bundled.mode('playwright', s.project), 'node-too-old'); } finally { restoreEnv('JSPARK_FORGE_NODE_MAJOR', saved); }
+  const savedOff = process.env.JSPARK_FORGE_PLAYWRIGHT;
+  process.env.JSPARK_FORGE_PLAYWRIGHT = 'off';
+  try { assert.equal(bundled.mode('playwright', s.project, 18), 'off'); } finally { restoreEnv('JSPARK_FORGE_PLAYWRIGHT', savedOff); }
+});
+
+test('the launcher serves the empty server and records node-too-old when Node is below 20', () => {
+  const s = setup({ frontEnd: true });
+  s.env.JSPARK_FORGE_NODE_MAJOR = '18';
+  emptyServerChecks(s, 'playwright', 'node-too-old');
+  assert.equal(fs.existsSync(s.out), false, 'the engine never ran');
 });

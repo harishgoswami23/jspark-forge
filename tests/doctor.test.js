@@ -120,7 +120,7 @@ const writeRec = (home, dir, recs) => writeIn(home, 'jspark-forge/bundled.json',
 const withFront = dir => fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ dependencies: { react: '18.0.0' } }));
 const doctorOut = (dir, home, extraEnv) => spawnSync(process.execPath, [FORGE, 'doctor'], { cwd: dir, encoding: 'utf8', timeout: 120000,
   env: Object.assign({}, process.env, { CLAUDE_PROJECT_DIR: dir, CLAUDE_CONFIG_DIR: home }, extraEnv) }).stdout;
-const noOff = { JSPARK_FORGE_CODE_MAP: '', JSPARK_FORGE_PLAYWRIGHT: '' };
+const noOff = { JSPARK_FORGE_CODE_MAP: '', JSPARK_FORGE_PLAYWRIGHT: '', JSPARK_FORGE_NODE_MAJOR: '20' };
 const flagged = (home, names) => writeIn(home, 'jspark-forge/state.json', { companions: Object.fromEntries(names.map(n => [n, Date.now()])) });
 const market = (home, autoUpdate) => writeIn(home, 'plugins/known_marketplaces.json', { 'jspark-forge': Object.assign({ source: { source: 'github', repo: 'x/y' } }, autoUpdate === undefined ? {} : { autoUpdate }) });
 const installPlugins = (home, names) => writeIn(home, 'plugins/installed_plugins.json', { plugins: Object.fromEntries(names.map(n => [`${n}@claude-plugins-official`, [{}]])) });
@@ -250,3 +250,9 @@ for (const [label, name, front] of [['Code map', 'codebase-memory', false], ['Pl
     assert.match(doctorOut(dir, home, noOff), new RegExp(`^FIX\\s+${label}: `, 'm'));
   });
 }
+
+test('doctor: Playwright on Node below 20 says it is off here and why', () => {
+  const dir = project(); withFront(dir); const home = cfg();
+  const out = doctorOut(dir, home, Object.assign({}, noOff, { JSPARK_FORGE_NODE_MAJOR: '18' }));
+  assert.match(out, /^ok\s+Playwright: off here \(it needs Node\.js 20 or newer; you have [\d.]+\)$/m);
+});

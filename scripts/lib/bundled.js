@@ -14,8 +14,9 @@ const SERVERS = {
 const LAUNCHER = path.join(__dirname, '..', 'mcp', 'run.js');
 const NO_NPX = 'npx was not found next to Node.js';
 
-// 'off' (env var or merged rules setting), 'no-frontend' (Playwright only), else 'run'. Never throws.
-function mode(name, projectDir) {
+// 'off' (env var or merged rules setting), 'no-frontend' or 'node-too-old' (Playwright only; `nodeMajor` or
+// JSPARK_FORGE_NODE_MAJOR lets tests inject the Node version), else 'run'. Never throws.
+function mode(name, projectDir, nodeMajor) {
   const s = SERVERS[name];
   if (!s) return 'off';
   if (String(process.env[s.env] || '').trim().toLowerCase() === 'off') return 'off';
@@ -26,6 +27,9 @@ function mode(name, projectDir) {
     let front = false;
     try { front = require('./uitip').hasFrontEnd(projectDir); } catch { /* none */ }
     if (!front) return 'no-frontend';
+    // @playwright/mcp declares engines node >= 20 (review S10); JSPARK Forge itself still supports 18.
+    const major = Number(nodeMajor !== undefined ? nodeMajor : (process.env.JSPARK_FORGE_NODE_MAJOR || process.versions.node.split('.')[0]));
+    if (major < 20) return 'node-too-old';
   }
   return 'run';
 }
