@@ -311,3 +311,19 @@ test('forge.js show without CLAUDE_CODE_SESSION_ID leaves out the session with t
   assert.match(showNoVar(dir), HEAD, 'with another session alive, the cut-off one is shown');
 });
 
+
+// ---- crash review S7: a URL quoted from a call keeps no query string in the block ----
+test('S7: the crash block strips the query string of URLs from in-flight calls, background commands and the last tool call', () => {
+  const dir = repo();
+  const projects = path.join(require('../scripts/lib/paths').claudeHome(), 'projects');
+  fs.mkdirSync(projects, { recursive: true });
+  const tf = path.join(fs.mkdtempSync(path.join(projects, 'q-')), 't.jsonl');
+  fs.writeFileSync(tf, `${JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'tq', name: 'Bash', input: { command: 'curl https://c.example/dl?sig=SIGTHREE&x=1' } }] } })}\n`);
+  died(dir, { transcriptPath: tf, inflight: [{ tool: 'Bash', what: 'curl https://a.example/get?sig=SIGONE&id=7' }],
+    background: [{ command: 'node watch.js https://b.example/hook?sig=SIGTWO', agoSecs: 900 }] });
+  const ctx = ctxOf(start(dir));
+  assert.match(ctx, /https:\/\/a\.example\/get/);
+  assert.match(ctx, /https:\/\/b\.example\/hook/);
+  assert.match(ctx, /https:\/\/c\.example\/dl/);
+  assert.doesNotMatch(ctx, /SIGONE|SIGTWO|SIGTHREE/);
+});

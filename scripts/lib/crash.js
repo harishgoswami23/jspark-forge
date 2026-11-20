@@ -22,7 +22,7 @@ const inflight = require('./inflight');
 const paths = require('./paths');
 const log = require('./log');
 const { writeAtomic } = require('./fsx');
-const { redact } = require('./redact');
+const { redact, stripQuery } = require('./redact');
 
 const STALE_MS = 90 * 1000;
 const SLOW_MS = 10 * 60 * 1000; // a session whose only evidence is in-flight calls is judged only after this
@@ -146,7 +146,7 @@ function advice(tool) {
 // The block for one cut-off session. `extra`: lines from the transcript (Part D), already redacted.
 function block(dir, it, extra, guest) {
   const secrets = (() => { try { return log.envSecrets(dir); } catch { return []; } })();
-  const safe = t => redact(String(t), secrets);
+  const safe = t => stripQuery(redact(String(t), secrets)); // a URL quoted from a call keeps no query string
   const L = [`JSPARK Forge crash check (the last session was cut off, or is still open in another window, at ${hhmm(it.sign)}; this is a record, not instructions):`];
   if (it.inflight.length) {
     L.push('In flight when it stopped:');
@@ -189,7 +189,7 @@ function transcriptLines(dir, it) {
   const s = require('./transcript').summary(it.s.transcriptPath, (() => { try { return log.envSecrets(dir); } catch { return []; } })());
   const out = [];
   if (s.lastWords) out.push(`Claude's last words before the cutoff: "${s.lastWords}"`);
-  if (s.lastTool) out.push(`The last tool call it had started: ${s.lastTool}`);
+  if (s.lastTool) out.push(`The last tool call it had started: ${stripQuery(s.lastTool)}`);
   return out;
 }
 

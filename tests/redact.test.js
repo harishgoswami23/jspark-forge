@@ -44,3 +44,38 @@ test('redacts extra secret values given by the caller (values from .env files)',
 test('ignores very short extra values so ordinary words are not masked', () => {
   assert.equal(redact('echo yes', ['yes']), 'echo yes');
 });
+
+// ---- crash review S7: more secret shapes (best effort) ----
+const more = [
+  ['a password inside a URL', 'git clone https://deploy:Tr0ub4dor-and-3@git.example.com/org/repo.git', 'Tr0ub4dor-and-3'],
+  ['a password inside a postgres URL', 'psql postgres://admin:s3cretP4ss@db.internal:5432/app', 's3cretP4ss'],
+  ['a JWT', 'the cookie is eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U ok', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9'],
+  ['"password is: X"', 'The database password is: Hunter2-Hunter2 and it works', 'Hunter2-Hunter2'],
+  ['"password: X"', 'password: correct-horse-battery', 'correct-horse-battery'],
+  ['"token: X"', 'token: abc123XYZ789', 'abc123XYZ789'],
+  ['"pwd=X"', 'run with pwd=Zebra99', 'Zebra99'],
+  ['a JSON password', '{"user":"me","password":"p4ssw0rd-json"}', 'p4ssw0rd-json'],
+];
+for (const [name, input, secret] of more) {
+  test(`S7: redacts ${name}`, () => {
+    const out = redact(input);
+    assert.ok(!out.includes(secret), `secret still present: ${out}`);
+    assert.ok(out.includes(R), `no marker: ${out}`);
+  });
+}
+
+test('S7: the scheme, user and host of a URL with credentials are kept', () => {
+  assert.equal(redact('https://deploy:Tr0ub4dor@git.example.com/x.git'), `https://deploy:${R}@git.example.com/x.git`);
+});
+
+test('S7: ordinary text with these words is not mangled beyond the value', () => {
+  assert.equal(redact('see https://example.com/docs and the keyboard token economy'), 'see https://example.com/docs and the keyboard token economy');
+  assert.equal(redact('ssh://git@host/repo.git'), 'ssh://git@host/repo.git', 'a user without a password stays');
+});
+
+test('S7: stripQuery removes the query string of any URL and leaves the rest', () => {
+  const { stripQuery } = require('../scripts/lib/redact');
+  assert.equal(stripQuery('curl "https://api.example.com/v1/items?id=42&sig=abc" -o out'), 'curl "https://api.example.com/v1/items" -o out');
+  assert.equal(stripQuery('open http://localhost:3000/a?x=1#top now'), 'open http://localhost:3000/a#top now');
+  assert.equal(stripQuery('no url here ? really'), 'no url here ? really');
+});
