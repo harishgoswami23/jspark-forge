@@ -35,6 +35,9 @@ test('a new project: build graph files can be committed; their state, the handof
   fs.writeFileSync(path.join(f, 'artifacts', 'plan.html'), '<html></html>\n');
   fs.writeFileSync(path.join(f, 'artifacts.md'), 'list\n');
   assert.equal(ignored(dir, '.jspark-forge/graphs/release.md'), false, 'a graph file is shared');
+  fs.mkdirSync(path.join(f, 'briefs'), { recursive: true });
+  fs.writeFileSync(path.join(f, 'briefs', 'step-one.md'), '# brief\n');
+  assert.equal(ignored(dir, '.jspark-forge/briefs/step-one.md'), false, 'a brief is shared with its graph');
   assert.equal(ignored(dir, '.jspark-forge/rules.md'), false);
   for (const p of ['graphs/notes.txt', 'artifacts/plan.html', 'artifacts.md', 'state/graph-release.json', 'handoff.md', 'log/2026-11-20.log']) {
     assert.equal(ignored(dir, `.jspark-forge/${p}`), true, `${p} stays local`);
@@ -50,7 +53,7 @@ test('a project set up before v0.5.1 gets the graph lines added once, in its own
   fs.writeFileSync(path.join(f, '.gitignore'), old);
   setup.shareGraphs(dir);
   const now = fs.readFileSync(path.join(f, '.gitignore'), 'utf8');
-  assert.equal(now, `${old}!graphs/\r\n!graphs/*.md\r\n`);
+  assert.equal(now, `${old}!graphs/\r\n!graphs/*.md\r\n!briefs/\r\n!briefs/*.md\r\n`);
   setup.shareGraphs(dir);
   assert.equal(fs.readFileSync(path.join(f, '.gitignore'), 'utf8'), now, 'not added twice');
   fs.mkdirSync(path.join(f, 'graphs'));

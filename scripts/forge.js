@@ -268,6 +268,11 @@ const handlers = {
       }
     } catch { /* never break a session start */ }
     if (rules.disabled.length) msgs.push(`JSPARK Forge: you switched off ${rules.disabled.join(', ')} in rules.md.`);
+    try { // v0.5.1 gaps 1-2: an own project's missing .gitignore is made again; an older one learns the briefs line
+      if (paths.isOwn(dir)) {
+        if (!setup.repairGitignore(dir) && fs.existsSync(path.join(paths.repoForgeDir(dir), 'graphs'))) setup.shareGraphs(dir);
+      }
+    } catch { /* never break a session start */ }
     let offerAfterCompact = null;
     if (input.source === 'compact') { // the summary dropped the decisions Claude was shown: show them again when relevant
       const sess = state.readSession(dir, input.session_id);

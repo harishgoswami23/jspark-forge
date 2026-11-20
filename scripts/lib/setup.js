@@ -17,7 +17,8 @@ const { writeAtomic } = require('./fsx');
 
 
 // launch.md is shared (design-v0.3 2.1); so are the build graph files (owner 2026-11-20; their run state stays local).
-const GRAPH_LINES = ['!graphs/', '!graphs/*.md'];
+// A graph names its briefs (.jspark-forge/briefs/<name>.md), so they are committed with it (owner, v0.5.1 gaps 2).
+const GRAPH_LINES = ['!graphs/', '!graphs/*.md', '!briefs/', '!briefs/*.md'];
 const GITIGNORE = `*\n!.gitignore\n!rules.md\n!launch.md\n${GRAPH_LINES.join('\n')}\n`;
 // A project set up before v0.5.1: add the graph lines to its .jspark-forge/.gitignore (in the file's own line ending).
 function shareGraphs(dir) {
@@ -30,6 +31,18 @@ function shareGraphs(dir) {
     const eol = /\r\n/.test(t) ? '\r\n' : '\n';
     fs.writeFileSync(g, `${t.replace(/\s*$/, eol)}${add.join(eol)}${eol}`);
   } catch { /* no .gitignore: nothing hides the files */ }
+}
+// At session start in an own project: a missing .jspark-forge/.gitignore is made again (v0.5.1 gaps 1). An existing
+// one is left alone. Never in a guest repo (nothing is written there).
+function repairGitignore(dir) {
+  if (!paths.isOwn(dir)) return false;
+  const forge = paths.repoForgeDir(dir);
+  const g = path.join(forge, '.gitignore');
+  try {
+    if (fs.existsSync(g) || !fs.statSync(forge).isDirectory()) return false;
+    fs.writeFileSync(g, GITIGNORE);
+    return true;
+  } catch { return false; }
 }
 const claudeHome = () => process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
 const readJson = f => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return null; } };
@@ -112,7 +125,7 @@ function stateMadeHere(dir) {
   const tracked = git(dir, ['-c', 'core.quotePath=false', 'ls-files', '--', `:(icase)${paths.NAME}`]);
   if (!tracked.ok) return false;
   const allowed = new Set([`${paths.NAME}/rules.md`, `${paths.NAME}/.gitignore`, `${paths.NAME}/decisions.md`, `${paths.NAME}/launch.md`]); // the shared files
-  const graphFile = new RegExp(`^${paths.NAME.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/graphs/[^/]+\\.md$`); // committed graphs, one level (shared, owner 2026-11-20)
+  const graphFile = new RegExp(`^${paths.NAME.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/(?:graphs|briefs)/[^/]+\\.md$`); // committed graphs and their briefs, one level (shared, owner 2026-11-20)
   return tracked.out.split(/\r?\n/).filter(Boolean).every(p => allowed.has(p) || graphFile.test(p));
 }
 
@@ -269,4 +282,4 @@ function machineMessages(home = claudeHome()) {
 }
 
 module.exports = { ensureProject, touchGuest, writeGuest, decide, git, startBudget, SETUP_BUDGET_MS, cleanOrigin, guestMessage, GUEST_DATA_LINE, machineMessages, inGitProject,
-  superpowersInstalled, claudeHome, ON_MESSAGE, SUPERPOWERS_TIP, GITIGNORE, shareGraphs, stateMadeHere };
+  superpowersInstalled, claudeHome, ON_MESSAGE, SUPERPOWERS_TIP, GITIGNORE, shareGraphs, repairGitignore, stateMadeHere };
