@@ -51,15 +51,16 @@ function ensure(home, st) {
       st.companions = flags;
       if (fresh.length) writeAtomic(stateFile, JSON.stringify(Object.assign(cur, { companions: flags }), null, 2) + '\n');
     });
-    const adding = [];
-    for (const c of fresh) {
-      if (installed(home, c.name)) continue;
+    // One detached runner for all of them: the installs run one after the other, never two claude processes at once.
+    // It starts in the claude home (not the session's folder) with NoDefaultCurrentDirectoryInExePath set.
+    const adding = fresh.filter(c => !installed(home, c.name));
+    if (adding.length) {
       try {
-        const p = spawn(process.execPath, [RUNNER, home, c.name], { detached: true, stdio: 'ignore', windowsHide: true });
+        const p = spawn(process.execPath, [RUNNER, home, ...adding.map(c => c.name)], { detached: true, stdio: 'ignore', windowsHide: true,
+          cwd: home, env: Object.assign({}, process.env, { NoDefaultCurrentDirectoryInExePath: '1' }) });
         p.on('error', () => {});
         p.unref();
-        adding.push(c);
-      } catch { /* never break a session start */ }
+      } catch { adding.length = 0; /* never break a session start */ }
     }
     if (!adding.length) return [];
     return [`JSPARK Forge is adding ${join(adding.map(c => c.name))} (for UI work); they load the next time Claude Code starts. ` +

@@ -1,6 +1,6 @@
 'use strict';
-// Detached runner (v0.5 design section 3): node companion-install.js <claude home> <companion name>
-// Runs `claude plugin install <id> --scope user` for one companion from companions.LIST and records the result in
+// Detached runner (v0.5 design section 3): node companion-install.js <claude home> <companion name>...
+// Runs `claude plugin install <id> --scope user` for each named companion from companions.LIST, one after the other, and records the result in
 // <home>/jspark-forge/companions.json ({ name: { at, ok, reason } }, read-modify-write under a lock, atomic).
 // No shell sees user text: the command is fixed text plus the fixed id. JSPARK_FORGE_COMPANION_CMD (a JSON array, the id
 // is appended) replaces the command, for tests.
@@ -12,16 +12,19 @@ const memory = require('./lib/memory');
 const companions = require('./lib/companions');
 
 const LIMIT_MS = 120000;
+let HOME = null; // the claude home, set by main()
 
 function onPath(name) {
   const dirs = String(process.env.PATH || process.env.Path || '').split(path.delimiter).filter(Boolean);
-  for (const d of dirs) { const f = path.join(d, name); try { if (fs.statSync(f).isFile()) return f; } catch { /* next */ } }
+  for (const d of dirs) { if (!path.isAbsolute(d)) continue; const f = path.join(d, name); try { if (fs.statSync(f).isFile()) return f; } catch { /* next */ } }
   return null;
 }
 
 // -> { result } (a spawnSync result) or { reason } when claude cannot be found
 function run(id) {
-  const opts = { encoding: 'utf8', timeout: LIMIT_MS, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] };
+  // cwd is the claude home (never the folder the session was in) and Windows may not look in it for programs (review S8)
+  const opts = { encoding: 'utf8', timeout: LIMIT_MS, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
+    cwd: HOME || undefined, env: Object.assign({}, process.env, { NoDefaultCurrentDirectoryInExePath: '1' }) };
   let override = null;
   try {
     const o = JSON.parse(process.env.JSPARK_FORGE_COMPANION_CMD || 'null');
@@ -52,9 +55,9 @@ function outcome(id) {
   return { ok: false, reason: `exit code ${res.status}${tail ? `: ${tail}` : ''}` };
 }
 
-function main(home, name) {
+function recordOne(home, name) {
   const c = companions.LIST.find(x => x.name === name);
-  if (!home || !c) return;
+  if (!c) return;
   let o;
   try { o = outcome(c.id); } catch (e) { o = { ok: false, reason: `could not start: ${e && e.message}` }; }
   const file = path.join(home, 'jspark-forge', 'companions.json');
@@ -67,5 +70,12 @@ function main(home, name) {
   });
 }
 
-if (require.main === module) { try { main(process.argv[2], process.argv[3]); } catch { /* nothing to tell */ } }
-module.exports = { main };
+function main(home, ...names) {
+  if (!home) return;
+  try { fs.mkdirSync(home, { recursive: true }); } catch { /* the install then reports it */ }
+  HOME = home;
+  for (const name of names) { try { recordOne(home, name); } catch { /* the next one still runs */ } }
+}
+
+if (require.main === module) { try { main(process.argv[2], ...process.argv.slice(3)); } catch { /* nothing to tell */ } }
+module.exports = { main, onPath };

@@ -210,3 +210,39 @@ test('a flag set before the status-line block is still saved (old fault: changed
   assert.equal(st.statusline, undefined);
   assert.ok(st.guestsPrunedAt, 'the prune stamp, set before the status-line block, is saved');
 });
+
+// v0.5 review S8: the runner does not inherit the session folder, and installs one after the other.
+test('S8: one runner installs both in turn (no overlap), in the claude home, with NoDefaultCurrentDirectoryInExePath set', async () => {
+  const h = home();
+  const dir = tmp('forge-comp-s8-');
+  const log = path.join(dir, 'events.log');
+  const js = path.join(dir, 'fake.js');
+  fs.writeFileSync(js, `const fs = require('fs');
+const id = process.argv[process.argv.length - 1];
+fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify({ e: 'start', id, cwd: process.cwd(), nd: process.env.NoDefaultCurrentDirectoryInExePath }) + '\\n');
+setTimeout(() => { fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify({ e: 'end', id }) + '\\n'); process.exit(0); }, 400);\n`);
+  const cmd = JSON.stringify([process.execPath, js, 'plugin', 'install']);
+  await on(cmd, async () => {
+    companions.ensure(h, {});
+    assert.ok(await wait(both(h)));
+  });
+  const ev = fs.readFileSync(log, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l));
+  assert.deepEqual(ev.map(x => `${x.e}:${x.id}`), [`start:${FD}`, `end:${FD}`, `start:${DT}`, `end:${DT}`], 'one at a time');
+  for (const x of ev.filter(e => e.e === 'start')) {
+    assert.equal(fs.realpathSync(x.cwd), fs.realpathSync(h));
+    assert.equal(x.nd, '1');
+  }
+});
+
+test('S8: the runner starts with the claude home as its folder and skips PATH entries that are not absolute', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'companion-install.js'), 'utf8');
+  const runner = require('../scripts/companion-install.js');
+  assert.equal(typeof runner.onPath, 'function');
+  const d = tmp('forge-comp-path-');
+  fs.writeFileSync(path.join(d, 'claude.exe'), '');
+  const rel = path.relative(process.cwd(), d);
+  withEnv({ PATH: [rel || '.', '', d].join(path.delimiter) }, () => {
+    assert.equal(runner.onPath('claude.exe'), path.join(d, 'claude.exe'), 'the relative entry is skipped, the absolute one found');
+  });
+  assert.match(src, /NoDefaultCurrentDirectoryInExePath/);
+});
