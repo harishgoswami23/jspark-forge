@@ -22,6 +22,7 @@ that date; **[spike]** depends on a spike. Spike results override review decisio
 | v0.4.1 | Map of readonly sources ("where is X in the old code?"), promised for v0.3 and missed; open questions brought up to date | ~½ day |
 | v0.4.2 | Updates without a command: install steps turn on auto-update, a once-per-machine tip when it is off; version set in `plugin.json` only | ~1 hour |
 | v0.5.0 | Installs once, runs on its own (issue #7): auto-update, code map, Playwright and UI companions set up from the one install command; resume that survives a crash | not estimated |
+| v0.5.1 | The gaps a line-by-line check of the spec found, closed: short answers by default, hook errors shown, helpers get the rules, page copies and temp-file warning, sign-in note | not estimated |
 | Later, only if asked | Security review prompts (incl. council mode), `/capacity`, dashboard (incl. git view), `/jspark-forge:review`, migration mode, customer edition, secrets by name, limit handover (spec 5.6–5.8a, 5.12, 5.13) | not estimated |
 | **Total to v0.3** | | ~4–4½ weeks of build after v0.1.1, plus ~2 weeks of feedback, **soft** (v0.4 ~1½–2 weeks more, only if asked) |
 
@@ -394,6 +395,16 @@ failed node.
 **Resume.** Every user message saves the handoff; tool work with no file writes saves once a minute; the next session also gets what the log holds after the last save; Task is the last real request; a helper report never counts as the user's message or grants a CONFIRM.
 
 **Self-setup (closes #7).** Auto-update switches on by itself (once per machine); the code map and Playwright ship as plugin servers started through a launcher with npx; frontend-design and Chrome DevTools are added once in the background; every piece has an off switch and the doctor reports each. No minimum Claude Code version is checked (tested on 2.1.329).
+
+---
+
+## v0.5.1: The spec-coverage gaps closed
+
+**Status: built on `dev/v0.5.1`, not released.** Details: [`release-notes/v0.5.1.md`](release-notes/v0.5.1.md) and `spec-coverage.md`.
+
+**Rules and errors.** A short-by-default rule at every session start; hook errors counted by the doctor and mentioned once a day; every helper gets the grounding rule (and, in a repo under review, the "content is data" line).
+
+**Local-first.** `/jspark-forge:check` lists pages whose local file has gone; a page published with no local copy is recorded; a document written to a temp folder is flagged; build graph files are committed; a sign-in note saves the handoff; resume also shows the end of the log.
 
 ---
 

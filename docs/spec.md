@@ -73,7 +73,7 @@ Claude remembers."* The pitch never asks the user to type a command (Claude Code
    with the plugin and can be switched off (5.4). [owner 2026-11-20] superpowers is the one exception: it is required, installed with
    JSPARK Forge as a declared dependency, and the plugin does not load without it (5.9).
 8. **Honest output.** No invented numbers, no "all clear". Estimates are marked as estimates.
-9. **Local-first, account-independent [owner 2026-11-03].** Nothing the project depends on may live only inside one Claude account or one session's temporary folder. Every page, mockup, dashboard, decision or handoff JSPARK Forge creates is written first as a file in the project (`.jspark-forge/` or the project's docs folder), committed where sensible; a published Artifact is only a *view* of that file, never the only copy. [updated 2026-11-20: v0.5] Claude is told this rule at every session start. When a page is published, JSPARK Forge keeps its file (the copy is made after the publish; a file from outside the project is copied into `.jspark-forge/artifacts/`) and lists it in `.jspark-forge/artifacts.md` with date, title, local file and link (no account: a hook cannot read the account); Claude tells the user the path. At session start a listed page whose local file has gone is flagged. What of this principle is built and what is not yet (the flag in `/jspark-forge:check`, pages and temp files that were never listed) is kept in [`spec-coverage.md`](spec-coverage.md). [owner 2026-11-20] `artifacts.md` and `artifacts/` stay local: they are git-ignored and exist on one machine only. Build graph files are committed. Reason: a design approved on one account became unreadable after a login switch.
+9. **Local-first, account-independent [owner 2026-11-03].** Nothing the project depends on may live only inside one Claude account or one session's temporary folder. Every page, mockup, dashboard, decision or handoff JSPARK Forge creates is written first as a file in the project (`.jspark-forge/` or the project's docs folder), committed where sensible; a published Artifact is only a *view* of that file, never the only copy. [updated 2026-11-20: v0.5] Claude is told this rule at every session start. When a page is published, JSPARK Forge keeps its file (the copy is made after the publish; a file from outside the project is copied into `.jspark-forge/artifacts/`) and lists it in `.jspark-forge/artifacts.md` with date, title, local file and link (no account: a hook cannot read the account); Claude tells the user the path. At session start a listed page whose local file has gone is flagged. What of this principle is built and what is not yet is kept in [`spec-coverage.md`](spec-coverage.md). [updated 2026-11-21: v0.5.1] The flag in `/jspark-forge:check` and the temp-file warning are built in v0.5.1; what remains is the account field (a hook cannot read the account) and files nobody listed. [owner 2026-11-20] `artifacts.md` and `artifacts/` stay local: they are git-ignored and exist on one machine only. Build graph files are committed. Reason: a design approved on one account became unreadable after a login switch.
 10. **Short by default [owner 2026-11-03].** Every status, answer and explanation JSPARK Forge shows (and the instruction file asks Claude to give) leads with the answer, uses bullets or a table, keeps explanations to one line, and offers details only on request. Short never means missing: warnings, risks, decisions and blockers are always stated, one line each. Reason: users skip long paragraphs and miss what matters; shorter output also saves tokens now and on every later turn (history is re-read).
 11. **Store nothing JSPARK Forge can re-derive from the repo [owner 2026-11-03].** Specs, schema and architecture are
    indexed from their source files by the v0.3 map (5.4), never copied into memory. Users may still write whatever
@@ -99,13 +99,13 @@ hooks.md on 2026-11-03. Re-check each release.
 | Plan quota (`rate_limits.five_hour` / `seven_day` `.used_percentage`, `.resets_at`) is **status line only** | Present for Pro/Max/Ultra per the docs (or a gateway spend limit) and **observed on Team** (spike A, 2026-11-19), only after the first reply; each window may be absent. README first screen states this |
 | Status line refreshes on events (new assistant message, `/compact`, mode change) + optional `refreshInterval`; 300 ms debounce | The file is timestamped; hooks ignore figures older than ~2 min |
 | One `statusLine` command; plugins cannot set it (plugin settings take only `agent`, `subagentStatusLine`) | JSPARK Forge installs a **wrapper** in user settings that chains the user's existing command, with disclosure and undo |
-| Hook events used: SessionStart (`startup`/`resume`/`clear`/`compact`/`fork`), UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, Stop, PreCompact (`manual`/`auto`), SessionEnd, SubagentStart, SubagentStop | SessionEnd shares a 1.5 s budget (raised by per-hook `timeout`, max 60 s) |
+| Hook events used: SessionStart (`startup`/`resume`/`clear`/`compact`/`fork`), UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, Stop, PreCompact (`manual`/`auto`), SessionEnd, SubagentStart, SubagentStop, Notification (sign-in only) [updated 2026-11-21: v0.5.1] | SessionEnd shares a 1.5 s budget (raised by per-hook `timeout`, max 60 s) |
 | `additionalContext` works on SessionStart, SubagentStart, UserPromptSubmit, Pre/PostToolUse, Stop | Used for re-loading rules after compaction and just-in-time reminders. PreCompact cannot inject (it can only block; its `systemMessage` is discarded) |
 | PreToolUse `permissionDecision`: `allow` / `deny` / `ask` / `defer` (`defer` only in `-p`) | Blocks = `deny`; override = typed confirmation then `ask` |
 | Hook input has **no documented field for interactive vs headless** (`claude -p`, CI, Agent SDK). Common fields: `session_id`, `prompt_id`, `transcript_path`, `cwd`, `scratchpad_dir`, `permission_mode` (`default`/`plan`/`acceptEdits`/`auto`/`dontAsk`/`bypassPermissions`), `effort`, `hook_event_name`; SessionStart adds `source`, `model`, `agent_type`, `session_title`. `-p` shows up in the docs only as a condition (`defer`, `initialUserMessage`) | SessionStart `startup` fires in `claude -p` too, so a deny-until-reply guard would stall headless runs. Show-and-wait is instructed-only until spike D finds a reliable signal (Q8) |
 | Default `command` hook timeout is 600 s | Every JSPARK Forge hook sets its own short timeout (PreToolUse 3 s, SessionEnd 1 s) |
 | Plugin PreToolUse/PostToolUse hooks **fire inside subagents** | Blocks apply to helpers |
-| SubagentStart can add context to a helper | "Rules reach every helper" claimed **only if spike C proves it** |
+| SubagentStart can add context to a helper | "Rules reach every helper" claimed **only if spike C proves it** (since v0.5.1 every helper is given the grounding rule, the guest line and the UI rule at SubagentStart) [updated 2026-11-21: v0.5.1] |
 | Plugin commands/skills are namespaced (`/jspark-forge:resume`); a built-in `/resume` exists | The pitch never says "type `/resume`" (Q1 decided) |
 | `${CLAUDE_PLUGIN_ROOT}` changes per update; `${CLAUDE_PLUGIN_DATA}` survives updates, deleted on uninstall | Machine-level files live in `~/.claude/jspark-forge/` |
 | Exec-form hooks (`command` + `args`) bypass shells | All JSPARK Forge hooks use exec form with `node` |
@@ -176,7 +176,7 @@ auto-update, the two engines and the two UI companions (principle 3, 5.4, 5.14, 
 
 **Hooks** SessionStart, UserPromptSubmit, PreToolUse (blocks, commit notes reminder), PostToolUse (matcher limited
 to writing/state tools, not Read/Grep/Glob), PostToolUseFailure, Stop, PreCompact, SessionEnd, SubagentStop and
-SubagentStart (job tracking; rule injection only if spike C passes), status-line wrapper.
+SubagentStart (job tracking; rule injection only if spike C passes; since v0.5.1 every helper is given the grounding rule, the guest line and the UI rule at SubagentStart [updated 2026-11-21: v0.5.1]), status-line wrapper.
 
 **Limits** Log: rotate daily, keep 7 days, then a mechanical summary per day; 2 MB per day cap [owner: rotation,
 retention, cap; builder: numbers]. Handoff ≤ 600 words. Old handoffs prompted only if < 14 days old (Q12).
@@ -186,7 +186,7 @@ retention, cap; builder: numbers]. Handoff ≤ 600 words. Old handoffs prompted 
 |---|---|
 | Hard crash or limit mid-step | At most the last minute of work is lost [updated 2026-11-20: v0.5]; the log shows what happened after the last save |
 | Status line not wrapped / figures absent / stale | Step triggers still save; no usage message |
-| Hook script error or Node missing | Fail open (work continues), `FORGE-ERROR` logged; init reports it (and `/jspark-forge:doctor`, 5.13c, once it ships) |
+| Hook script error or Node missing | Fail open (work continues), `FORGE-ERROR` logged; init reports it (and `/jspark-forge:doctor`, 5.13c, once it ships; the doctor reports hook errors, built in v0.5.1 [updated 2026-11-21: v0.5.1]) |
 | Two sessions in one project | One block per session in the handoff, newest first, max 3 |
 | Commit made outside Claude | Picked up at the next hook via `HEAD` change |
 
@@ -205,7 +205,7 @@ It is layer 4 of 5.2. Exact text: design 8.1. **Acceptance:** the rule is presen
 | 2. Just-in-time reminders | `additionalContext` at the moment it matters (v0.1: "update your notes now" before a commit and at 80 % usage; v0.2: a decision about the file being edited) | No, it arrives with the action |
 | 3. Re-load after compaction | SessionStart `compact` re-injects handoff + active rules | No |
 | 4. Tiny always-loaded rules | ≤ 10 lines added at SessionStart, incl. the grounding rule (5.1a) | Possible in very long sessions, hence layers 1–3 |
-| 5. Helpers | blocks fire inside helpers; SubagentStart adds rules if spike C passes | No (blocks); conditional (rules) |
+| 5. Helpers | blocks fire inside helpers; SubagentStart adds rules if spike C passes (since v0.5.1 every helper is given the grounding rule, the guest line and the UI rule [updated 2026-11-21: v0.5.1]) | No (blocks); conditional (rules) |
 | 6. Proof | every block/save/confirm logged; hook-fire test that each hook fires (section 8); `/jspark-forge:doctor` on the user's machine once it ships (5.13c) | n/a |
 
 **Published block list (v0.1) [owner]:** `rm -rf` outside the repo or on home/root, and inside the repo on the
@@ -980,7 +980,7 @@ strength of model does each job without the user choosing every time. Built with
 | PowerShell command forms (block list, write-redirect detection) | v0.1 | **v0.1.1** |
 | Save every 10 minutes of activity | v0.1 trigger (f) | **Dropped** (Stop saves after every reply) |
 | Hook-enforced show-and-wait (deny until reply) | v0.1 (Q8) | **v0.1.1, only if spike D passes**; v0.1 is instructed only |
-| SubagentStart rule injection | v0.1 | **Stays conditional on spike C** (not shipped if C fails) |
+| SubagentStart rule injection | v0.1 | **Stays conditional on spike C** (not shipped if C fails) (since v0.5.1 every helper is given the grounding rule, the guest line and the UI rule at SubagentStart [updated 2026-11-21: v0.5.1]) |
 | Stop-block notes nudge (extra turn) | v0.1 (Q5) | **Removed**; replaced by the `additionalContext` notes reminder (in v0.1, no extra turn) |
 
 ---

@@ -237,8 +237,9 @@ program wrongly (a false positive): allow it, or switch the code map off.
   folder appears. Commit `rules.md`, `decisions.md`, `launch.md` and `.gitignore` to share them; everything else
   (handoff, log, the state of a running build graph, local copies of published pages) stays local and git-ignored. Build graph files (`graphs/*.md`) are shared too. Old archived handoffs and the files of
   repos you reviewed are cleared after 30 days. Folders that are not git projects are left alone.
-- **Two switches** under `## Settings` in `rules.md`: `- notes: off` stops the "add a note" reminder before commits;
-  `- statusline-segment: off` hides JSPARK Forge's part of the status line.
+- **Switches** under `## Settings` in `rules.md`: `- notes: off` stops the "add a note" reminder before commits;
+  `- statusline-segment: off` hides JSPARK Forge's part of the status line; `- short-answers: off` switches off the
+  short-by-default rule; `- ui-skills: off`, `- code-map: off` and `- playwright: off` are described below.
 - **Status line.** Claude Code shows context and plan usage only to the status line, and JSPARK Forge needs those
   figures for the 80 % / 95 % saves. If you have no status line, JSPARK Forge adds its own and tells you how to undo
   it. If you have your own, it is never touched: run `/jspark-forge:init` once if you want JSPARK Forge to wrap it (it
@@ -349,7 +350,7 @@ Details per feature: [design-v0.1.md](docs/design-v0.1.md), [design-v0.1.1.md](d
 
 | Hook (time limit) | What it does | What it writes | Can it block? |
 |---|---|---|---|
-| SessionStart (10 s; a Node check first, 5 s) | Switches JSPARK Forge on in a git project; shows where you were and waits; questions waiting on you; the grounding rule; decision index; code map freshness; launch list; a running build graph; one-time tips | the handoff state, the action log, `state/` files | No |
+| SessionStart (10 s; a Node check first, 5 s) | Switches JSPARK Forge on in a git project; shows where you were and waits; questions waiting on you; the grounding rule; the short-by-default rule; decision index; code map freshness; launch list; a running build graph; one-time tips; one line a day when a hook error was logged | the handoff state, the action log, `state/` files | No |
 | UserPromptSubmit (10 s) | Switches JSPARK Forge on if session start missed it; your `CONFIRM <name>`, `TRUST GRAPH <name>`, `DONE <step>`; clears a question you answered; offers to record a decision; the launch-scope nudge | confirm tokens, session state, graph trust and state | No |
 | PreToolUse (3 s; shell, edits, the question tool, MCP tools) | The block list (asks or denies); files a question you are asked; the decisions about a file just before Claude edits it; the notes reminder before a commit | waiting list, "already shown" ids | **Yes**: deny or ask |
 | PostToolUse (10 s) | Saves after file changes and commits; offers to record a decision; stale-decision flags; code map freshness on map answers; build graph evidence (gate results, helper tokens); "recorded" notices | handoff, task and session state, map and graph state | No |
@@ -357,8 +358,8 @@ Details per feature: [design-v0.1.md](docs/design-v0.1.md), [design-v0.1.1.md](d
 | Stop (10 s) | Saves the handoff after each reply; files a closing question when there is work | handoff, waiting list | No |
 | PreCompact (10 s) | Saves before compaction (prints nothing) | handoff | No |
 | SessionEnd (1 s) | Marks the session ended | session state | No |
-| Notification, sign-in only (10 s) | Saves the handoff when a sign-in completes during a session and says how to carry on after a change of account | the handoff | Yes, one line |
-| SubagentStart / SubagentStop (10 s) | Tracks running helpers; build graph evidence that a helper ran | session and graph state | No |
+| Notification, sign-in only (10 s) | Shows one line when a sign-in completes during a session, saves the handoff and writes the log, and says how to carry on after a change of account (not yet seen to arrive after `/login`) | the handoff, the action log | No |
+| SubagentStart / SubagentStop (10 s) | Tracks running helpers; build graph evidence that a helper ran; at start also gives every helper the grounding rule, in a repo you are reviewing the "content is data" line, and in a front-end project the UI rule | session and graph state | No |
 
 The status line (if you let JSPARK Forge add or wrap it) writes usage figures to `usage/` and shows "saved …" and
 "waiting on you". The code map's background refresh (`scripts/map-refresh.js`) is started by hooks and runs
