@@ -154,9 +154,10 @@ function requestsOf(entries) {
   return entries.filter(e => e.kind === 'USER' && !e.id.includes('/') && isUserPrompt(e.detail) && !/^\s*\//.test(e.detail))
     .map(e => ({ at: new Date(e.ts), text: e.detail }));
 }
-function sayAction(dir, e) {
+// own: ownPrefix(dir), worked out once per call (review M1: once per log line cost seconds on a full log).
+const ownPrefix = dir => `${paths.display(dir, forgeDir(dir))}/`;
+function sayAction(own, e) {
   const { kind, detail } = e;
-  const own = `${paths.display(dir, forgeDir(dir))}/`;
   if ((kind === 'EDIT' || kind === 'WRITE') && (detail.startsWith('.jspark-forge/') || detail.startsWith(own))) return null; // Forge's own files
   const short = x => cut(x, 60);
   return { EDIT: `edited ${detail}`, WRITE: `wrote ${detail}`, BASH: `ran ${short(detail.split(' :: ')[0])}`,
@@ -164,9 +165,10 @@ function sayAction(dir, e) {
     'AGENT+': `started helper ${detail}`, MCP: `used ${detail}`, FAIL: `failed ${short(detail)}` }[kind] || null;
 }
 function recentActions(dir, entries) {
+  const own = ownPrefix(dir);
   const out = []; // the same action several times in a row takes one place: [time of the last one, what, how often]
   for (const e of entries) {
-    const say = sayAction(dir, e);
+    const say = sayAction(own, e);
     if (!say) continue;
     const last = out[out.length - 1];
     if (last && last.say === say) { last.n++; last.time = e.time; } else out.push({ time: e.time, say, n: 1 });
@@ -175,11 +177,12 @@ function recentActions(dir, entries) {
 }
 // What the log holds after a save (the session was cut off before its next save), for the next session's start.
 function sinceSave(dir, savedAt) {
+  const own = ownPrefix(dir);
   const out = [];
   for (const e of logEntries(dir)) {
     if (e.ts <= savedAt + 2000) continue;
     if (e.kind === 'USER') { if (isUserPrompt(e.detail)) out.push(`${e.time.slice(0, 5)} you: "${cut(e.detail, 120)}"`); continue; }
-    const say = sayAction(dir, e);
+    const say = sayAction(own, e);
     if (say) out.push(`${e.time.slice(0, 5)} ${say}`);
   }
   return out.slice(-12);
@@ -224,7 +227,8 @@ function save(dir, sid, reason, { refreshGit = true, now = new Date(), force = f
     const lp = plan && superpowers.ledgerProgress(dir, planFile, plan); // superpowers tracks tasks, not boxes
     if (lp) plan = Object.assign({}, plan, lp);
   }
-  const entries = logEntries(dir);
+  const closedAt = task.closedAt || 0; // review S3: what was logged before the last "done" belongs to the closed task
+  const entries = logEntries(dir).filter(e => e.ts >= closedAt);
   // Your messages from the log, plus the one being handled now (its log line is written after this save).
   const requests = requestsOf(entries);
   const same = (x, y) => { const p = String(x).slice(0, 150), q = String(y).slice(0, 150); return p.startsWith(q) || q.startsWith(p); };
@@ -255,7 +259,7 @@ function save(dir, sid, reason, { refreshGit = true, now = new Date(), force = f
   }
   const dayAgo = now.getTime() - 24 * 3600 * 1000;
   const others = state.allSessions(dir)
-    .filter(s => s.session !== sid && !s.ended && s.lastSaveAt > dayAgo)
+    .filter(s => s.session !== sid && !s.ended && s.lastSaveAt > dayAgo && s.lastSaveAt >= closedAt) // not sessions of a closed task (review S3)
     .sort((a, b) => b.lastSaveAt - a.lastSaveAt)
     .map(s => ({ id: String(s.session).slice(0, 8), at: new Date(s.lastSaveAt), lastRequest: s.lastPrompt, running: runningOf(s).map(x => x.split(' (')[0]) }));
   const meta = paths.isGuest(dir) ? paths.guestMeta(dir) : null;

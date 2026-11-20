@@ -25,7 +25,12 @@ function grantFromPrompt(dir, session, prompt, knownIds, now = Date.now()) {
   const known = new Set(knownIds);
   const granted = [];
   const whole = String(prompt || '').trim().replace(/[.!]+$/, '');
-  for (const m of String(prompt || '').matchAll(/\bconfirm\s+([A-Za-z0-9][A-Za-z0-9-]*)/gi)) {
+  // Only a line that is nothing but CONFIRM <id> (or the "CONFIRM a and CONFIRM b" form a block message gives) counts:
+  // quoted or pasted text that mentions it grants nothing (review S9; seen with a helper's report on 2026-11-20).
+  const ONE = '\\s*confirm\\s+[A-Za-z0-9][A-Za-z0-9-]*';
+  const LINE = new RegExp(`^${ONE}(?:\\s*(?:,|&|and)?${ONE})*\\s*[.!]*\\s*$`, 'i');
+  const own = String(prompt || '').split(/\r?\n/).filter(l => LINE.test(l)).join('\n');
+  for (const m of own.matchAll(/\bconfirm\s+([A-Za-z0-9][A-Za-z0-9-]*)/gi)) {
     if (!known.has(m[1]) || granted.includes(m[1])) continue;
     // A session-long CONFIRM must be the whole message (not inside pasted or quoted text). Fable code review, low.
     if (SESSION_LONG.has(m[1]) && !new RegExp(`^confirm\\s+${m[1]}$`, 'i').test(whole)) continue;

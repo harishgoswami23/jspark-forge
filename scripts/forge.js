@@ -124,15 +124,21 @@ function waitingNotice(dir) { // -> { msg, ctx } for session start, or null
 // positions stay true); task.todos is the list the handoff reads. The id comes from the tool result when it is there
 // ({ task: { id } }); otherwise a task is matched by its order (ids count up from 1; taskBase = tasks before this list).
 // -> true when the list changed.
-function taskTool(task, t, ti, tr) {
+// Task ids start again in a new session (review S1): the list belongs to the session that made it; another session's
+// TaskCreate starts a new list and its TaskUpdate never changes the old one.
+function taskTool(task, t, ti, tr, sid) {
   let list = Array.isArray(task.taskList) ? task.taskList : [];
+  const other = !!task.taskSession && task.taskSession !== sid;
   if (t === 'TaskCreate') {
     if (!ti.subject) return false;
+    if (other) { list = []; task.taskBase = 0; }
+    task.taskSession = sid;
     const live = list.filter(x => x.status !== 'deleted');
     if (live.length && live.every(x => x.status === 'completed')) { task.taskBase = (task.taskBase || 0) + list.length; list = []; } // a finished list: a new one starts
     const id = (tr.task && tr.task.id) || tr.id || tr.taskId;
     list.push({ id: id === undefined || id === null ? null : String(id), content: String(ti.subject), status: 'pending' });
   } else {
+    if (other) return false;
     const raw = ti.taskId !== undefined ? ti.taskId : ti.id !== undefined ? ti.id : ti.task_id;
     if (raw === undefined || raw === null) return false;
     const id = String(raw);
@@ -399,7 +405,7 @@ const handlers = {
       task.todos = ti.todos.map(x => ({ content: String(x.content || ''), status: String(x.status || 'pending') }));
       taskDirty = true;
     }
-    if ((t === 'TaskCreate' || t === 'TaskUpdate') && !input.agent_id && taskTool(task, t, ti, input.tool_response || {})) taskDirty = true;
+    if ((t === 'TaskCreate' || t === 'TaskUpdate') && !input.agent_id && taskTool(task, t, ti, input.tool_response || {}, sid)) taskDirty = true;
     const bgId = input.tool_response && input.tool_response.backgroundTaskId;
     if (bgId && !sess.background.some(b => b.id === bgId)) {
       sess.background.push({ id: bgId, command: ti.command || '', description: ti.description || '', at: now });
@@ -412,7 +418,10 @@ const handlers = {
       task.elsewhere = [root].concat((task.elsewhere || []).filter(x => x !== root)).slice(0, 5);
       taskDirty = true;
     }
-    if ((written.length || elsewhere.length) && !sess.worked) { sess.worked = true; sessDirty = true; }
+    // The session has done work of its own (its last reply may replace the one in the handoff): any tool call of the
+    // main conversation except running forge.js itself (the resume skill's "show"). Review S2.
+    const ownTool = !input.agent_id && !/\bforge\.js\b/.test(String(ti.command || ''));
+    if ((written.length || elsewhere.length || ownTool) && !sess.worked) { sess.worked = true; sessDirty = true; }
     for (const abs of written) {
       const r = rel(dir, abs);
       if (r.startsWith('.superpowers/')) continue; // superpowers' own ledger and briefs: saves, but not "files touched"
