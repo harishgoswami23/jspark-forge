@@ -109,12 +109,12 @@ test('handoff.json empty and handoff.md cut: the previous pair is used, and it s
   assert.ok(rc.systemMessage);
 });
 
-test('handoff.json missing or invalid, handoff.md empty or missing: each falls back to the previous pair', () => {
+test('handoff.json missing or invalid, handoff.md empty or cut: each falls back to the previous pair', () => {
   for (const damage of [
     d => fs.unlinkSync(json(d)),
     d => fs.writeFileSync(json(d), '{not json'),
     d => fs.writeFileSync(md(d), ''),
-    d => fs.unlinkSync(md(d)),
+    d => fs.writeFileSync(md(d), '# Where we were\nAs of 2026-11-2'), // cut short
   ]) {
     const dir = repo();
     twoSaves(dir);
@@ -214,4 +214,18 @@ test('forge.js show --log prints a cut log without the half line or NUL bytes', 
   assert.match(r.stdout, /src\/a\.js/);
   assert.doesNotMatch(r.stdout, /src\/hal/);
   assert.ok(!r.stdout.includes('\0'));
+});
+
+// ---- crash review S8: a deleted handoff.md is not crash damage ----
+test('S8: handoff.md deleted (json still there) behaves as with no handoff: no damage note, no "could not be read", no fallback', () => {
+  const dir = repo();
+  twoSaves(dir);
+  fs.mkdirSync(path.dirname(logFile(dir)), { recursive: true });
+  fs.writeFileSync(logFile(dir), line(300, 'USER', 'build the first invoice report with the monthly totals') + line(200, 'EDIT', 'src/report.js'));
+  fs.unlinkSync(md(dir));
+  assert.equal(handoff.openHandoff(dir), null);
+  const rc = handoff.resumeContext(dir, 'bbbbbbbb-0000-0000-0000-000000000000', 'startup');
+  assert.doesNotMatch(rc.context, /damaged|could not be read|built from the action log/i);
+  assert.equal(rc.systemMessage, null);
+  assert.equal(handoff.pairHealth(dir).newest, 'missing');
 });

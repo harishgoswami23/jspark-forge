@@ -329,7 +329,9 @@ function readPair(mdFile, jsonFile) {
     const raw = fs.readFileSync(jsonFile, 'utf8');
     try { const m = JSON.parse(raw); r.meta = m && typeof m === 'object' && !Array.isArray(m) ? m : null; r.json = r.meta ? 'good' : 'bad'; } catch { r.json = 'bad'; }
   } catch (e) { if (!e || e.code !== 'ENOENT') r.json = 'bad'; }
-  r.state = r.md === 'good' && r.json === 'good' ? 'good' : (r.md === 'missing' && r.json === 'missing' ? 'missing' : 'bad');
+  // A handoff.md that is absent was deleted (a crash empties or cuts a file, it does not remove it): that is no handoff,
+  // not damage, whatever the json says.
+  r.state = r.md === 'good' && r.json === 'good' ? 'good' : (r.md === 'missing' ? 'missing' : 'bad');
   return r;
 }
 const readNewest = dir => readPair(handoffFile(dir), metaFile(dir));
@@ -355,6 +357,7 @@ function pairHealth(dir) {
 function openHandoff(dir) {
   const n = readNewest(dir);
   if (n.state === 'good') return n.meta.status === 'open' ? { meta: n.meta, text: n.text, damaged: false } : null;
+  if (n.state === 'missing') return null; // no handoff.md: nothing was saved, or it was deleted; not crash damage
   const p = readPrev(dir);
   if (p.state === 'good' && p.meta.status === 'open') return { meta: p.meta, text: p.text, damaged: true };
   if (n.state === 'bad' || p.state === 'bad') {
