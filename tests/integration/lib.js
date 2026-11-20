@@ -16,7 +16,9 @@ process.env.JSPARK_FORGE_AUTO_SETUP = 'off';
 if (process.env.FORGE_IT_REAL_SERVERS !== '1') { process.env.JSPARK_FORGE_CODE_MAP = 'off'; process.env.JSPARK_FORGE_PLAYWRIGHT = 'off'; }
 const MODEL = process.env.FORGE_IT_MODEL || 'haiku';
 // Every folder a test file makes goes under one root, removed when the file ends; kept when a test failed, to look at.
-const ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-it-run-'));
+// The real (long) path: on Windows runners the temp folder is a short 8.3 path (RUNNER~1), the model then writes to
+// the long form, and Claude Code refuses the write as outside the working folder (seen 2026-11-20: no WRITE line).
+const ROOT = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-it-run-')));
 process.on('exit', code => {
   if (code || process.exitCode) { process.stderr.write(`integration files kept for a look: ${ROOT}
 `); return; }
