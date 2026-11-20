@@ -73,23 +73,51 @@ function command(name, extraArgs = []) {
 }
 
 const file = home => path.join(home, 'jspark-forge', 'bundled.json');
-function read(home) {
+const DAY = 24 * 3600 * 1000;
+const keyOf = project => (project ? paths.normPath(project) : '-');
+// Is a process with this pid alive? EPERM means it exists but is not ours: alive.
+function pidAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try { process.kill(pid, 0); return true; } catch (e) { return !!e && e.code === 'EPERM'; }
+}
+// The file holds { "<server>": { "<normalised project>": { ...facts, project, pid } } }, so two projects never overwrite
+// each other's facts. An entry of the old flat shape counts as nothing.
+function readAll(home) {
   try {
     const o = JSON.parse(fs.readFileSync(file(home), 'utf8'));
     return o && typeof o === 'object' && !Array.isArray(o) ? o : {};
   } catch { return {}; }
 }
-// Merges `fields` into the entry for `name`; read-modify-write under a lock (both servers start at the same moment).
-function record(home, name, fields) {
+const isMap = v => v && typeof v === 'object' && !Array.isArray(v) && Object.values(v).every(x => x && typeof x === 'object');
+// The single reader: { "<server>": entry } for this project.
+function read(home, project) {
+  const k = keyOf(project);
+  const out = {};
+  for (const [name, byProject] of Object.entries(readAll(home))) if (isMap(byProject) && byProject[k]) out[name] = byProject[k];
+  return out;
+}
+// Merges `fields` into this project's entry for `name`; read-modify-write under a lock (both servers start at the same
+// moment). Entries whose process is gone and that are older than a day are dropped, which keeps the file small.
+function record(home, name, fields, project) {
   try {
     const f = file(home);
     fs.mkdirSync(path.dirname(f), { recursive: true });
     require('./memory').withLock(f, () => {
-      const cur = read(home);
-      cur[name] = Object.assign({}, cur[name], fields);
-      require('./fsx').writeAtomic(f, `${JSON.stringify(cur, null, 2)}\n`);
+      const cur = readAll(home);
+      const k = keyOf(project);
+      for (const n of Object.keys(cur)) {
+        if (!isMap(cur[n])) { delete cur[n]; continue; }
+        for (const [key, e] of Object.entries(cur[n])) {
+          if (!(n === name && key === k) && !pidAlive(e.pid) && !(Date.now() - (e.startedAt || 0) < DAY)) delete cur[n][key];
+        }
+      }
+      const byProject = isMap(cur[name]) ? cur[name] : {};
+      byProject[k] = Object.assign({}, byProject[k], fields, project ? { project: k } : {});
+      cur[name] = byProject;
+      require('./fsx').writeAtomic(f, `${JSON.stringify(cur, null, 2)}
+`);
     });
   } catch { /* never throws */ }
 }
 
-module.exports = { SERVERS, LAUNCHER, NO_NPX, mode, npxCommand, neutralDir, childOptions, command, record, read, claudeHome: paths.claudeHome };
+module.exports = { SERVERS, LAUNCHER, NO_NPX, mode, npxCommand, neutralDir, childOptions, command, record, read, pidAlive, claudeHome: paths.claudeHome };

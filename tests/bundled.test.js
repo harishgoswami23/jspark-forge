@@ -36,7 +36,7 @@ function setup({ space = false, frontEnd = false } = {}) {
   delete env.JSPARK_FORGE_CODE_MAP; delete env.JSPARK_FORGE_PLAYWRIGHT;
   return { base, home, project, env, out };
 }
-const recordOf = home => { try { return JSON.parse(fs.readFileSync(path.join(home, 'jspark-forge', 'bundled.json'), 'utf8')); } catch { return {}; } };
+const recordOf = (home, project) => bundled.read(home, project);
 const runLauncher = (s, args, opts = {}) => spawnSync(process.execPath, [bundled.LAUNCHER, ...args],
   Object.assign({ encoding: 'utf8', env: s.env, cwd: s.project }, opts));
 // Talks newline-delimited JSON-RPC to the launcher's empty server, then closes stdin.
@@ -59,7 +59,7 @@ const emptyServerChecks = (s, name, mode) => {
   assert.deepEqual(t.replies[1].result, { tools: [] });
   assert.deepEqual(t.replies[2].result, {});
   assert.equal(t.replies[3].error.code, -32601);
-  assert.equal(recordOf(s.home)[name].mode, mode);
+  assert.equal(recordOf(s.home, s.project)[name].mode, mode);
 };
 const restoreEnv = (k, v) => { if (v === undefined) delete process.env[k]; else process.env[k] = v; };
 
@@ -86,7 +86,7 @@ test('stdio passes through; the record says run, exit null, and stays null after
   const r = runLauncher(s, ['codebase-memory']);
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /fake-engine says hi/);
-  const rec = recordOf(s.home)['codebase-memory'];
+  const rec = recordOf(s.home, s.project)['codebase-memory'];
   assert.equal(rec.mode, 'run');
   assert.equal(rec.pin, '0.12.1');
   assert.equal(rec.exit, null);
@@ -99,8 +99,8 @@ test('a failing start is recorded (exit code 3) and the launcher exits 3', () =>
   s.env.FAKE_EXIT = '3';
   const r = runLauncher(s, ['playwright']);
   assert.equal(r.status, 3);
-  assert.equal(recordOf(s.home).playwright.exit.reason, 'exit code 3');
-  assert.equal(recordOf(s.home).playwright.exit.code, 3);
+  assert.equal(recordOf(s.home, s.project).playwright.exit.reason, 'exit code 3');
+  assert.equal(recordOf(s.home, s.project).playwright.exit.code, 3);
 });
 
 test('a command that does not exist is recorded and names it (no network, npx missing)', () => {
@@ -109,7 +109,7 @@ test('a command that does not exist is recorded and names it (no network, npx mi
   s.env.JSPARK_FORGE_BUNDLED_CMD = JSON.stringify({ 'codebase-memory': [missing] });
   const r = runLauncher(s, ['codebase-memory']);
   assert.notEqual(r.status, 0);
-  const rec = recordOf(s.home)['codebase-memory'];
+  const rec = recordOf(s.home, s.project)['codebase-memory'];
   assert.ok(rec.exit, 'exit recorded');
   assert.match(rec.exit.reason, /no-such-program/);
   assert.match(r.stderr, /no-such-program/);
@@ -142,7 +142,7 @@ test('playwright in a project with a front end runs the engine; off by env wins 
   assert.equal(bundled.mode('playwright', s.project), 'run');
   const r = runLauncher(s, ['playwright']);
   assert.equal(r.status, 0, r.stderr);
-  assert.equal(recordOf(s.home).playwright.mode, 'run');
+  assert.equal(recordOf(s.home, s.project).playwright.mode, 'run');
   const saved = process.env.JSPARK_FORGE_PLAYWRIGHT;
   process.env.JSPARK_FORGE_PLAYWRIGHT = 'off';
   try { assert.equal(bundled.mode('playwright', s.project), 'off'); } finally { restoreEnv('JSPARK_FORGE_PLAYWRIGHT', saved); }
@@ -173,7 +173,7 @@ test('pass-through hands the engine exactly the arguments (JSON, a folder with a
   const r = runLauncher(s, ['codebase-memory', 'cli', '--quiet', 'index_repository', json]);
   assert.equal(r.status, 0, r.stderr);
   assert.deepEqual(JSON.parse(fs.readFileSync(s.out, 'utf8')), ['cli', '--quiet', 'index_repository', json]);
-  assert.deepEqual(recordOf(s.home), {}, 'pass-through is not recorded');
+  assert.deepEqual(recordOf(s.home, s.project), {}, 'pass-through is not recorded');
 });
 
 test('pass-through keeps arguments with quotes, backslashes and spaces unchanged', () => {
@@ -229,8 +229,8 @@ test('npxCommand never needs a shell: its first element is an existing file or "
 
 test('record and read: atomic, shape kept, merges per server, never throws', () => {
   const home = tmp();
-  bundled.record(home, 'playwright', { pin: '0.0.86', mode: 'run', startedAt: 1, exit: null });
-  bundled.record(home, 'codebase-memory', { pin: '0.12.1', mode: 'off', startedAt: 2, exit: null });
+  bundled.record(home, 'playwright', { pin: '0.0.86', mode: 'run', startedAt: Date.now(), exit: null });
+  bundled.record(home, 'codebase-memory', { pin: '0.12.1', mode: 'off', startedAt: Date.now(), exit: null });
   bundled.record(home, 'playwright', { exit: { code: 1, at: 3, reason: 'exit code 1' } });
   const r = bundled.read(home);
   assert.equal(r.playwright.mode, 'run');
@@ -271,4 +271,46 @@ test('every child the launcher starts runs in a neutral folder with NoDefaultCur
     assert.equal(l.nd, '1');
     assert.equal(l.proj, s.project, 'the project is still passed on through CLAUDE_PROJECT_DIR');
   }
+});
+
+// v0.5 review M3: a record says whose it is and whether its process still lives.
+test('the launcher records its pid and the project while it runs, and drops the pid when it ends normally', () => {
+  const s = setup();
+  const peek = path.join(s.base, 'peek.js');
+  fs.writeFileSync(peek, "require('fs').copyFileSync(require('path').join(process.env.CLAUDE_CONFIG_DIR, 'jspark-forge', 'bundled.json'), process.env.PEEK_OUT);");
+  s.env.JSPARK_FORGE_BUNDLED_CMD = JSON.stringify({ 'codebase-memory': [process.execPath, peek] });
+  s.env.PEEK_OUT = path.join(s.base, 'peek.json');
+  const r = runLauncher(s, ['codebase-memory']);
+  assert.equal(r.status, 0, r.stderr);
+  const key = require('../scripts/lib/paths').normPath(s.project);
+  const during = JSON.parse(fs.readFileSync(s.env.PEEK_OUT, 'utf8'))['codebase-memory'][key];
+  assert.equal(during.pid, r.pid);
+  assert.equal(during.project, key);
+  assert.equal(during.exit, null);
+  const after = recordOf(s.home, s.project)['codebase-memory'];
+  assert.equal(after.pid, null, 'a normal end removes the pid');
+  assert.equal(after.exit, null);
+});
+
+test('records are kept per project; old dead entries are dropped, a live or recent one stays', () => {
+  const home = tmp();
+  const a = path.join(tmp(), 'a'); const b = path.join(tmp(), 'b');
+  bundled.record(home, 'playwright', { mode: 'run', startedAt: Date.now(), pid: process.pid, exit: null }, a);
+  bundled.record(home, 'playwright', { mode: 'off', startedAt: Date.now(), pid: null, exit: null }, b);
+  assert.equal(bundled.read(home, a).playwright.mode, 'run');
+  assert.equal(bundled.read(home, b).playwright.mode, 'off');
+  assert.equal(bundled.read(home, a).playwright.project, require('../scripts/lib/paths').normPath(a));
+  const old = path.join(tmp(), 'old');
+  bundled.record(home, 'playwright', { mode: 'run', startedAt: Date.now() - 3 * 86400000, pid: 2147483000, exit: null }, old);
+  bundled.record(home, 'playwright', { mode: 'run', startedAt: Date.now(), pid: process.pid, exit: null }, a); // another write prunes
+  assert.equal(bundled.read(home, old).playwright, undefined, 'dead and older than a day: dropped');
+  assert.equal(bundled.read(home, b).playwright.mode, 'off', 'recent: kept');
+  assert.equal(bundled.read(home, a).playwright.pid, process.pid, 'alive: kept');
+});
+
+test('pidAlive: this process yes, a pid that does not exist no, junk no', () => {
+  assert.equal(bundled.pidAlive(process.pid), true);
+  assert.equal(bundled.pidAlive(2147483000), false);
+  assert.equal(bundled.pidAlive(null), false);
+  assert.equal(bundled.pidAlive('x'), false);
 });

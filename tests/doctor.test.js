@@ -35,7 +35,7 @@ test('doctor: a healthy project passes every check and says so in one summary li
   fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify(WRAPPED(home)));
   fs.mkdirSync(path.join(home, 'jspark-forge'));
   fs.copyFileSync(path.join(ROOT, 'scripts', 'statusline', 'wrapper.js'), path.join(home, 'jspark-forge', 'statusline.js'));
-  fs.writeFileSync(path.join(home, 'jspark-forge', 'bundled.json'), JSON.stringify({ 'codebase-memory': { mode: 'run', exit: null } }));
+  writeRec(home, dir, { 'codebase-memory': { mode: 'run', exit: null, pid: process.pid } });
   fs.mkdirSync(path.join(home, 'plugins'));
   fs.writeFileSync(path.join(home, 'plugins', 'installed_plugins.json'), 'frontend-design chrome-devtools-mcp');
   // SessionEnd has 1 s, so 0.9 s counts as slow: two Node starts that slow happen when the whole suite runs beside
@@ -113,7 +113,10 @@ test('doctor: one slow start on a busy machine is not "too slow" (best of two tr
 // ---- v0.5 (#7): auto-update, code map, Playwright and UI companions ----
 const bundledLib = require('../scripts/lib/bundled');
 const writeIn = (home, rel, obj) => { const f = path.join(home, rel); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, typeof obj === 'string' ? obj : JSON.stringify(obj)); };
-const runningRec = () => ({ mode: 'run', startedAt: Date.now(), exit: null });
+// bundled.json is { name: { <normalised project>: record } }; a running record names a live pid (this test's own).
+const key = dir => require('../scripts/lib/paths').normPath(dir);
+const runningRec = (dir) => ({ mode: 'run', startedAt: Date.now(), exit: null, pid: process.pid, project: key(dir) });
+const writeRec = (home, dir, recs) => writeIn(home, 'jspark-forge/bundled.json', Object.fromEntries(Object.entries(recs).map(([n, r]) => [n, { [key(dir)]: r }])));
 const withFront = dir => fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ dependencies: { react: '18.0.0' } }));
 const doctorOut = (dir, home, extraEnv) => spawnSync(process.execPath, [FORGE, 'doctor'], { cwd: dir, encoding: 'utf8', timeout: 120000,
   env: Object.assign({}, process.env, { CLAUDE_PROJECT_DIR: dir, CLAUDE_CONFIG_DIR: home }, extraEnv) }).stdout;
@@ -142,7 +145,7 @@ test('doctor: auto-update on, off, and not from the marketplace', () => {
 for (const [label, name, pin, front] of [['Code map', 'codebase-memory', '0.12.1', false], ['Playwright', 'playwright', '0.0.86', true]]) {
   test(`doctor: ${label} running, off by choice, no record, exit recorded`, () => {
     const dir = project(); if (front) withFront(dir);
-    let home = cfg(); writeIn(home, 'jspark-forge/bundled.json', { [name]: runningRec() });
+    let home = cfg(); writeRec(home, dir, { [name]: runningRec(dir) });
     const pkg = bundledLib.SERVERS[name].pkg;
     assert.match(doctorOut(dir, home, noOff), new RegExp(`^ok\\s+${label}: engine running \\(${pkg.replace(/[/@]/g, '\\$&')} ${pin.replace(/\./g, '\\.')}\\)$`, 'm'));
     home = cfg();
@@ -150,7 +153,7 @@ for (const [label, name, pin, front] of [['Code map', 'codebase-memory', '0.12.1
     assert.match(doctorOut(dir, home, envOff), new RegExp(`^ok\\s+${label}: off by your choice$`, 'm'));
     home = cfg();
     assert.match(doctorOut(dir, home, noOff), new RegExp(`^FIX\\s+${label}: the engine has not started\\. Fix: restart Claude Code; if it stays, update Claude Code\\.$`, 'm'));
-    home = cfg(); writeIn(home, 'jspark-forge/bundled.json', { [name]: Object.assign(runningRec(), { exit: { code: 1, at: 1, reason: 'exit code 1' } }) });
+    home = cfg(); writeRec(home, dir, { [name]: Object.assign(runningRec(dir), { exit: { code: 1, at: 1, reason: 'exit code 1' } }) });
     assert.match(doctorOut(dir, home, noOff), new RegExp(`^FIX\\s+${label}: the engine did not start \\(exit code 1\\)\\. Fix: check the network and that antivirus has not quarantined it, then restart Claude Code\\.$`, 'm'));
   });
 }
@@ -162,7 +165,7 @@ test('doctor: Playwright is off here when the project has no front end', () => {
 
 test('doctor: two code map engines is a FIX naming the one to remove', () => {
   const dir = project(); const home = cfg();
-  writeIn(home, 'jspark-forge/bundled.json', { 'codebase-memory': runningRec() });
+  writeRec(home, dir, { 'codebase-memory': runningRec(dir) });
   writeIn(home, '.claude.json', { mcpServers: { 'codebase-memory-mcp': { command: 'x' } } });
   const out = doctorOut(dir, home, noOff);
   assert.match(out, /^FIX\s+Code map: two engines \(JSPARK Forge's and your own codebase-memory-mcp\)\. Fix: remove yours with: claude mcp remove codebase-memory-mcp$/m);
@@ -190,7 +193,7 @@ test('a healthy v0.5 machine: every new line is ok', () => {
   writeIn(home, 'settings.json', WRAPPED(home));
   fs.mkdirSync(path.join(home, 'jspark-forge'), { recursive: true });
   fs.copyFileSync(path.join(ROOT, 'scripts', 'statusline', 'wrapper.js'), path.join(home, 'jspark-forge', 'statusline.js'));
-  writeIn(home, 'jspark-forge/bundled.json', { 'codebase-memory': runningRec(), playwright: runningRec() });
+  writeRec(home, dir, { 'codebase-memory': runningRec(dir), playwright: runningRec(dir) });
   market(home, true);
   installPlugins(home, ['frontend-design', 'chrome-devtools-mcp']);
   let out = doctorOut(dir, home, noOff);
@@ -202,7 +205,7 @@ test('a healthy v0.5 machine: every new line is ok', () => {
 
 test('doctor still changes nothing with the v0.5 checks on a full home', () => {
   const dir = project(); withFront(dir); const home = cfg({ theme: 'dark' });
-  writeIn(home, 'jspark-forge/bundled.json', { 'codebase-memory': runningRec() });
+  writeRec(home, dir, { 'codebase-memory': runningRec(dir) });
   market(home); flagged(home, ['frontend-design']);
   const before = [tree(dir), tree(home)];
   doctorOut(dir, home, noOff);
@@ -218,3 +221,20 @@ test("the doctor's own hook run never switches anything on", () => {
   assert.equal(fs.existsSync(path.join(home, 'jspark-forge', 'companions.json')), false);
   assert.equal(fs.existsSync(path.join(home, 'jspark-forge', 'state.json')), false);
 });
+
+// v0.5 review M3: "engine running" needs a record for this project, mode run, no exit and a live process.
+for (const [label, name, front] of [['Code map', 'codebase-memory', false], ['Playwright', 'playwright', true]]) {
+  test(`doctor: ${label} is not "running" for a dead pid, a stopped launcher, another project or another mode`, () => {
+    const dir = project(); if (front) withFront(dir);
+    const notRunning = new RegExp(`^FIX\\s+${label}: the engine is not running in this session\\. Fix: restart Claude Code; if it stays, run /mcp and check that the jspark-forge servers are on\\.$`, 'm');
+    let home = cfg(); writeRec(home, dir, { [name]: Object.assign(runningRec(dir), { pid: 2147483000 }) });
+    assert.match(doctorOut(dir, home, noOff), notRunning, 'process gone, no exit');
+    home = cfg(); writeRec(home, dir, { [name]: Object.assign(runningRec(dir), { pid: null }) });
+    assert.match(doctorOut(dir, home, noOff), notRunning, 'launcher ended normally: pid removed');
+    home = cfg(); writeRec(home, dir, { [name]: Object.assign(runningRec(dir), { mode: 'off' }) });
+    assert.match(doctorOut(dir, home, noOff), notRunning, 'recorded while the mode was off');
+    home = cfg(); writeRec(home, project(), { [name]: runningRec(dir) });
+    assert.doesNotMatch(doctorOut(dir, home, noOff), /engine running/, 'a record of another project');
+    assert.match(doctorOut(dir, home, noOff), new RegExp(`^FIX\\s+${label}: `, 'm'));
+  });
+}

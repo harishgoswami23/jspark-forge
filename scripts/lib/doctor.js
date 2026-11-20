@@ -139,7 +139,7 @@ function checkAutoUpdate(home) {
 function checkBundled(home, dir) {
   const bundled = require('./bundled');
   const folder = dir || process.cwd();
-  const rec = bundled.read(home);
+  const rec = bundled.read(home, folder);
   const out = [];
   for (const [name, label] of [['codebase-memory', 'Code map'], ['playwright', 'Playwright']]) {
     const mode = bundled.mode(name, folder);
@@ -149,6 +149,7 @@ function checkBundled(home, dir) {
     else if (mode === 'no-frontend') out.push(['ok', 'Playwright: off here (no front end in this project)']);
     else if (!r || typeof r !== 'object') out.push(['FIX', `${label}: the engine has not started. Fix: restart Claude Code; if it stays, update Claude Code.`]);
     else if (r.exit) out.push(['FIX', `${label}: the engine did not start (${String(r.exit.reason || `exit code ${r.exit.code}`)}). Fix: check the network and that antivirus has not quarantined it, then restart Claude Code.`]);
+    else if (r.mode !== 'run' || !bundled.pidAlive(r.pid)) out.push(['FIX', `${label}: the engine is not running in this session. Fix: restart Claude Code; if it stays, run /mcp and check that the jspark-forge servers are on.`]);
     else out.push(['ok', `${label}: engine running (${s.pkg} ${r.pin || s.pin})`]);
   }
   try {

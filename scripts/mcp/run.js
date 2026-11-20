@@ -61,22 +61,26 @@ function main() {
     return undefined;
   }
 
-  const base = { pin: spec.pin, mode, startedAt: Date.now(), exit: null };
-  if (mode !== 'run') { bundled.record(home, name, base); serveEmpty(name); return undefined; }
+  const rec = fields => bundled.record(home, name, fields, project);
+  // pid and project say whose this record is; a normal end removes the pid (a killed launcher leaves it, and the doctor
+  // sees that the process is gone).
+  const base = { pin: spec.pin, mode, startedAt: Date.now(), exit: null, pid: process.pid };
+  process.on('exit', () => rec({ pid: null }));
+  if (mode !== 'run') { rec(base); serveEmpty(name); return undefined; }
 
   const cmd = bundled.command(name);
   if (!cmd) {
-    bundled.record(home, name, Object.assign(base, { exit: { code: 1, at: Date.now(), reason: bundled.NO_NPX } }));
+    rec(Object.assign(base, { exit: { code: 1, at: Date.now(), reason: bundled.NO_NPX } }));
     return fail(bundled.NO_NPX);
   }
-  bundled.record(home, name, base);
+  rec(base);
   let stopping = false;
   let done = false;
   const child = start(cmd, home);
   const finish = (code, reason) => {
     if (done) return;
     done = true;
-    if (reason) bundled.record(home, name, { exit: { code, at: Date.now(), reason } });
+    if (reason) rec({ exit: { code, at: Date.now(), reason } });
     if (reason && code !== 0 && /^exit code/.test(reason) === false) process.stderr.write(`jspark-forge: ${reason}\n`);
     process.exit(code);
   };
