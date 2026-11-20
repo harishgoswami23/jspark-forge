@@ -59,7 +59,9 @@ test('the time named is the last sign of life of that session', () => {
 
 test('a session that ended with a normal Stop and nothing in flight is not a crash', () => {
   const dir = repo(); files(dir);
-  died(dir, { lastSaveAgo: 300, log: [[400, 'WRITE', 'src/report.js'], [320, 'STOP', ''], [319, 'SAVE', 'reply finished']] });
+  // as the Stop handler writes it: STOP, then SAVE; a dev server and a helper are listed in the session file (they are not evidence)
+  died(dir, { lastSaveAgo: 300, log: [[400, 'WRITE', 'src/report.js'], [320, 'STOP', ''], [319, 'SAVE', 'reply finished']],
+    background: [{ command: 'npm run dev', agoSecs: 500 }], helpers: { h1: { type: 'jspark-forge:builder', agoSecs: 450 } } });
   const r = start(dir);
   assert.doesNotMatch(ctxOf(r), /crash check/);
   assert.doesNotMatch(msgOf(r), /cut off/);

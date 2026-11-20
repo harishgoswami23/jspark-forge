@@ -45,6 +45,15 @@ const hhmm = ms => `${pad(new Date(ms).getHours())}:${pad(new Date(ms).getMinute
 // One log line as the product writes it, `secsAgo` seconds before now.
 const logLine = (secsAgo, kind, detail, sid = A) => `${clock(new Date(Date.now() - secsAgo * 1000))} ${`[${sid.slice(0, 8)}]`.padEnd(19)} ${kind.padEnd(5)} ${detail}\n`;
 
+// Log lines `secsAgo` seconds old, each into the file of the day it belongs to (so no test depends on the time of day).
+function appendLog(dir, lines, sid = A) {
+  for (const [s, k, d] of lines) {
+    const f = path.join(forge(dir), 'log', `${stamp(new Date(Date.now() - s * 1000))}.log`);
+    fs.mkdirSync(path.dirname(f), { recursive: true });
+    fs.appendFileSync(f, logLine(s, k, d, sid));
+  }
+}
+
 // Write a session that died: opts = { sid, lastSaveAgo (s), lastPrompt, log: [[secsAgo, kind, detail]], inflight: [{tool, what, agoSecs, agent}],
 // inflightAgo (s: the file's mtime), background: [{id, command, agoSecs}], helpers: {id: {type, agoSecs}}, ended, transcriptPath, extra }
 function died(dir, opts = {}) {
@@ -58,10 +67,7 @@ function died(dir, opts = {}) {
   if (opts.transcriptPath) sess.transcriptPath = opts.transcriptPath;
   fs.mkdirSync(path.dirname(stateFile(dir, 'x')), { recursive: true });
   fs.writeFileSync(stateFile(dir, `session-${sid}.json`), JSON.stringify(sess, null, 2));
-  if (opts.log && opts.log.length) {
-    fs.mkdirSync(path.dirname(logPath(dir)), { recursive: true });
-    fs.appendFileSync(logPath(dir), opts.log.map(([s, k, d]) => logLine(s, k, d, sid)).join(''));
-  }
+  if (opts.log && opts.log.length) appendLog(dir, opts.log, sid);
   if (opts.inflight) {
     const d = stateFile(dir, `inflight-${sid}`);
     fs.mkdirSync(d, { recursive: true });
@@ -108,6 +114,9 @@ function age(dir, secs) {
     fs.writeFileSync(lp, shifted.join('\n'));
   }
 }
-const nearMidnight = () => { const d = new Date(); return d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds() < 900; };
+// Log lines carry only a clock time, so shifting them into the past by more than the time since midnight would cross
+// the day. One shared guard for every test that writes or ages log lines: `{ skip: fx.skipNearMidnight(secs) }`.
+const nearMidnight = (secs = 900) => { const d = new Date(); return d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds() < secs + 300; };
+const skipNearMidnight = (secs = 900) => (nearMidnight(secs) ? 'too close to midnight to put log lines in the past' : false);
 
-module.exports = { age, nearMidnight, FORGE, A, B, repo, run, show, out, ctxOf, msgOf, start, forge, stateFile, readSessionFile, logPath, logLine, hhmm, died };
+module.exports = { appendLog, age, nearMidnight, skipNearMidnight, FORGE, A, B, repo, run, show, out, ctxOf, msgOf, start, forge, stateFile, readSessionFile, logPath, logLine, hhmm, died };

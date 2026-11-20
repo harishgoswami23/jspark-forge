@@ -13,7 +13,7 @@ const { A, B, repo, run, start, ctxOf, msgOf, died, age, nearMidnight, readSessi
 const handoff = require('../scripts/lib/handoff');
 const state = require('../scripts/lib/state');
 
-const skip = nearMidnight() ? 'too close to midnight to age a day log' : false;
+const skip = fx.skipNearMidnight(400); // these age today's log by up to 400 s
 const REQUEST = 'add the invoice chart export to the reports page';
 const writeFile = (dir, rel, content) => { fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true }); fs.writeFileSync(path.join(dir, rel), content); };
 const as = (dir, event, input) => run(dir, event, input, A);
@@ -118,7 +118,7 @@ test('5: both pairs unusable: the context is built from the log, and says so', (
   for (const f of ['handoff.md', 'handoff.prev.md']) fs.writeFileSync(path.join(forge(dir), f), '');
   for (const f of ['handoff.json', 'handoff.prev.json']) fs.writeFileSync(path.join(forge(dir), 'state', f), '{');
   fs.mkdirSync(path.dirname(logPath(dir)), { recursive: true });
-  fs.writeFileSync(logPath(dir), logLine(500, 'USER', 'build the first invoice report with the monthly totals') + logLine(400, 'EDIT', 'src/report.js'));
+  fx.appendLog(dir, [[500, 'USER', 'build the first invoice report with the monthly totals'], [400, 'EDIT', 'src/report.js']], A);
   const r = start(dir);
   const ctx = ctxOf(r);
   assert.match(ctx, /built from the action log alone/i);
@@ -205,3 +205,28 @@ test('10: a guest repo gets the same check, from the guest folder, and nothing i
   assert.equal(status.trim(), '', 'nothing written inside the repo');
   assert.equal(readSessionFile(dir).crashNoted, true);
 });
+
+// ---- crash review M2: a normal end with a dev server or a helper listed is not a crash ----
+const skipHour = fx.skipNearMidnight(3600);
+function normalEnd(dir, { background, helper }) {
+  as(dir, 'SessionStart', { source: 'startup' });
+  as(dir, 'UserPromptSubmit', { prompt: REQUEST });
+  if (helper) as(dir, 'SubagentStart', { agent_id: 'h1', agent_type: 'jspark-forge:builder' });
+  writeVia(dir, 'src/chart.js', 'x\n');
+  as(dir, 'PreToolUse', { tool_name: 'Bash', tool_use_id: 'toolu_d', tool_input: { command: 'npm run dev', run_in_background: true } });
+  as(dir, 'PostToolUse', { tool_name: 'Bash', tool_use_id: 'toolu_d', tool_input: { command: 'npm run dev', run_in_background: true }, tool_response: { backgroundTaskId: 'bg-1' } });
+  as(dir, 'Stop', { last_assistant_message: 'The dev server is up.', background_tasks: background ? [{ id: 'bg-1', type: 'shell', status: 'running', description: 'dev server', command: 'npm run dev' }] : [] });
+}
+for (const [name, opts] of [['a dev server still running', { background: true }], ['a helper left in the session file', { helper: true }]]) {
+  test(`M2: a normal Stop with ${name}, an hour later, is not a crash`, { skip: skipHour }, () => {
+    const dir = repo();
+    normalEnd(dir, opts);
+    const s = readSessionFile(dir);
+    assert.ok(opts.background ? s.background.length === 1 : Object.keys(s.helpers).length === 1, 'the session file lists it');
+    assert.equal(handoff.logEntries(dir).filter(e => e.id.startsWith('aaaaaaaa')).pop().kind, 'SAVE', 'the last line is the SAVE after STOP');
+    age(dir, 3600);
+    const r = start(dir);
+    assert.doesNotMatch(ctxOf(r), /crash check/);
+    assert.doesNotMatch(msgOf(r), /cut off/);
+  });
+}

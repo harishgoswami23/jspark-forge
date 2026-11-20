@@ -23,6 +23,7 @@ const MAX_AGE_MS = 7 * 24 * 3600 * 1000;
 const MAX_FILES = 8;
 const MAX_BLOCKS = 2;
 const WORK_KINDS = new Set(['USER', 'EDIT', 'WRITE', 'BASH', 'PS', 'COMMIT', 'AGENT+', 'MCP']);
+const QUIET_KINDS = new Set(['SAVE', 'WAIT', 'GROUNDING']); // lines a normal end writes after STOP
 const SHELLS = new Set(['Bash', 'PowerShell']);
 const FILE_TOOLS = new Set(['Write', 'Edit', 'NotebookEdit']);
 
@@ -50,7 +51,9 @@ function find(dir, currentSid, now = Date.now()) {
       if (!sign || now - sign < STALE_MS || now - sign > MAX_AGE_MS) continue;
       const background = arr(s.background);
       const helpers = s.helpers && typeof s.helpers === 'object' ? Object.entries(s.helpers).filter(([, h]) => h && typeof h === 'object') : [];
-      const last = mine.length ? mine[mine.length - 1] : null;
+      // The Stop handler logs STOP and then SAVE: judge on the last line that says what the session did.
+      const said = mine.filter(e => !QUIET_KINDS.has(e.kind));
+      const last = said.length ? said[said.length - 1] : null;
       const cleanEnd = !!last && (last.kind === 'STOP' || last.kind === 'END');
       if (cleanEnd && !list.length) continue; // a normal Stop and nothing in flight
       const after = mine.some(e => WORK_KINDS.has(e.kind) && e.ts > lastSave + 2000);
