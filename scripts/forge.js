@@ -27,6 +27,7 @@ const setup = require('./lib/setup');
 const paths = require('./lib/paths');
 const licence = require('./lib/licence');
 const uitip = require('./lib/uitip');
+const uiskills = require('./lib/uiskills'); // v0.5: Claude and its helpers load the design and brand skills before UI work
 const launch = require('./lib/launch'); // launch-scope guard (design-v0.3 section 2)
 
 const event = process.argv[2] || '';
@@ -224,6 +225,10 @@ const handlers = {
     // map is steered, not enforced: one line asking Claude to use JSPARK Forge's helpers.
     try {
       if (setup.superpowersInstalled(setup.claudeHome())) rc.context = `${rc.context}\n\n${MODEL_MAP_LINE}`;
+    } catch { /* never break a session start */ }
+    try { // the UI rule, every session start in an own front-end project (compact included)
+      const ui = uiskills.line(dir);
+      if (ui) rc.context = `${rc.context}\n\n${ui}`;
     } catch { /* never break a session start */ }
     // Code map (design-v0.3 1.1, 1.2): one line for Claude when the engine is in use (a refresh starts when HEAD moved);
     // the engine ships with the plugin, so there is no install tip.
@@ -509,7 +514,9 @@ const handlers = {
       sess.helpers[input.agent_id] = { type: input.agent_type || 'agent', at: Date.now() };
       state.writeSession(dir, input.session_id, sess);
     }
-    return ['AGENT+', input.agent_type || ''];
+    let ui = null; // a helper that builds, plans or reviews gets the UI rule too (it does not see the session's)
+    try { ui = uiskills.helperLine(dir, input.agent_type); } catch { /* fail open */ }
+    return { lines: [['AGENT+', input.agent_type || '']], out: ui ? context('SubagentStart', ui) : null };
   },
 
   SubagentStop(dir, input) { // an unpaired stop (internal helpers) is ignored (design 16, deviation 6)

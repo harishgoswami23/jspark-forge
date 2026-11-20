@@ -15,5 +15,10 @@ Retries, Tie-break, Stop, Outputs). If Goal, CAN change, CANNOT change, Done or 
 4. Retries: as the brief says (default 2), then log and move on. Tie-break: the simpler version wins.
 5. Stop when Done is met or Stop says so. Never "keep going" past it.
 
+UI work: if the work designs, builds, reviews or changes anything a user sees (screens, components, styles, copy),
+first load the frontend-design skill and the project's brand skill with the Skill tool, when you have them, and follow
+them. JSPARK Forge names them when you start in a project with a front end. Never choose colours or a typeface
+yourself when a brand skill exists.
+
 End with: what changed (files, commit sha); the Outputs the brief declares; the evidence (test totals before and after,
 the command and its output); anything left undone, one line each.

@@ -17,4 +17,5 @@ Example: - `drop database production` : production database
 - notes: on
 - statusline-segment: on
 - code-map: on
+- ui-skills: on
 - playwright: on

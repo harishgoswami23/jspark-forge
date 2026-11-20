@@ -164,6 +164,18 @@ function checkBundled(home, dir) {
   return out;
 }
 
+// v0.5: in a front-end project, which skills Claude is told to load before UI work.
+function checkUiSkills(home, dir) {
+  if (!dir) return [];
+  const f = require('./uiskills').facts(dir, home);
+  if (!f) return [];
+  if (!f.on) return [['ok', 'UI skills: off by your choice (- ui-skills: off)']];
+  const fd = f.frontendDesign ? 'frontend-design' : 'frontend-design (once it is installed)';
+  return [['ok', f.brand
+    ? `UI skills: ${fd} and the brand skill ${f.brand} are loaded before UI work`
+    : `UI skills: ${fd} is loaded before UI work; no brand skill is named (name yours: - brand-skill: <name> under ## Settings in rules.md)`]];
+}
+
 function checkCompanions(home) {
   const c = require('./companions');
   const flags = (readJson(path.join(home, 'jspark-forge', 'state.json')) || {}).companions || {};
@@ -189,7 +201,7 @@ function newestUsage(dir) {
 }
 
 function doctor(dir, home) {
-  const lines = [checkNode(), checkFiles(), checkHooks(), checkGit(), ...checkProject(dir), ...checkStatusLine(home, dir), checkAutoUpdate(home), ...checkBundled(home, dir), ...checkCompanions(home)];
+  const lines = [checkNode(), checkFiles(), checkHooks(), checkGit(), ...checkProject(dir), ...checkStatusLine(home, dir), checkAutoUpdate(home), ...checkBundled(home, dir), ...checkCompanions(home), ...checkUiSkills(home, dir)];
   const bad = lines.filter(l => l[0] === 'FIX').length;
   return `JSPARK Forge doctor: ${lines.length - bad} ok, ${bad} to fix\n${lines.map(([s, t]) => `${s.padEnd(4)} ${t}`).join('\n')}\n`;
 }

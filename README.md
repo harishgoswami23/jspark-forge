@@ -114,6 +114,14 @@ missing:
 
 - **shadcn MCP** (React projects): `npx shadcn@4.23.0 mcp init --client claude`
 
+**Having the skills is not the same as using them.** So in your own project with a front end, JSPARK Forge tells
+Claude at every session start, and every helper that builds, plans or reviews, to load frontend-design and your brand
+skill before it designs or changes anything a user sees, and to check the result on the real page. Name your brand
+skill once with `- brand-skill: <name>` under `## Settings`: in `~/.claude/jspark-forge/rules.md` for every project,
+or in a project's `rules.md` for that project. With none named, Claude is told to look for a brand skill among its
+skills and to ask you before it chooses colours or a typeface itself. `- ui-skills: off` switches the rule off, and
+`/jspark-forge:doctor` says which skills a project uses.
+
 Then give the product its own brand rules and build screens through a checked path:
 - **Brand skill:** copy `templates/brand-skill.md` to `skills/brand/SKILL.md` in your project and fill in colours,
   type, spacing, components and voice. Claude follows it for anything a user sees and ends with a screenshot check.
