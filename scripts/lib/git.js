@@ -57,6 +57,11 @@ function lastCommit(dir) {
   } catch { return null; }
 }
 
+// Is `older` an ancestor of `newer` (HEAD moved forward, not sideways)? One git call; any failure -> false.
+function isAncestor(dir, older, newer) {
+  try { run(dir, ['merge-base', '--is-ancestor', older, newer], 1500); return true; } catch { return false; }
+}
+
 // The current branch from .git/HEAD without starting git (~0.1 ms instead of ~50 ms on Windows).
 // Walks up to the repo root; follows a worktree's ".git" file ("gitdir: <path>"). Detached or no repo -> null.
 function headBranch(start) {
@@ -101,4 +106,4 @@ function headCommit(start) {
   } catch { return null; }
 }
 
-module.exports = { gitInfo, lastCommit, headBranch, headCommit };
+module.exports = { gitInfo, lastCommit, isAncestor, headBranch, headCommit };
