@@ -189,6 +189,21 @@ function notePlan(dir, sess, rel) {
   return true;
 }
 
+// A plan approved in plan mode (ExitPlanMode; spike E passed 2026-11-20): one offer per plan text, ever.
+function noteApproved(dir, sess, plan) {
+  const text = String(plan || '').trim();
+  if (!paths.isOwn(dir) || !text) return false;
+  const key = 'approved:' + require('crypto').createHash('sha1').update(text).digest('hex').slice(0, 16);
+  const st = readState(dir);
+  st.plans = st.plans || [];
+  if (st.plans.includes(key)) return false;
+  st.plans = st.plans.concat([key]).slice(-50);
+  writeState(dir, st);
+  const first = text.split(/\r?\n/).map(l => l.replace(/^#+\s*/, '').trim()).find(Boolean);
+  sess.offers = (sess.offers || []).concat([{ approved: clean(first, 80), delivered: 0 }]).slice(-5);
+  return true;
+}
+
 const FORGE_JS = path.join(__dirname, '..', 'forge.js').replace(/\\/g, '/');
 // Once per user turn, each item at most twice. Mutates sess; -> the context text or null.
 function deliver(sess) {
@@ -201,14 +216,16 @@ function deliver(sess) {
   const parts = [];
   const commits = sess.offers.filter(o => o.sha);
   const plans = sess.offers.filter(o => o.plan);
-  if (commits.length || plans.length) {
+  const approved = sess.offers.filter(o => o.approved);
+  if (commits.length || plans.length || approved.length) {
     const what = [];
     if (commits.length) what.push(`commits that may have settled a choice: ${commits.map(o => `${o.sha} '${o.subject}' (${o.files.join(', ')}${o.more ? `, +${o.more} more` : ''})`).join('; ')}`);
     if (plans.length) what.push(`plans that may hold decisions: ${plans.map(o => `plan ${o.plan}`).join('; ')}`);
+    for (const o of approved) what.push(`the plan just approved ("${o.approved}") may hold decisions`);
     parts.push(`JSPARK Forge: ${what.join('. ')}. When this piece of work is done, end your reply by offering, in one line each: ` +
       'Record the decision? "<your draft, at most 15 words>" (touches: <paths>). Record only after the user says yes or gives an edit; ' +
       'if they skip or move on, record nothing. To record, write .jspark-forge/state/decide.json ({"title", "touches", "why", ' +
-      `${commits.length ? `"source": "commit ${commits[0].sha}", ` : '"source", '}"drafted": true}; when the user skips, {"skip": [${commits.map(o => `"${o.sha}"`).join(', ')}]}) ` +
+      `${commits.length ? `"source": "commit ${commits[0].sha}", ` : approved.length && !plans.length ? '"source": "plan approved", ' : '"source", '}"drafted": true}; when the user skips, {"skip": [${commits.map(o => `"${o.sha}"`).join(', ')}]}) ` +
       `with the Write tool, then run: node "${FORGE_JS}" decide --from .jspark-forge/state/decide.json`);
     for (const o of sess.offers) o.delivered++;
   }
@@ -291,5 +308,5 @@ function problems(dir, now = Date.now()) {
   return n;
 }
 
-module.exports = { load, notesFor, relOf, clean, safeSee, readState, writeState, worthOffer, noteCommit, notePlan, deliver,
+module.exports = { load, notesFor, relOf, clean, safeSee, readState, writeState, worthOffer, noteCommit, notePlan, noteApproved, deliver,
   index, arrivals, markKnown, problems, hashOf, isGlob, readShown, addShown, clearShown };

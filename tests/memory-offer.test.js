@@ -120,3 +120,34 @@ test('review (low): a short answer ("yes", "skip") does not bring the offer back
   assert.match(ctxOf(committed(dir)), /30 days/);
   assert.ok(!/30 days/.test(ctxOf(hook(dir, 'UserPromptSubmit', { prompt: 'yes' }))));
 });
+
+// Spike E (design-v0.2 1.10, run 2026-11-20): approving a plan fires PostToolUse for ExitPlanMode with tool_input {}
+// and the plan in tool_response.plan (filePath under ~/.claude/plans, outside the project).
+const approved = (dir, plan, extra = {}) => hook(dir, 'PostToolUse', Object.assign({ tool_name: 'ExitPlanMode', tool_input: {},
+  permission_mode: 'auto', tool_response: { plan, isAgent: false, filePath: path.join(os.homedir(), '.claude', 'plans', 'lazy-dove.md') } }, extra));
+const PLAN = '# Plan: Store prices in cents\n\n## Steps\n1. Change src/price.js.\n2. Test it.\n';
+
+test('spike E: an approved plan (ExitPlanMode) brings one offer, named by the plan title', () => {
+  const dir = project();
+  const c = ctxOf(approved(dir, PLAN));
+  assert.match(c, /the plan just approved \("Plan: Store prices in cents"\) may hold decisions/);
+  assert.match(c, /Record the decision\?/);
+  assert.match(c, /"source": "plan approved/);
+  hook(dir, 'UserPromptSubmit', { prompt: 'now add the export button to the report page' });
+  hook(dir, 'UserPromptSubmit', { prompt: 'now add the export button to the report page' });
+  assert.ok(!/Store prices in cents/.test(ctxOf(approved(dir, PLAN))), 'the same plan is offered once');
+  assert.match(ctxOf(approved(dir, PLAN.replace('cents', 'paise'))), /Store prices in paise/, 'a changed plan is a new offer');
+});
+
+test('spike E: no offer for an empty plan, in a helper, or unattended', () => {
+  assert.equal(ctxOf(approved(project(), '   ')), '');
+  assert.equal(ctxOf(approved(project(), PLAN, { agent_id: 'a1' })), '');
+  const dir = project();
+  const r = hook(dir, 'PostToolUse', { tool_name: 'ExitPlanMode', tool_input: {}, tool_response: { plan: PLAN } }, { CLAUDE_CODE_SESSION_ATTENDED: '' });
+  assert.equal(ctxOf(r), '');
+});
+
+test('spike E: the PostToolUse matcher includes ExitPlanMode', () => {
+  const hooks = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'hooks', 'hooks.json'), 'utf8')).hooks;
+  assert.ok(hooks.PostToolUse.some(h => new RegExp(`^(${h.matcher})$`).test('ExitPlanMode')));
+});

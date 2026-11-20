@@ -288,6 +288,7 @@ const handlers = {
       sess.background.push({ id: bgId, command: ti.command || '', description: ti.description || '', at: now });
       sessDirty = true;
     }
+    if (t === 'ExitPlanMode' && !input.agent_id && memory.noteApproved(dir, sess, (input.tool_response || {}).plan)) sessDirty = true; // spike E
     const written = writtenFiles(dir, input);
     for (const abs of written) {
       const r = rel(dir, abs);
