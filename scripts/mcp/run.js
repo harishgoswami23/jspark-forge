@@ -4,7 +4,8 @@
 // - server mode (no extra args): run the pinned package with inherited stdio, record how it went; when the server is
 //   switched off (or Playwright has no front end here) answer as an MCP server with no tools, so /mcp shows no error;
 // - pass-through mode (extra args, the map refresh): run the engine with those arguments and exit with its code.
-// No shell is used. stdout carries MCP messages only; problems are one line on stderr and exit 1.
+// The launcher's own spawn uses no shell (npm itself may still use cmd.exe on Windows), and runs the child in a neutral
+// folder, not the project's. stdout carries MCP messages only; problems are one line on stderr and exit 1.
 const { spawn } = require('child_process');
 const path = require('path');
 const bundled = require('../lib/bundled');
@@ -38,8 +39,8 @@ function serveEmpty(name) {
   process.stdin.resume();
 }
 
-function start(cmd, opts) {
-  return spawn(cmd[0], cmd.slice(1), Object.assign({ stdio: 'inherit', windowsHide: true, shell: false }, opts));
+function start(cmd, home) {
+  return spawn(cmd[0], cmd.slice(1), Object.assign({ stdio: 'inherit', windowsHide: true, shell: false }, bundled.childOptions(home)));
 }
 
 function main() {
@@ -54,7 +55,7 @@ function main() {
     if (mode === 'off') return fail('switched off');
     const cmd = bundled.command(name, extra);
     if (!cmd) return fail(bundled.NO_NPX);
-    const child = start(cmd);
+    const child = start(cmd, home);
     child.on('error', e => fail(e.message));
     child.on('exit', (code, sig) => process.exit(code === null ? (sig ? 1 : 0) : code));
     return undefined;
@@ -71,7 +72,7 @@ function main() {
   bundled.record(home, name, base);
   let stopping = false;
   let done = false;
-  const child = start(cmd);
+  const child = start(cmd, home);
   const finish = (code, reason) => {
     if (done) return;
     done = true;

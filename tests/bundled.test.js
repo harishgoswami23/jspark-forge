@@ -252,3 +252,23 @@ test('.mcp.json declares both servers through the launcher', () => {
   assert.ok(fs.existsSync(bundled.LAUNCHER));
   assert.equal(bundled.LAUNCHER, path.join(ROOT, 'scripts', 'mcp', 'run.js'));
 });
+
+// v0.5 review M2: the folder the session is in must not decide what code the launcher runs.
+test('every child the launcher starts runs in a neutral folder with NoDefaultCurrentDirectoryInExePath set', () => {
+  const s = setup({ frontEnd: true });
+  const probe = path.join(s.base, 'probe.js');
+  fs.writeFileSync(probe, "require('fs').appendFileSync(process.env.PROBE_OUT, JSON.stringify({ cwd: process.cwd(), nd: process.env.NoDefaultCurrentDirectoryInExePath, proj: process.env.CLAUDE_PROJECT_DIR }) + String.fromCharCode(10));");
+  s.env.JSPARK_FORGE_BUNDLED_CMD = JSON.stringify({ 'codebase-memory': [process.execPath, probe], playwright: [process.execPath, probe] });
+  s.env.PROBE_OUT = path.join(s.base, 'probe.out');
+  assert.equal(runLauncher(s, ['codebase-memory']).status, 0);
+  assert.equal(runLauncher(s, ['playwright', 'cli', 'x']).status, 0);
+  const lines = fs.readFileSync(s.env.PROBE_OUT, 'utf8').trim().split('\n').map(l => JSON.parse(l));
+  assert.equal(lines.length, 2);
+  const want = fs.realpathSync(path.join(s.home, 'jspark-forge'));
+  for (const l of lines) {
+    assert.equal(fs.realpathSync(l.cwd), want, 'the cwd is the neutral folder');
+    assert.notEqual(fs.realpathSync(l.cwd), fs.realpathSync(s.project));
+    assert.equal(l.nd, '1');
+    assert.equal(l.proj, s.project, 'the project is still passed on through CLAUDE_PROJECT_DIR');
+  }
+});

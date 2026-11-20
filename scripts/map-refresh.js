@@ -12,6 +12,7 @@ const crypto = require('crypto');
 const { spawn, spawnSync } = require('child_process');
 const map = require('./lib/map');
 const paths = require('./lib/paths');
+const bundled = require('./lib/bundled');
 
 const HARD_TIMEOUT_MS = Number(process.env.JSPARK_FORGE_MAP_TIMEOUT_MS) > 0 ? Number(process.env.JSPARK_FORGE_MAP_TIMEOUT_MS) : 3 * 60 * 1000;
 const dir = path.resolve(process.argv[2] || process.cwd());
@@ -36,9 +37,13 @@ function runOnce() {
     let timedOut = false;
     let done = false;
     const finish = r => { if (!done) { done = true; resolve(r); } };
+    // Through the launcher the project is not the cwd (review M2): the launcher gives its child a neutral folder, and
+    // the project reaches it only as repo_path and CLAUDE_PROJECT_DIR. The user's own program keeps today's cwd.
+    const viaLauncher = pre[0] === bundled.LAUNCHER;
     try {
       child = spawn(cmd, [...pre, 'cli', '--quiet', 'index_repository', JSON.stringify({ repo_path: paths.repoRoot(dir).replace(/\\/g, '/') })],
-        { cwd: dir, stdio: 'ignore', windowsHide: true, detached: process.platform !== 'win32' });
+        Object.assign({ cwd: dir, stdio: 'ignore', windowsHide: true, detached: process.platform !== 'win32' },
+          viaLauncher ? { cwd: bundled.neutralDir(), env: Object.assign({}, process.env, { CLAUDE_PROJECT_DIR: dir }) } : {}));
     } catch (e) { finish({ ok: false, error: `engine not started: ${e.message}` }); return; }
     engine = child;
     const timer = setTimeout(() => { timedOut = true; killEngine(); }, HARD_TIMEOUT_MS);

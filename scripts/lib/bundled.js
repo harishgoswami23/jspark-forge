@@ -30,7 +30,20 @@ function mode(name, projectDir) {
   return 'run';
 }
 
-// npm's own npx script run by the running Node: no shell, so JSON arguments and paths with spaces arrive unchanged
+// Where every child of the launcher runs: <claude home>/jspark-forge, never the session's folder, so a folder's own
+// .npmrc, node_modules or node.cmd cannot choose what code runs (review M2). The project reaches the child only through
+// CLAUDE_PROJECT_DIR and the arguments the caller gives. NoDefaultCurrentDirectoryInExePath stops Windows (cmd.exe,
+// which npm itself may use) from looking in the current folder first.
+function neutralDir(home) {
+  const d = path.join(home || paths.claudeHome(), 'jspark-forge');
+  try { fs.mkdirSync(d, { recursive: true }); } catch { /* the spawn then reports it */ }
+  return d;
+}
+function childOptions(home) {
+  return { cwd: neutralDir(home), env: Object.assign({}, process.env, { NoDefaultCurrentDirectoryInExePath: '1' }) };
+}
+
+// npm's own npx script run by the running Node: this module starts it with shell: false, so JSON arguments and paths with spaces arrive unchanged
 // (npx.cmd would need cmd.exe, which re-parses its arguments). Windows without it: null (the caller records why).
 function npxCommand() {
   const dir = path.dirname(process.execPath);
@@ -79,4 +92,4 @@ function record(home, name, fields) {
   } catch { /* never throws */ }
 }
 
-module.exports = { SERVERS, LAUNCHER, NO_NPX, mode, npxCommand, command, record, read, claudeHome: paths.claudeHome };
+module.exports = { SERVERS, LAUNCHER, NO_NPX, mode, npxCommand, neutralDir, childOptions, command, record, read, claudeHome: paths.claudeHome };

@@ -530,3 +530,25 @@ test('v0.4.1: an answer naming a project that is neither this one nor a readonly
   const c = ctxOf(hook(t.dir, 'PostToolUse', { tool_name: TOOL, tool_input: { name_pattern: 'x', project: 'P-other' }, tool_response: 'none' }));
   assert.ok(!/old code/.test(c));
 });
+
+// v0.5 review M2: through the launcher the refresh does not run in the project's folder; repo_path still reaches it.
+test('refresh through the launcher: neutral cwd, repo_path as an argument', () => {
+  const dir = project();
+  switchOn(dir);
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-map-m2-'));
+  const home = path.join(base, 'home');
+  fs.mkdirSync(home);
+  const probe = path.join(base, 'probe.js');
+  const out = path.join(base, 'probe.json');
+  fs.writeFileSync(probe, "require('fs').writeFileSync(process.env.PROBE_OUT, JSON.stringify({ cwd: process.cwd(), args: process.argv.slice(2), nd: process.env.NoDefaultCurrentDirectoryInExePath }));");
+  const launcher = require('../scripts/lib/bundled').LAUNCHER;
+  const r = spawnSync(process.execPath, [path.join(__dirname, '..', 'scripts', 'map-refresh.js'), dir], { encoding: 'utf8',
+    env: envFor(dir, { CLAUDE_CONFIG_DIR: home, PROBE_OUT: out, JSPARK_FORGE_MAP_CMD: JSON.stringify([process.execPath, launcher, 'codebase-memory']),
+      JSPARK_FORGE_BUNDLED_CMD: JSON.stringify({ 'codebase-memory': [process.execPath, probe] }) }), cwd: dir });
+  assert.match(r.stdout, /refreshed/, r.stdout + r.stderr);
+  const o = JSON.parse(fs.readFileSync(out, 'utf8'));
+  assert.equal(fs.realpathSync(o.cwd), fs.realpathSync(path.join(home, 'jspark-forge')));
+  assert.equal(o.nd, '1');
+  assert.deepEqual(o.args.slice(0, 3), ['cli', '--quiet', 'index_repository']);
+  assert.equal(fs.realpathSync(JSON.parse(o.args[3]).repo_path), fs.realpathSync(dir));
+});
