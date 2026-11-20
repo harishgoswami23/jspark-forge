@@ -87,7 +87,8 @@ const CASES = {
   // Security re-review 2026-11-20. H4: hook events run from the shell, decided on parsed stages: hard.
   'forge-state hook runs (re-review H4)': [
     [bash("echo '{}' | node /p/scripts/forge.js \\\n SubagentStart"), 'forge-state!'],
-    [bash("echo '{}' | node \"/p/scripts/forge.js\" \\\r\n  UserPromptSubmit"), 'forge-state!'],
+    // backslash-CRLF continues the line only on Windows (Git Bash); elsewhere bash reads \<CR> as a character (L1)
+    [bash("echo '{}' | node \"/p/scripts/forge.js\" \\\r\n  UserPromptSubmit"), WIN ? 'forge-state!' : null],
     [bash("E=SubagentStart; echo '{\"agent_type\":\"jspark-forge:builder\"}' | node /p/scripts/forge.js $E"), 'forge-state!'],
     [bash("echo '{}' | node /p/scripts/forge.js -- SubagentStart"), 'forge-state!'],
     [bash('echo SubagentStart | xargs node /p/scripts/forge.js'), 'forge-state!'],
@@ -97,8 +98,8 @@ const CASES = {
     [bash("$e='UserPromptSubmit'; '{}' | node C:\\p\\scripts\\forge.js $e", { tool: 'PowerShell' }), 'forge-state!'],
     [bash("'{}' | & node C:\\p\\scripts\\forge.js 'SubagentStart'", { tool: 'PowerShell' }), 'forge-state!'],
     [bash("Start-Process node -ArgumentList 'C:\\p\\scripts\\forge.js','SubagentStart'", { tool: 'PowerShell' }), 'forge-state!'],
-    // a copied or renamed script, or JSPARK Forge's code loaded by hand: only the text shows it, so ask
-    [bash("echo '{}' | node /tmp/f.js SubagentStart"), 'forge-state?'],
+    // JSPARK Forge's code loaded by hand: only the text shows it, so ask (a script that is not forge.js given a
+    // hook event name is not JSPARK Forge: third review L7)
     [bash("node -e \"process.argv[1]='SubagentStart'; require('/p/scripts/forge')\""), 'forge-state?'],
     [bash("node - <<'EOF'\nconst g=require('/p/scripts/lib/graph-run.js');g.onPrompt('.','DONE ok','s1')\nEOF"), 'forge-state?'],
     // H3: the plugin's own instructed commands, whatever words their messages hold
@@ -201,6 +202,72 @@ const CASES = {
     [bash('tar czf /tmp/backup.tgz .jspark-forge'), null],
     [edit('tests/fixtures/.jspark-forge/state/graph-x.json', 'Write'), null],
     [edit('backup/.jspark-forge/state/graph-demo.json', 'Write'), null],
+  ],
+  // Third security review 2026-11-20 (fix3): M2 interpreter code naming the record, M3 lines that never spell
+  // .jspark-forge, L2 short names and network paths, L3 folder copies and extracts, L6 confirm.json, L7 needless asks.
+  'forge-state third review (fix3)': [
+    // M2: inline code that names state/graph- asks whatever its verbs, unless it is clearly a pure read
+    [bash(`node -e "require('fs').cpSync('/tmp/t.json','.jspark-forge/state/graph-trust.json')"`), 'forge-state?'],
+    [bash(`node -e "const fs=require('fs');const fd=fs.openSync('.jspark-forge/state/graph-trust.json','w');fs.closeSync(fd)"`), 'forge-state?'],
+    [bash(`node -e "require('fs').linkSync('/tmp/t.json','.jspark-forge/state/graph-trust.json')"`), 'forge-state?'],
+    [bash(`node -e "require('child_process').execSync('echo {} > .jspark-forge/state/graph-trust.json')"`), 'forge-state?'],
+    [bash(`python -c "import os; os.system('echo {} > .jspark-forge/state/graph-trust.json')"`), 'forge-state?'],
+    [bash(`python -c "import subprocess; subprocess.run('sed -i s/running/done/ .jspark-forge/state/graph-demo.json', shell=True)"`), 'forge-state?'],
+    [bash(`python -c "from pathlib import Path; Path('.jspark-forge/state/graph-trust.json').touch()"`), 'forge-state?'],
+    [bash(`python -c "import fileinput\nfor l in fileinput.input('.jspark-forge/state/graph-demo.json', inplace=True): print(l, end='')"`), 'forge-state?'],
+    [bash(`php -r 'file_put_contents(".jspark-forge/state/graph-trust.json","{}");'`), 'forge-state?'],
+    [bash("python3 - <<'EOF'\nimport os\nos.system('echo {} > .jspark-forge/state/graph-trust.json')\nEOF"), 'forge-state?'],
+    [bash(`python -c "print(open('.jspark-forge/state/graph-demo.json').read())"`), null],
+    [bash(`node -e "console.log(require('fs').readFileSync('.jspark-forge/state/graph-demo.json','utf8'))"`), null],
+    [bash('node scripts/gen.js src/state/graph-store.ts'), null],
+    // M3: a line that names a graph-*.json file but never spells .jspark-forge
+    [bash(`find . -name 'graph-demo.json' -exec sed -i 's/"running"/"done"/' {} +`), 'forge-state?'],
+    [bash(`find . -name 'graph-*.json' | xargs sed -i 's/"running"/"done"/'`), 'forge-state?'],
+    [bash(`sed -i 's/"running"/"done"/' $(grep -rl '"running"' . --include='graph-*.json')`), 'forge-state?'],
+    [bash(`sed -i 's/"running"/"done"/' $(find . -name graph-demo.json)`), 'forge-state?'],
+    [bash("find . -name 'graph-demo.json'"), null],
+    [bash('git add src/state/graph-store.ts && git commit -m "graph-store"'), null],
+    [bash('npx eslint src/state/graph-store.ts && npx vitest run src/state/graph-store.test.ts'), null],
+    [bash('jq . data/graph-x.json > /tmp/g.json && mv /tmp/g.json data/graph-x.json'), null],
+    [bash("grep -rl running . --include='graph-*.json'"), null],
+    // L2: the folder's 8.3 short name, and network paths that name .jspark-forge
+    [bash('rm -rf JSPARK~1'), 'forge-state?'],
+    [bash("echo '{}' > JSPARK~1/state/graph-trust.json"), 'forge-state?'],
+    [edit('.JSPARK~1/state/graph-trust.json', 'Write'), 'forge-state?'],
+    [edit('//server/share/proj/.jspark-forge/state/graph-trust.json', 'Write'), 'forge-state?'],
+    [bash("echo '{}' > //server/share/proj/.jspark-forge/state/graph-trust.json"), 'forge-state?'],
+    [edit('//server/share/proj/src/app.ts', 'Write'), null],
+    // L3: a recursive copy or an extract whose destination is the .jspark-forge or state folder
+    [bash('cp -rT /tmp/jf .jspark-forge'), 'forge-state?'],
+    [bash('cp -r /tmp/state .jspark-forge/'), 'forge-state!'],
+    [bash('cp -a /tmp/jf .jspark-forge'), 'forge-state?'],
+    [bash('cp -R /tmp/jf/* .jspark-forge/state'), 'forge-state!'],
+    [bash('tar -xf x.tar -C .jspark-forge'), 'forge-state?'],
+    [bash('tar xzf x.tgz --directory=.jspark-forge'), 'forge-state?'],
+    [bash('unzip -o /tmp/jf.zip -d .jspark-forge'), 'forge-state?'],
+    [bash('robocopy /tmp/jf .jspark-forge /E'), 'forge-state?'],
+    [bash('tar -xf /tmp/st.tar', { cwd: path.join(PROJECT, '.jspark-forge') }), 'forge-state?'],
+    [bash('tar czf /tmp/backup.tgz .jspark-forge'), null],
+    [bash('tar -xf /tmp/x.tar -C build'), null],
+    [bash('unzip -o /tmp/x.zip -d vendor'), null],
+    [bash('cp -r .jspark-forge /tmp/forge-backup'), null],
+    [bash('cp -r /tmp/report-build.json .jspark-forge/state/'), null],
+    // L6: the CONFIRM tokens file is JSPARK Forge's own, like the graph record
+    [edit('.jspark-forge/state/confirm.json', 'Write'), 'forge-state!'],
+    [edit('.jspark-forge/state/confirm.json'), 'forge-state!'],
+    [bash(`echo '{"tokens":[]}' > .jspark-forge/state/confirm.json`), 'forge-state!'],
+    [bash('cp /tmp/c.json .jspark-forge/state/confirm.json'), 'forge-state!'],
+    [bash('rm .jspark-forge/state/confirm.json'), 'forge-state!'],
+    [bash('cat .jspark-forge/state/confirm.json'), null],
+    [edit('.jspark-forge/state/confirm-notes.md', 'Write'), null],
+    // L7: needless asks
+    [bash('node tests/run.js PreToolUse'), null],
+    [bash('node scripts/hooks.js SessionStart'), null],
+    [bash("echo '{}' | node /tmp/f.js SubagentStart"), null],
+    [bash('date > .jspark-forge/state/session-note.txt'), null],
+    [bash('date >> .jspark-forge/state/session-note.txt'), null],
+    [bash('node scripts/forge.js SessionStart'), 'forge-state!'],
+    [bash('date > .jspark-forge/state/graph-demo.json'), 'forge-state!'],
   ],
   'rm-rf-outside': [
     [bash('rm -rf /'), 'rm-rf-outside!'],
@@ -634,6 +701,37 @@ test('a glob with many wildcards cannot stall the check (third review H1)', () =
       assert.ok(Date.now() - t < 1000, `${command}: ${Date.now() - t} ms`);
     }
   } finally { fs.rmSync(real, { recursive: true, force: true }); }
+});
+
+// Third review L1: real Linux / macOS bash does not treat backslash-CR-LF as a line continuation ("\<CR>" is an
+// escaped character and the newline ends the command), so "echo a \<CR><LF>rm -rf ~" runs rm. Git Bash on Windows
+// joins the lines.
+test('backslash-CRLF is a line continuation on Windows only (third review L1)', { skip: WIN && 'non-Windows bash' }, () => {
+  assert.equal(expectOf(check(bash('echo a \\\r\nrm -rf ~'), ctx())), 'rm-rf-outside!');
+  assert.equal(expectOf(check(bash('echo a \\\r\ngit push --force origin main'), ctx())), 'git-force-push-main');
+  assert.equal(expectOf(check(bash('echo a \\\nrm -rf ~'), ctx())), null);
+});
+test('backslash-CRLF joins the lines in Git Bash on Windows (third review L1)', { skip: !WIN && 'Windows Git Bash' }, () => {
+  assert.equal(expectOf(check(bash('echo a \\\r\nrm -rf ~'), ctx())), null);
+  assert.equal(expectOf(check(bash('git push \\\r\n --force origin main'), ctx())), 'git-force-push-main');
+  assert.equal(expectOf(check(bash('echo a \\\nrm -rf ~'), ctx())), null);
+});
+
+// Third review L2: \\?\ and \\.\ prefixes on a local drive path are the same file: refused like the plain path.
+test('a \\\\?\\ or \\\\.\\ prefix on a local path does not hide the record (third review L2)', { skip: !WIN && 'Windows paths' }, () => {
+  const T = `${PROJECT}\\.jspark-forge\\state\\graph-trust.json`;
+  const F = T.replace(/\\/g, '/');
+  for (const input of [
+    edit(`\\\\?\\${T}`, 'Write'),
+    edit(`\\\\.\\${T}`, 'Write'),
+    edit(`//?/${F}`, 'Write'),
+    edit(`//./${F}`, 'Write'),
+    bash(`echo '{}' > '\\\\?\\${T}'`),
+    bash(`echo '{}' > //./${F}`),
+    bash(`Set-Content -LiteralPath '\\\\?\\${T}' -Value 1`, { tool: 'PowerShell' }),
+  ]) assert.equal(expectOf(check(input, ctx())), 'forge-state!', input.tool_input.command || input.tool_input.file_path);
+  assert.equal(expectOf(check(edit(`\\\\?\\${PROJECT}\\.jspark-forge\\state\\report-b.json`, 'Write'), ctx())), null);
+  assert.equal(expectOf(check(edit('\\\\?\\UNC\\server\\share\\.jspark-forge\\state\\graph-trust.json', 'Write'), ctx())), 'forge-state?');
 });
 
 // A mapped network drive (Z:) cannot be told apart from a local one without a lookup, and one slow lookup cannot be

@@ -877,8 +877,11 @@ function userHits(text, rules) {
 // "never allowed" blocks real work and is worse than an extra prompt, so there are two levels.
 // Hard deny, from parsed stages: a change target that resolves (against the command's folder, following cd within the
 // line, and through junctions and links where the folder exists) to this project's own record: its .jspark-forge
-// folder moved or deleted, the state folder, or a graph-* file in it; and running JSPARK Forge's hook events by hand
-// (a forge script run with a hook event, a variable, "--" or xargs as its first argument).
+// folder moved or deleted, the state folder, or a graph-* file or confirm.json (the CONFIRM tokens) in it; and running
+// JSPARK Forge's hook events by hand (a forge script run with a hook event, a variable, "--" or xargs as its first
+// argument). Third review: \\?\ and \\.\ spellings resolve like the plain path; a network path or the 8.3 short name
+// (JSPARK~1) asks; a recursive copy or an extract into the record folders asks; inline interpreter code that names
+// state/graph- asks unless it only reads; a line that names a graph-*.json file asks when a change target is unknown.
 // Ask (Claude Code's own permission prompt, no CONFIRM), for what only the text shows: when the line or its folder
 // names .jspark-forge, an interpreter or .NET call that writes, a change target in a variable, {} or xargs, a link to
 // the record, or an unknown command naming the state folder; in any line, loading JSPARK Forge's graph or confirm code
@@ -887,6 +890,17 @@ function userHits(text, rules) {
 // (re-review H1); past the budget, targets are judged by their text.
 const fsMod = require('fs');
 const FORGE_NAME = /\.jspark-forge/i;
+// Third review: the folder's 8.3 short name (JSPARK~1) and a graph-*.json name without the folder (M3, L2).
+const SHORT_NAME = /(^|[\s'"\\/=(;])\.?jspark~\d/i;
+const SHORT_SEG = /(^|[\\/])\.?jspark~\d/i;
+const GRAPH_JSON = /graph-[\w*?-]*\.json/i;
+// The record files in state: graph-* (build graphs, trust) and confirm.json (the CONFIRM tokens, scripts/lib/confirm.js).
+const RECORD_FILE = /^(graph-|confirm\.json$)/i;
+// Inline code that names the record (M2) asks whatever its verbs, unless it is clearly a pure read.
+const RECORD_CODE = /state(\\{1,4}|\/{1,4}|['"]\s{0,3},\s{0,3}['"])(graph-|confirm\.json)/i;
+const CODE_CHANGES = /cp(Sync)?\s{0,5}\(|\bcp\b|\bopen(Sync)?\s{0,5}\([^)]{0,300}?(O_WRONLY|O_RDWR|O_CREAT|O_TRUNC|['"]\+)|link|touch|system|exec|spawn|popen|subprocess|shell\s{0,3}=|file_put_contents|fopen|fwrite|fputs|inplace|sponge|\bmv\b/i;
+const CODE_READS = /readFileSync|readFile|\.read(_text|_bytes|lines)?\s{0,5}\(|json\.load|JSON\.parse|console\.log|print\s{0,5}\(|\bputs\b|File\.read|file_get_contents/i;
+const pureRead = code => CODE_READS.test(code) && !WRITES_TEXT.test(code) && !CODE_CHANGES.test(code);
 const FORGE_MS = 500;
 const NET_PATH = /^[\\/]{2}/; // \\server\share, //server/share, \\?\..., \\.\...: never resolved (a lookup can take a minute)
 const READERS = new Set(['cat', 'type', 'get-content', 'gc', 'less', 'more', 'head', 'tail', 'grep', 'egrep', 'fgrep', 'rg',
@@ -948,7 +962,7 @@ function forgeInfo(ctx) {
 function recordLevel(k, f) {
   for (const { F, S } of f.roots) {
     if (k === F || k === S) return 'folder';
-    if (k.startsWith(`${S}/`)) return /^graph-/i.test(k.slice(S.length + 1)) ? 'file' : null;
+    if (k.startsWith(`${S}/`)) return RECORD_FILE.test(k.slice(S.length + 1)) ? 'file' : null;
   }
   return null;
 }
@@ -1004,7 +1018,7 @@ const GLOB = /[*?[]/;
 function forgeCandidates(f) {
   if (f.cands) return f.cands;
   const state = path.join(f.abs, 'state');
-  let names = ['graph-trust.json', 'graph-active.json', 'graph-x.json'];
+  let names = ['graph-trust.json', 'graph-active.json', 'graph-x.json', 'confirm.json'];
   if (Date.now() <= f.deadline) { try { names = names.concat(fsMod.readdirSync(state).filter(n => /^graph-/i.test(n))); } catch { /* none */ } }
   f.cands = [[recKey(f.abs), 'folder'], [recKey(state), 'folder']].concat(names.map(n => [recKey(path.join(state, n)), 'file']));
   return f.cands;
@@ -1035,11 +1049,19 @@ function segMatch(p, s) {
   while (i < p.length && p[i] === '*') i++;
   return i === p.length;
 }
-// $PWD, ~+ and the project folder variable are known; any other variable is not.
+// $PWD, ~+, the project folder, the temp folder and the home folder variables are known; any other variable is not.
+// (A copy of the record to $env:TEMP is a read: third review L7.)
 function expandKnown(t, cwd, ctx) {
   let s = t.replace(/\$\{?(?:env:)?CLAUDE_PROJECT_DIR\}?(?!\w)/gi, () => ctx.projectDir);
   if (cwd !== null) s = s.replace(/\$\{?PWD\}?(?!\w)/gi, () => cwd).replace(/^~\+(?=[\\/]|$)/, () => cwd);
+  if (/^\$\{?(?:env:)?(TEMP|TMP|TMPDIR)\}?(?=[\\/]|$)/i.test(s)) s = s.replace(/^\$\{?(?:env:)?(TEMP|TMP|TMPDIR)\}?/i, () => require('os').tmpdir());
+  if (ctx.home && /^\$\{?(?:env:)?(HOME|USERPROFILE)\}?(?=[\\/]|$)/i.test(s)) s = s.replace(/^\$\{?(?:env:)?(HOME|USERPROFILE)\}?/i, () => ctx.home);
   return s;
+}
+// \\?\C:\..., \\.\C:\..., //?/C:/... and //./C:/... name the local path C:\...; \\?\UNC\server\share is \\server\share.
+function localSpelling(t) {
+  const s = t.replace(/^(?:\\\\|\/\/)[?.][\\/](?=[a-zA-Z]:)/, '');
+  return s.replace(/^(?:\\\\|\/\/)[?.][\\/]UNC[\\/]/i, '\\\\');
 }
 // What a change target is: 'file' / 'folder' (this project's record, see recordLevel), 'unknown' (a variable, {} or a
 // folder we cannot know) or null. literal: a tool's file path, where $ and % are just characters.
@@ -1050,15 +1072,20 @@ function forgeTarget(p, cwd, ctx, literal = false) {
   if (!literal) {
     t = expandKnown(t, cwd, ctx);
     if (/[$`%]|\{[^{}]{0,200}\}/.test(t)) return 'unknown'; // a variable, find's {} or a {a,b} brace expansion
+    if (t.includes('(')) return 'unknown'; // a PowerShell expression: (Join-Path ...), (Get-Item ...).FullName (M1)
   }
+  t = localSpelling(t);
   if (cwd === null && !path.isAbsolute(toFs(t))) return 'unknown';
   const f = forgeInfo(ctx);
   const abs = path.resolve(toFs(cwd === null ? ctx.projectDir : cwd), toFs(t));
   const k = recordLevel(recKey(abs), f);
   if (k) return k;
+  // A network path is never looked up; one that names .jspark-forge (or its short name) is unknown (L2).
+  if (NET_PATH.test(t)) return FORGE_NAME.test(t) || SHORT_SEG.test(t) ? 'unknown' : null;
   if (!literal && GLOB.test(t)) return forgeGlob(t, abs, f);
   const real = realOf(abs, f);
-  return real === abs ? null : recordLevel(recKey(real), f);
+  const level = real === abs ? null : recordLevel(recKey(real), f);
+  return level || (SHORT_SEG.test(t) ? 'unknown' : null); // JSPARK~1: the folder's 8.3 short name (L2)
 }
 const inForgeDir = (cwd, ctx) => {
   if (!cwd) return false;
@@ -1066,8 +1093,10 @@ const inForgeDir = (cwd, ctx) => {
   return forgeInfo(ctx).roots.some(({ F }) => k === F || k.startsWith(`${F}/`));
 };
 // A copy's destination and sources: bash cp / install / ln / scp (with -t DIR), PowerShell Copy-Item and cmd copy.
+// recursive: -r / -R / -a / -T (bash), -Recurse or /s /e (PowerShell, cmd); whole: -T, the source's contents become
+// the destination itself.
 function copyArgs(args, ps) {
-  let dest = null;
+  let dest = null, recursive = false, whole = false;
   const srcs = [], pos = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -1075,11 +1104,14 @@ function copyArgs(args, ps) {
       if (/^-(path|literalpath|lp)$/i.test(a)) { srcs.push(...String(args[++i] || '').split(',')); continue; }
       if (/^-destination$/i.test(a)) { dest = args[++i]; continue; }
       if (/^-(filter|include|exclude|credential)$/i.test(a)) { i++; continue; }
+      if (/^-r(e(c(u(r(se?)?)?)?)?)?$/i.test(a) || /^\/[se]$/i.test(a)) { recursive = true; continue; }
       if (/^-/.test(a) || /^\/[a-z]$/i.test(a)) continue;
     } else {
       if (a === '-t' || a === '--target-directory') { dest = args[++i]; continue; }
       if (a.startsWith('--target-directory=')) { dest = a.slice(19); continue; }
       if (/^(-S|--suffix|-m|--mode|-o|--owner|-g|--group)$/.test(a)) { i++; continue; }
+      if (/^--(recursive|archive)$/.test(a) || (/^-[a-zA-Z]+$/.test(a) && /[rRa]/.test(a))) recursive = true;
+      if (a === '--no-target-directory' || (/^-[a-zA-Z]+$/.test(a) && a.includes('T'))) { recursive = true; whole = true; }
       if (a.startsWith('-')) continue;
     }
     pos.push(a);
@@ -1091,7 +1123,47 @@ function copyArgs(args, ps) {
   }
   srcs.push(...pos);
   if (dest === undefined || dest === null) return null;
-  return ps ? { dest: psPath(dest), srcs: srcs.filter(Boolean).map(psPath) } : { dest, srcs };
+  return ps ? { dest: psPath(dest), srcs: srcs.filter(Boolean).map(psPath), recursive, whole } : { dest, srcs, recursive, whole };
+}
+// Where an extract or a robocopy writes (third review L3): { dest, files } or null. tar x (-C / --directory), unzip
+// (-d), 7z x / e (-o), Expand-Archive (-DestinationPath or the second positional), robocopy <src> <dest> [files];
+// without a destination the current folder.
+function extractArgs(c) {
+  const { cmd, args } = c;
+  if (cmd === 'tar' || cmd === 'bsdtar') {
+    const x = args.some((a, i) => a === '--extract' || a === '--get' || (/^-[a-zA-Z]+$/.test(a) && a.includes('x')) || (i === 0 && /^[a-zA-Z]+$/.test(a) && a.includes('x')));
+    if (!x) return null;
+    let dest = '.';
+    args.forEach((a, i) => { if (a === '-C' || a === '--directory') dest = args[i + 1] || dest; else if (a.startsWith('--directory=')) dest = a.slice(12); });
+    return { dest, files: [] };
+  }
+  if (cmd === 'unzip') {
+    if (args.some(a => /^-[a-zA-Z]*[lptvzZ]/.test(a))) return null; // list, test, print to stdout
+    let dest = '.';
+    args.forEach((a, i) => { if (a === '-d') dest = args[i + 1] || dest; else if (/^-d./.test(a)) dest = a.slice(2); });
+    return { dest, files: [] };
+  }
+  if (/^7z[ar]?$/.test(cmd)) {
+    if (!/^[xe]$/i.test(args[0] || '')) return null;
+    const o = args.find(a => /^-o/.test(a));
+    return { dest: o ? o.slice(2) : '.', files: [] };
+  }
+  if (cmd === 'expand-archive') {
+    let dest = null; const pos = [];
+    for (let i = 0; i < args.length; i++) {
+      if (/^-d(e(s(t(i(n(a(t(i(o(n(p(a(th?)?)?)?)?)?)?)?)?)?)?)?)?)?$/i.test(args[i])) dest = args[++i];
+      else if (/^-(path|literalpath|lp)$/i.test(args[i])) pos.unshift(args[++i]);
+      else if (!args[i].startsWith('-')) pos.push(args[i]);
+    }
+    return { dest: dest || pos[1] || '.', files: [] };
+  }
+  if (cmd === 'robocopy') {
+    if (args.length < 2) return null;
+    const files = [];
+    for (let i = 2; i < args.length && !/^\/[a-z]/i.test(args[i]); i++) files.push(args[i]);
+    return { dest: args[1], files, purge: args.some(a => /^\/(mir|purge)$/i.test(a)) };
+  }
+  return null;
 }
 const redirectsOf = (stage, dialect) => stage.redirects.filter(r => !/^\$null$/i.test(r)).map(r => (dialect === 'ps' ? psPath(r) : r));
 // Every path a stage changes, for the forge-state check: { paths, copies }. paths: writes, deletes, moves (both ends),
@@ -1119,6 +1191,20 @@ function forgeStageTargets(stage, dialect, cwd) {
     }
   }
   return { paths: out, copies: [] };
+}
+// A PowerShell writer or remover with no path argument: at a later pipe stage it takes its items from the input
+// ("Get-Item <record> | Remove-Item", "... | Set-Content -Value x"). Tee-Object (a variable) is not counted.
+const PS_PIPED = new Set([...PS_WRITERS, ...PS_REMOVE, 'rename-item', 'ren', 'rni', 'clear-content', 'clc']);
+function psPipedTarget(c) {
+  if (!PS_PIPED.has(c.cmd) || c.cmd === 'tee' || c.cmd === 'tee-object') return false;
+  for (let i = 0; i < c.args.length; i++) {
+    const a = c.args[i];
+    if (/^-(path|literalpath|lp|pspath|filepath|destination)$/i.test(a)) return false;
+    if (/^-(value|itemtype|type|encoding|inputobject|filter|include|exclude|credential|stream|newname|name)$/i.test(a)) { i++; continue; }
+    if (/^-/.test(a)) continue;
+    return false; // a positional path
+  }
+  return true;
 }
 const CD = new Set(['cd', 'chdir', 'pushd', 'set-location', 'sl', 'push-location']);
 // A stage that only reads (or only carries text, as git and gh messages do): its words never ask. A PowerShell
@@ -1167,7 +1253,8 @@ function forgeRun(stage, c, dialect) {
     if (first !== undefined && FORGE_CLI.has(first)) return 'cli';
     return event || first === '--' || unknown || viaXargs ? 'hard' : 'quiet'; // "node forge.js build" runs no hook
   }
-  if (event) return /[$`%]/.test(script) ? 'hard' : 'ask';
+  // A script in a variable may be forge.js; any other script given a hook event name is not JSPARK Forge (L7).
+  if (event && /[$`%]/.test(script)) return 'hard';
   return null;
 }
 // One pass over a command line (and the commands inside it). acc.hard: the hit to deny with; the other acc fields
@@ -1207,11 +1294,25 @@ function forgeScan(raw, cwd, ctx, depth, dialect, acc) {
         const k = forgeTarget(cp.dest, here, ctx);
         if (k !== 'folder') { judge(k); continue; }
         for (const s of cp.srcs) judge(/[$`%]|\{\}/.test(s) ? 'unknown' : forgeTarget(path.join(String(cp.dest), path.basename(toFs(s))), here, ctx));
+        // A folder copied recursively into the record folder writes what is inside it (third review L3).
+        if (cp.recursive && (cp.whole || cp.srcs.some(s => !/\.[A-Za-z0-9]{1,8}$/.test(path.basename(toFs(s)))))) acc.unknownTarget = true;
       }
+      const ex = c && extractArgs(c);
+      if (ex) {
+        const k = forgeTarget(ps ? psPath(ex.dest) : ex.dest, here, ctx);
+        if (k === 'folder' && ex.files.length) for (const n of ex.files) judge(forgeTarget(path.join(String(ex.dest), String(n)), here, ctx));
+        else if (k === 'folder' || k === 'unknown') acc.unknownTarget = true;
+        else if (k === 'file') judge(k);
+        else if (ex.purge && here !== null) { // robocopy /MIR into a folder that holds the record deletes what it lacks
+          const dk = recKey(path.resolve(toFs(here), toFs(ps ? psPath(ex.dest) : ex.dest)));
+          if (forgeInfo(ctx).roots.some(({ F }) => F.startsWith(`${dk}/`))) acc.unknownTarget = true;
+        }
+      }
+      // A PowerShell writer or remover fed by the pipeline with no path of its own: the items come from the input (M1).
+      if (ps && idx > 0 && c && psPipedTarget(c)) acc.unknownTarget = true;
       if (acc.hard) return;
       const run = forgeRun(stage, c, dialect);
       if (run === 'hard') { acc.hard = hit('forge-state', true, raw, HOOK_RUN_PLAIN); return; }
-      if (run === 'ask') acc.hookAsk = true;
       // The commands inside: $( ), script blocks, bash -c / pwsh -c / cmd /c, eval, iex, find -exec.
       for (const inner of stage.subs || []) { forgeScan(inner, here, ctx, depth + 1, dialect, acc); if (acc.hard) return; }
       if (!c) continue;
@@ -1241,6 +1342,9 @@ function forgeScan(raw, cwd, ctx, depth, dialect, acc) {
         const fed = stage.input || (idx > 0 && script === undefined) || (script !== undefined && wrote(script));
         if (fed) code += `\n${raw}`; // a heredoc, a pipe or a script this line wrote: the line is the code
         if (WRITES_TEXT.test(code)) acc.codeWrites = true;
+        // Code on the line (or fed to it) that names the record asks whatever its verbs, unless it only reads (M2).
+        const inline = fed || c.args.some(a => /^-(e|c|p|pe|E|-eval|-print)$/.test(a) || (c.cmd === 'php' && a === '-r'));
+        if (inline && !PS_SHELLS.has(c.cmd) && RECORD_CODE.test(code) && !pureRead(code)) acc.recordCode = true;
         // a forge script run without a hook event: its own name is not JSPARK Forge's code loaded by hand
         if (hookText(run === 'quiet' ? code.split(/\s+/).filter(w => !FORGE_SCRIPT.test(w)).join(' ') : code)) acc.hookAsk = true;
         continue;
@@ -1249,7 +1353,9 @@ function forgeScan(raw, cwd, ctx, depth, dialect, acc) {
       if ((/^(ln|mklink)$/.test(c.cmd) || (/^(new-item|ni)$/.test(c.cmd) && c.args.some(a => /^(symboliclink|junction|hardlink)$/i.test(a))))
         && FORGE_NAME.test(text)) acc.unknownTarget = true; // a link to the record: what is written through it later is not seen
       if (KNOWN_CHANGERS.has(c.cmd)) continue;
-      if (FORGE_NAME.test(text) && (c.cmd === 'find' || /\bstate\b|graph-/i.test(text))) acc.unknownCmd = true;
+      // Redirect targets are resolved above, so only the words count ("date > .jspark-forge/state/note.txt": L7).
+      const words = stage.words.join(' ');
+      if (FORGE_NAME.test(words) && (c.cmd === 'find' || /\bstate\b|graph-/i.test(words))) acc.unknownCmd = true;
     }
   }
 }
@@ -1260,8 +1366,14 @@ function forgeHits(raw, cwd, ctx, dialect) {
   if (acc.hard) return [acc.hard];
   if (acc.hookAsk) return [hit('forge-state', false, raw, HOOK_ASK_PLAIN, true)];
   if (DOTNET_IO.test(raw) && WRITES_TEXT.test(raw)) acc.codeWrites = true;
-  const named = FORGE_NAME.test(raw) || inForgeDir(cwd, ctx);
-  if (named && (acc.unknownTarget || acc.codeWrites || acc.unknownCmd)) return [hit('forge-state', false, raw, null, true)];
+  if (dialect === 'ps' && /\)\s{0,3}\.(Delete|MoveTo|CopyTo|Encrypt|Create(Text)?|AppendText|OpenWrite)\s{0,3}\(/i.test(raw)) acc.codeWrites = true;
+  const ask = () => [hit('forge-state', false, raw, null, true)];
+  if (acc.recordCode) return ask();
+  const named = FORGE_NAME.test(raw) || SHORT_NAME.test(raw) || inForgeDir(cwd, ctx);
+  if (named && (acc.unknownTarget || acc.codeWrites || acc.unknownCmd)) return ask();
+  // A line that names a graph-*.json file but not the folder ("find . -name graph-demo.json -exec sed -i ... {} +"):
+  // only a change target we cannot see asks (third review M3).
+  if (acc.unknownTarget && GRAPH_JSON.test(raw)) return ask();
   return [];
 }
 
@@ -1281,6 +1393,7 @@ function check(input, ctx, opts = {}) {
       if (root) hits.push(readonlyHit(root, p));
       const k = forgeTarget(p, cwd, ctx, true);
       if (k === 'file' || k === 'folder') hits.push(hit('forge-state', true, p));
+      else if (k === 'unknown') hits.push(hit('forge-state', false, p, null, true)); // a network path or JSPARK~1 (L2)
     } else if (tool === 'Bash' || tool === 'PowerShell') {
       const raw = String(ti.command || '');
       const dialect = tool === 'PowerShell' ? 'ps' : 'bash';

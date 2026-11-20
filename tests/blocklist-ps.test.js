@@ -52,6 +52,44 @@ const CASES = {
     [ps('node C:/plugins/jspark-forge/scripts/forge.js graph status g'), null],
     [ps('Set-Content .jspark-forge/state/report-b.json "{}"'), null],
   ],
+  // Third security review 2026-11-20 (fix3). M1: a target given as an expression or through the pipeline is unknown.
+  'forge-state third review (fix3)': [
+    [ps("Set-Content (Join-Path $PWD '.jspark-forge\\state\\graph-trust.json') '{}'"), 'forge-state?'],
+    [ps("Set-Content (Resolve-Path .jspark-forge\\state\\graph-trust.json) '{}'"), 'forge-state?'],
+    [ps("'{}' | Set-Content (Get-Item .jspark-forge\\state\\graph-trust.json).FullName"), 'forge-state?'],
+    [ps("Get-Item .jspark-forge\\state\\graph-trust.json | Set-Content -Value '{}'"), 'forge-state?'],
+    [ps("(Get-Content .jspark-forge\\state\\graph-trust.json).Replace('a','b') | Out-File -FilePath (Resolve-Path .jspark-forge\\state\\graph-trust.json).Path"), 'forge-state?'],
+    [ps('Get-Item .jspark-forge\\state\\graph-trust.json | Remove-Item'), 'forge-state?'],
+    [ps('Get-ChildItem .jspark-forge\\state -Filter graph-*.json | Remove-Item'), 'forge-state?'],
+    [ps('Get-Content .jspark-forge\\state\\graph-g.json | Out-File C:\\tmp\\g.txt'), null],
+    [ps("Get-ChildItem .jspark-forge\\state | Select-Object Name | Out-File (Join-Path $env:TEMP 'names.txt')"), 'forge-state?'],
+    [ps('Get-ChildItem src | Remove-Item'), null],
+    [ps("Set-Content (Join-Path $PWD 'notes.txt') 'x'"), null],
+    // M3: a graph-*.json name without .jspark-forge
+    [ps("Get-ChildItem -Recurse -Filter graph-demo.json | % { (gc $_.FullName) -replace 'running','done' | sc $_.FullName }"), 'forge-state?'],
+    [ps("Get-ChildItem -Recurse -Force -Filter graph-demo.json | ForEach-Object { Set-Content $_ '{}' }"), 'forge-state?'],
+    [ps('Get-ChildItem -Recurse -Filter graph-demo.json'), null],
+    [ps('git add src\\state\\graph-store.ts'), null],
+    // M2
+    [ps(`python -c "import os; os.system('echo {} > .jspark-forge/state/graph-trust.json')"`), 'forge-state?'],
+    // L2: the 8.3 short name
+    [ps("Set-Content .JSPARK~1\\state\\graph-trust.json '{}'"), 'forge-state?'],
+    // L3: folder copies and extracts into the record folders
+    [ps('Copy-Item C:\\tmp\\jf .jspark-forge -Recurse -Force'), 'forge-state?'],
+    [ps('robocopy C:\\tmp\\jf .jspark-forge /E'), 'forge-state?'],
+    [ps('Expand-Archive C:\\tmp\\jf.zip -DestinationPath .jspark-forge -Force'), 'forge-state?'],
+    [ps('Expand-Archive C:\\tmp\\jf.zip .jspark-forge\\state'), 'forge-state?'],
+    [ps('tar -xf C:\\tmp\\jf.tar -C .jspark-forge'), 'forge-state?'],
+    [ps('Expand-Archive C:\\tmp\\x.zip -DestinationPath vendor'), null],
+    [ps('Copy-Item .jspark-forge C:\\tmp\\backup -Recurse'), null],
+    // L6
+    [ps("Set-Content .jspark-forge\\state\\confirm.json '{}'"), 'forge-state!'],
+    // L7: a copy of the record to elsewhere is a read
+    [ps('Copy-Item .jspark-forge\\state\\graph-trust.json $env:TEMP\\graph-trust.json'), null],
+    [ps('Copy-Item .jspark-forge\\state\\graph-demo.json -Destination "$env:TEMP\\g.json"'), null],
+    [ps('cp .jspark-forge\\state\\graph-demo.json $env:TMP\\g.json'), null],
+    [ps('Copy-Item $env:TEMP\\graph-trust.json .jspark-forge\\state\\graph-trust.json'), 'forge-state!'],
+  ],
   'rm-rf-outside': [
     [ps('Remove-Item -Recurse -Force ~'), 'rm-rf-outside!'],
     [ps('Remove-Item ~ -Recurse'), 'rm-rf-outside!'],
