@@ -42,7 +42,8 @@ function parseNotes(text) {
 const doneText = n => (n <= 0 ? null : n === 1 ? 'step 1' : `steps 1–${n}`);
 
 // Deviation 7: todo list, then a checkbox plan file, then Claude's notes, then the last request.
-function taskFields({ todos, plan, notes, lastRequest }) {
+const SUBSTANTIVE = 25; // shorter messages ("go on", "resume", "yes") steer the work; they are not the task
+function taskFields({ todos, plan, notes, lastRequest, requests }) {
   let step = null, next = null, done = null;
   if (Array.isArray(todos) && todos.length) {
     const m = todos.length;
@@ -61,7 +62,8 @@ function taskFields({ todos, plan, notes, lastRequest }) {
     step = s ? { n: Number(s[1]), m: Number(s[2]), text: s[3] || null } : null;
   }
   if (!next && notes && notes.next) next = notes.next;
-  const task = (plan && plan.title) || (notes && notes.task) || lastRequest || null;
+  const real = (requests || []).map(r => r.text).reverse().find(t => t.length >= SUBSTANTIVE);
+  const task = (plan && plan.title) || (notes && notes.task) || real || lastRequest || null;
   return { task, step, next, done };
 }
 
@@ -88,6 +90,16 @@ function render(m, opts = {}) {
   L.push(`**Still running at cutoff:** ${m.running && m.running.length ? cut(m.running.join(' · '), 400) : 'nothing'}`);
   L.push(`**Waiting on you:** ${m.waiting ? cut(m.waiting) : 'nothing'}`);
   L.push(`**Your last request:** ${m.lastRequest ? `"${cut(m.lastRequest)}"` : 'not recorded'}`);
+  if (m.before && m.before.length) {
+    const list = (level >= 2 ? m.before.slice(0, 2) : m.before).map(r => `${hhmm(r.at)} "${cut(r.text, level >= 2 ? 80 : 120)}"`);
+    L.push(`**Requests before it:** ${list.join(' · ')}`);
+  }
+  if (m.lastReply && m.lastReply.text) {
+    const w = m.lastReply.text.split(/\s+/).filter(Boolean);
+    const max = level >= 3 ? 35 : 70;
+    L.push(`**Claude's last reply (${hhmm(new Date(m.lastReply.at))}):** ${w.length > max ? `…${w.slice(-max).join(' ')}` : w.join(' ')}`);
+  }
+  if (m.elsewhere && m.elsewhere.length) L.push(`**Also worked in:** ${m.elsewhere.join(', ')}`);
   if (m.notes && m.notes.text) {
     let t = m.notes.text.replace(/\s+/g, ' ').trim();
     if (level >= 3 && words(t) > 60) t = `${t.split(' ').slice(0, 60).join(' ')}…`;
@@ -111,26 +123,63 @@ function render(m, opts = {}) {
 }
 
 // ---------- building the model from state ----------
-function recentActions(dir, sid, now) {
-  const file = path.join(forgeDir(dir), 'log', `${log.dayStamp(now)}.log`);
-  let lines = [];
-  try { lines = fs.readFileSync(file, 'utf8').split('\n'); } catch { return []; }
-  const s8 = String(sid || '').slice(0, 8);
+// The log is written at every step and survives any cutoff, so the handoff's history comes from it, for every session
+// of the project (v0.5: a session that resumes must not lose what the one before it did). Today's file and the one
+// before it. -> [{ ts, time, id, kind, detail }], oldest first.
+const NOT_USER = /^\s*(?:<(?:agent-message|task-notification|system-reminder|local-command-stdout|local-command-stderr|command-name|command-message)\b|\[SYSTEM NOTIFICATION)/i;
+const isUserPrompt = p => !NOT_USER.test(String(p || ''));
+function logEntries(dir) {
+  const d = path.join(forgeDir(dir), 'log');
+  let files = [];
+  try { files = fs.readdirSync(d).filter(n => /^\d{4}-\d{2}-\d{2}\.log$/.test(n)).sort().slice(-2); } catch { return []; }
   const out = [];
-  for (const raw of lines) {
-    const m = raw.match(log.LINE_RE);
-    if (!m || !m[2].startsWith(s8)) continue;
-    const [, time, , kind, detail] = m;
-    const own = `${paths.display(dir, forgeDir(dir))}/`;
-    if ((kind === 'EDIT' || kind === 'WRITE') && (detail.startsWith('.jspark-forge/') || detail.startsWith(own))) continue; // Forge's own files
-    const t = time.slice(0, 5);
-    const short = s => cut(s, 60);
-    const say = { EDIT: `edited ${detail}`, WRITE: `wrote ${detail}`, BASH: `ran ${short(detail.split(' :: ')[0])}`,
-      PS: `ran ${short(detail.split(' :: ')[0])}`, COMMIT: `commit ${short(detail)}`, BLOCK: `blocked ${detail.split(' :: ')[0]}`,
-      'AGENT+': `started helper ${detail}`, MCP: `used ${detail}`, FAIL: `failed ${short(detail)}` }[kind];
-    if (say) out.push(`${t} ${say}`);
+  for (const n of files) {
+    let text = '';
+    try { text = fs.readFileSync(path.join(d, n), 'utf8'); } catch { continue; }
+    const [y, mo, da] = n.slice(0, 10).split('-').map(Number);
+    for (const raw of text.split('\n')) {
+      const m = raw.match(log.LINE_RE);
+      if (!m) continue;
+      const [h, mi, se] = m[1].split(':').map(Number);
+      out.push({ ts: new Date(y, mo - 1, da, h, mi, se).getTime(), time: m[1], id: m[2], kind: m[3], detail: m[4] });
+    }
   }
-  return out.slice(-8);
+  return out;
+}
+// Your real messages (not helper reports, not slash commands), oldest first.
+function requestsOf(entries) {
+  return entries.filter(e => e.kind === 'USER' && !e.id.includes('/') && isUserPrompt(e.detail) && !/^\s*\//.test(e.detail))
+    .map(e => ({ at: new Date(e.ts), text: e.detail }));
+}
+function sayAction(dir, e) {
+  const { kind, detail } = e;
+  const own = `${paths.display(dir, forgeDir(dir))}/`;
+  if ((kind === 'EDIT' || kind === 'WRITE') && (detail.startsWith('.jspark-forge/') || detail.startsWith(own))) return null; // Forge's own files
+  const short = x => cut(x, 60);
+  return { EDIT: `edited ${detail}`, WRITE: `wrote ${detail}`, BASH: `ran ${short(detail.split(' :: ')[0])}`,
+    PS: `ran ${short(detail.split(' :: ')[0])}`, COMMIT: `commit ${short(detail)}`, BLOCK: `blocked ${detail.split(' :: ')[0]}`,
+    'AGENT+': `started helper ${detail}`, MCP: `used ${detail}`, FAIL: `failed ${short(detail)}` }[kind] || null;
+}
+function recentActions(dir, entries) {
+  const out = []; // the same action several times in a row takes one place: [time of the last one, what, how often]
+  for (const e of entries) {
+    const say = sayAction(dir, e);
+    if (!say) continue;
+    const last = out[out.length - 1];
+    if (last && last.say === say) { last.n++; last.time = e.time; } else out.push({ time: e.time, say, n: 1 });
+  }
+  return out.slice(-8).map(a => `${a.time.slice(0, 5)} ${a.say}${a.n > 1 ? ` (${a.n} times)` : ''}`);
+}
+// What the log holds after a save (the session was cut off before its next save), for the next session's start.
+function sinceSave(dir, savedAt) {
+  const out = [];
+  for (const e of logEntries(dir)) {
+    if (e.ts <= savedAt + 2000) continue;
+    if (e.kind === 'USER') { if (isUserPrompt(e.detail)) out.push(`${e.time.slice(0, 5)} you: "${cut(e.detail, 120)}"`); continue; }
+    const say = sayAction(dir, e);
+    if (say) out.push(`${e.time.slice(0, 5)} ${say}`);
+  }
+  return out.slice(-12);
 }
 
 function runningOf(sess) {
@@ -151,7 +200,7 @@ function readNotes(dir) {
 // (only talk so far, or a task just closed with done). force: the user asked (/jspark-forge:handoff).
 // Work worth resuming: files touched, a commit, todos, a plan, notes or something still running. Only talk is not.
 function workOf(sess, task, notes, planFile) {
-  return task.files.length > 0 || !!task.lastCommit || (Array.isArray(task.todos) && task.todos.length > 0) ||
+  return task.files.length > 0 || (task.elsewhere || []).length > 0 || !!task.lastCommit || (Array.isArray(task.todos) && task.todos.length > 0) ||
     !!planFile || !!(notes && (notes.text || notes.task)) || runningOf(sess).length > 0;
 }
 const hasWork = (dir, sid) => {
@@ -172,7 +221,18 @@ function save(dir, sid, reason, { refreshGit = true, now = new Date(), force = f
     const lp = plan && superpowers.ledgerProgress(dir, planFile, plan); // superpowers tracks tasks, not boxes
     if (lp) plan = Object.assign({}, plan, lp);
   }
-  const f = taskFields({ todos: task.todos, plan, notes, lastRequest: sess.lastPrompt });
+  const entries = logEntries(dir);
+  // Your messages from the log, plus the one being handled now (its log line is written after this save).
+  const requests = requestsOf(entries);
+  const same = (x, y) => { const p = String(x).slice(0, 150), q = String(y).slice(0, 150); return p.startsWith(q) || q.startsWith(p); };
+  if (sess.lastPrompt && !(requests.length && same(requests[requests.length - 1].text, sess.lastPrompt))) requests.push({ at: now, text: sess.lastPrompt });
+  const lastRequest = sess.lastPrompt || (requests.length ? requests[requests.length - 1].text : null);
+  const f = taskFields({ todos: task.todos, plan, notes, lastRequest, requests });
+  // Claude's last reply: this session's once it has done work of its own; until then the one already in the handoff
+  // (a session that only showed the handoff and asked "Continue?" must not replace what was said about the work).
+  const prevMeta = state.readMeta(dir);
+  const kept = prevMeta && prevMeta.lastReply;
+  const lastReply = (sess.worked || !kept ? sess.lastReply : null) || kept || null;
   // A running build graph ranks first (design-v0.4 3, review M5): helpers' todos must not hide it.
   try {
     const gr = require('./graph-run').current(dir);
@@ -200,15 +260,16 @@ function save(dir, sid, reason, { refreshGit = true, now = new Date(), force = f
     // recorded: it would need a hook on every Read (design-v0.1.1 section 3)
     sources: require('./rules').loadRules(dir).readonly.map(r => ({ path: r.path, head: headCommit(path.resolve(dir, r.path)) })),
     asOf: now, reason, git: sess.git, task: f.task, step: f.step, done, next: f.next,
-    running: runningOf(sess), waiting: require('./waiting').summary(dir), lastRequest: sess.lastPrompt,
+    running: runningOf(sess), waiting: require('./waiting').summary(dir), lastRequest,
+    before: requests.slice(0, -1).slice(-4).reverse(), lastReply, elsewhere: task.elsewhere || [],
     notes: notes && notes.text ? { time: notes.time, text: notes.text } : null,
-    recent: recentActions(dir, sid, now), files: task.files, ended: sess.ended,
+    recent: recentActions(dir, entries), files: task.files, ended: sess.ended,
     logFile: paths.display(dir, path.join(forgeDir(dir), 'log', `${log.dayStamp(now)}.log`)), others,
     archiveDir: `${paths.display(dir, path.join(forgeDir(dir), 'archive'))}/`,
   };
   writeAtomic(handoffFile(dir), render(model));
   state.writeMeta(dir, { status: 'open', savedAt: now.getTime(), session: sid, branch: sess.git && sess.git.branch,
-    head: sess.git && sess.git.head, task: f.task, step: f.step, next: f.next });
+    head: sess.git && sess.git.head, task: f.task, step: f.step, next: f.next, lastReply });
   sess.lastSaveAt = now.getTime();
   sess.lastSaveReason = reason;
   state.writeSession(dir, sid, sess);
@@ -257,7 +318,11 @@ function resumeContext(dir, sid, source, now = new Date()) {
       const branchNote = current && h.meta.branch && current !== h.meta.branch
         ? `Note: you are on branch ${current}; the handoff was on ${h.meta.branch}.` : null;
       msgs.push(summary(h.meta) + (branchNote ? ` ${branchNote}` : ''));
-      parts.push(h.text, WAIT_LINE);
+      parts.push(h.text);
+      let since = [];
+      try { since = sinceSave(dir, h.meta.savedAt); } catch { /* fail open */ }
+      if (since.length) parts.push(`JSPARK Forge: after that save the log shows more work (the session was cut off before its next save); count it as part of where the work stands: ${since.join(' · ')}`);
+      parts.push(WAIT_LINE);
       if (branchNote) parts.push(`JSPARK Forge: ${branchNote}`);
     } else {
       const d = new Date(h.meta.savedAt);
@@ -294,4 +359,4 @@ function pruneArchive(dir, now = new Date()) {
   }
 }
 
-module.exports = { render, taskFields, parseNotes, save, hasWork, resumeContext, archive, pruneArchive, notesLine, grounding };
+module.exports = { render, taskFields, parseNotes, save, hasWork, resumeContext, archive, pruneArchive, notesLine, grounding, isUserPrompt, sinceSave };

@@ -31,6 +31,8 @@ const launch = require('./lib/launch'); // launch-scope guard (design-v0.3 secti
 
 const event = process.argv[2] || '';
 const DEBOUNCE_MS = 5000;
+const WORKING_MS = 60000; // v0.5: a save at most once a minute while tools run without writing files
+const NOTES_AFTER_ACTS = 12; // v0.5: tool calls after which Claude is asked for its notes with the next message
 
 // ---------- helpers ----------
 const isInitialised = dir => paths.isActive(dir);
@@ -73,9 +75,29 @@ function writtenFiles(dir, input) {
   let paths = [];
   if (t === 'Edit' || t === 'Write' || t === 'NotebookEdit') paths = [ti.file_path || ti.notebook_path];
   else if (t === 'Bash' || t === 'PowerShell') paths = writeTargets(ti.command || '', dialectOf(t));
-  return paths.filter(p => p && !/^\/dev\//.test(p) && !/^nul$/i.test(p) && !/[$`]/.test(p))
-    .map(p => path.resolve(toFs(cwd), toFs(p)))
-    .filter(abs => insideProject(dir, abs));
+  const abs = paths.filter(p => p && !/^\/dev\//.test(p) && !/^nul$/i.test(p) && !/[$`]/.test(p))
+    .map(p => path.resolve(toFs(cwd), toFs(p)));
+  return { inside: abs.filter(a => insideProject(dir, a)), elsewhere: otherProjects(dir, abs) };
+}
+// v0.5: files written in another git project (the work moved to a second folder). -> that project's top folder(s).
+// Not: anything under this project, Claude Code's own folder, or a file in no git project (temp and scratch files).
+function otherProjects(dir, absPaths) {
+  const out = [];
+  const home = path.resolve(setup.claudeHome());
+  const under = (base, p) => { const r = path.relative(base, p); return !r.startsWith('..') && !path.isAbsolute(r); };
+  for (const abs of absPaths) {
+    if (under(dir, abs) || under(home, abs)) continue;
+    let root = null;
+    for (let d = path.dirname(abs); ; d = path.dirname(d)) {
+      if (fs.existsSync(path.join(d, '.git'))) { root = d; break; }
+      if (path.dirname(d) === d) break;
+    }
+    if (!root || under(root, dir)) continue; // none, or this project sits inside that repo
+    try { root = fs.realpathSync.native(root); } catch { /* as written */ }
+    root = root.replace(/\\/g, '/');
+    if (!out.includes(root)) out.push(root);
+  }
+  return out;
 }
 
 const branchOf = dir => git.headBranch(dir) || ''; // read from .git/HEAD, no git process
@@ -210,7 +232,11 @@ const handlers = {
 
   UserPromptSubmit(dir, input) {
     const prompt = String(input.prompt || '');
+    // v0.5: a helper's report or a system notice arrives through this hook too. It is not the user's message: it is
+    // logged as NOTE, never becomes "your last request", and can never grant a CONFIRM.
+    if (!handoff.isUserPrompt(prompt)) return { lines: [['NOTE', prompt]], out: null };
     const lines = [['USER', prompt]];
+    let real = false;
     // Build graph (design-v0.4 3): the user's own TRUST GRAPH <name> or DONE <step> (whole message, attended only).
     // Only one that acts is a control message; otherwise ("done" with no graph running) it is an ordinary prompt.
     let graphMsg = null;
@@ -220,6 +246,7 @@ const handlers = {
       const sess = state.readSession(dir, input.session_id);
       sess.lastPrompt = redact(prompt, log.envSecrets(dir)).replace(/\s+/g, ' ').trim().slice(0, 200);
       state.writeSession(dir, input.session_id, sess);
+      real = true;
       // The user replied: a question Claude ended its last reply with is answered (spec 5.2a).
       const n = waiting.remove(dir, x => x.source === 'reply' && x.session === input.session_id);
       if (n) lines.push(['WAIT', `${n} answered`]);
@@ -240,7 +267,12 @@ const handlers = {
     let scopeNudge = null;
     try { scopeNudge = launch.nudge(dir, input, sess); } catch { /* fail open */ }
     // ---- end launch-scope nudge
+    // v0.5: after a stretch of work, ask Claude for its notes (the only place the meaning of the work is written
+    // down). Before this they were asked for only at a commit, at compaction and at 80 % usage.
+    if (real && (sess.acts || 0) >= NOTES_AFTER_ACTS && notesOn(dir)) { parts.push(handoff.notesLine(dir)); sess.acts = 0; }
     state.writeSession(dir, input.session_id, sess);
+    // v0.5: every message from the user saves, so a turn cut off before its reply ends is still in the handoff.
+    if (real) doSave(dir, input.session_id, 'your message', lines);
     if (offer) parts.push(offer);
     if (scopeNudge) parts.push(scopeNudge);
     if (graphMsg) parts.push(graphMsg);
@@ -347,7 +379,13 @@ const handlers = {
       sessDirty = true;
     }
     if (t === 'ExitPlanMode' && !input.agent_id && memory.noteApproved(dir, sess, (input.tool_response || {}).plan)) sessDirty = true; // spike E
-    const written = writtenFiles(dir, input);
+    if (!input.agent_id) { sess.acts = (sess.acts || 0) + 1; sessDirty = true; } // counted for the notes reminder
+    const { inside: written, elsewhere } = writtenFiles(dir, input);
+    for (const root of elsewhere) { // work in another project folder: named in the handoff
+      task.elsewhere = [root].concat((task.elsewhere || []).filter(x => x !== root)).slice(0, 5);
+      taskDirty = true;
+    }
+    if ((written.length || elsewhere.length) && !sess.worked) { sess.worked = true; sessDirty = true; }
     for (const abs of written) {
       const r = rel(dir, abs);
       if (r.startsWith('.superpowers/')) continue; // superpowers' own ledger and briefs: saves, but not "files touched"
@@ -369,7 +407,10 @@ const handlers = {
         reason = 'commit';
       }
     }
-    if (!reason && written.length && now - sess.lastSaveAt >= DEBOUNCE_MS) reason = 'file write';
+    if (reason && !sess.worked) { sess.worked = true; sessDirty = true; } // a commit
+    if (!reason && (written.length || elsewhere.length) && now - sess.lastSaveAt >= DEBOUNCE_MS) reason = 'file write';
+    // v0.5: commands, helpers and branch changes write no file, so a long turn of them was never saved.
+    if (!reason && now - sess.lastSaveAt >= WORKING_MS) reason = 'working';
     const offer = offerContext(dir, input, sess);
     if (offer) sessDirty = true;
     if (sessDirty) state.writeSession(dir, sid, sess);
@@ -393,6 +434,9 @@ const handlers = {
       sess.background = input.background_tasks.filter(b => b && b.status === 'running')
         .map(b => ({ id: b.id, command: b.command || '', description: b.description || '', at: (prev.get(b.id) || {}).at || Date.now() }));
     }
+    // v0.5: the end of Claude's reply usually says what was done and what is next; keep it for the handoff.
+    const said = redact(String(input.last_assistant_message || ''), log.envSecrets(dir)).replace(/\s+/g, ' ').trim();
+    if (said) sess.lastReply = { text: said.slice(-700), at: Date.now() };
     state.writeSession(dir, sid, sess);
     const lines = [['STOP', '']];
     // The reply ends with a question for the user: filed only when there is work it can hold up ("Hello! What shall
