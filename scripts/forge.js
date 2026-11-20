@@ -320,6 +320,10 @@ const handlers = {
         rc.context = `${rc.context}\n\n${artifacts.RULE}`;
         const gone = input.source === 'compact' ? null : artifacts.missing(dir);
         if (gone) msgs.push(gone);
+        if (input.source !== 'compact' && onceADay(dir, 'unlistedDocsScanned')) { // documents written to a temp folder, never listed
+          const un = artifacts.unlisted(dir, new Date(), setup.claudeHome());
+          if (un) msgs.push(un);
+        }
       }
     } catch { /* never break a session start */ }
     try { // the UI rule, every session start in an own front-end project (compact included)

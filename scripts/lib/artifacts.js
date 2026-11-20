@@ -7,6 +7,7 @@
 // Reason: pages and their watches stop working when the signed-in account changes (owner, 2026-11-03 and 2026-11-20).
 // Every function fails open: a hook never breaks because of this.
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const paths = require('./paths');
 const { writeAtomic } = require('./fsx');
@@ -128,4 +129,61 @@ function missing(dir) {
   } catch { return null; }
 }
 
-module.exports = { publish, onPublish, missing, checkLines, read, RULE };
+// ---------- documents that were never listed (principle 9, v0.5.1 gaps) ----------
+// The action log keeps the absolute path of a file written outside the project (forge.js `rel`). At session start (the
+// caller limits it to once a day): EDIT/WRITE lines of the last two days for an html, md or pdf file under the OS
+// temp folder or a scratchpad folder of the Claude home, that still exists, with no file of the same name anywhere in
+// the project (its forge folder included, where kept copies live). -> one line for the user, or null.
+const DOC_EXT = /\.(html?|md|pdf)$/i;
+const SKIP_DIRS = new Set(['node_modules', '.git']);
+const under = (base, p) => { const r = path.relative(base, p); return r !== '' && !r.startsWith('..') && !path.isAbsolute(r); };
+function projectNames(dir, wanted) { // the wanted names (lower case) that exist somewhere in the project; a bounded walk
+  const found = new Set();
+  let budget = 20000;
+  const walk = d => {
+    let ents = [];
+    try { ents = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+    for (const e of ents) {
+      if (budget-- <= 0 || found.size === wanted.size) return;
+      if (e.isDirectory()) { if (!SKIP_DIRS.has(e.name)) walk(path.join(d, e.name)); }
+      else if (wanted.has(e.name.toLowerCase())) found.add(e.name.toLowerCase());
+    }
+  };
+  walk(dir);
+  return found;
+}
+function unlisted(dir, now = new Date(), claudeHome = '') {
+  try {
+    const stamps = [0, 1].map(n => { const d = new Date(now.getTime() - n * 86400000); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; });
+    const roots = [os.tmpdir()];
+    try { roots.push(fs.realpathSync.native(os.tmpdir())); } catch { /* as given */ }
+    const homes = claudeHome ? [path.resolve(claudeHome)] : [];
+    try { if (homes[0]) homes.push(fs.realpathSync.native(homes[0])); } catch { /* as given */ }
+    const seen = new Map();
+    for (const s of stamps) {
+      let text = '';
+      try { text = fs.readFileSync(path.join(paths.forgeDir(dir), 'log', `${s}.log`), 'utf8'); } catch { continue; }
+      for (const l of text.split(/\r?\n/)) {
+        const m = l.match(/^\d\d:\d\d:\d\d \[[^\]]*\]\s+(EDIT|WRITE)\s+(.+)$/);
+        if (!m) continue;
+        let p = m[2].trim();
+        if (process.platform === 'win32') p = p.replace(/^\/([a-zA-Z])\//, '$1:/'); // /c/Users/... as git bash shows it
+        if (!path.isAbsolute(p) || !DOC_EXT.test(p)) continue;
+        const abs = path.resolve(p);
+        if (abs === path.resolve(dir) || under(dir, abs)) continue;
+        const scratch = abs.split(/[\\/]/).some(seg => seg.toLowerCase() === 'scratchpad') && homes.some(b => under(b, abs));
+        if (!scratch && !roots.some(b => under(b, abs))) continue;
+        seen.set(process.platform === 'win32' ? abs.toLowerCase() : abs, abs);
+      }
+    }
+    const existing = [...seen.values()].filter(a => { try { return fs.statSync(a).isFile(); } catch { return false; } });
+    if (!existing.length) return null;
+    const have = projectNames(dir, new Set(existing.map(a => path.basename(a).toLowerCase())));
+    const todo = existing.filter(a => !have.has(path.basename(a).toLowerCase()));
+    if (!todo.length) return null;
+    const shown = todo.slice(0, 5).map(a => a.replace(/\\/g, '/')).join(', ');
+    return `JSPARK Forge: These documents were written to a temporary folder and are not in the project: ${shown}${todo.length > 5 ? ` (+${todo.length - 5} more)` : ''}. Ask Claude to save the ones you need.`;
+  } catch { return null; }
+}
+
+module.exports = { publish, onPublish, missing, checkLines, read, unlisted, RULE };
