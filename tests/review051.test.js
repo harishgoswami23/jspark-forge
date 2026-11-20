@@ -204,3 +204,13 @@ test('4: a kept publish logs KEEP with the local path; an explicit publish actio
   assert.match(logText(dir), /KEEP +\.jspark-forge\/artifacts\/page\.html/);
   assert.doesNotMatch(logText(dir), /UNKEPT/);
 });
+
+// ---------------- 8: graph start validates before it touches .gitignore ----------------
+test('8: graph start of a graph that does not exist leaves .jspark-forge/.gitignore byte-identical', () => {
+  const dir = project();
+  const g = forgeFile(dir, '.gitignore');
+  fs.writeFileSync(g, '*\n!.gitignore\n!rules.md\n'); // set up before v0.5.1: no graph lines
+  const before = fs.readFileSync(g);
+  cli(dir, ['graph', 'start', 'no-such-graph']);
+  assert.ok(Buffer.compare(before, fs.readFileSync(g)) === 0);
+});

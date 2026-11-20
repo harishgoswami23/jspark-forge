@@ -114,10 +114,10 @@ function check(dir, n) {
 }
 
 function start(dir, n, sid) {
-  if (paths.isOwn(dir)) { try { require('./setup').shareGraphs(dir); } catch { /* fail open */ } } // graphs are committed (owner 2026-11-20)
   if (!paths.isOwn(dir)) return 'Build graphs are off in a repo you are reviewing.\n';
   const L = load(dir, n);
   if (L.error) return `${L.error}\n`;
+  try { require('./setup').shareGraphs(dir); } catch { /* fail open */ } // graphs are committed (owner 2026-11-20); only once the graph has loaded
   if (L.errs.length) return `Build graph ${n} cannot start:\n${check(dir, n)}`;
   if (!trusted(dir, n, L)) {
     const before = trustOf(dir).trusted[n] !== undefined;
