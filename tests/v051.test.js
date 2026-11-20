@@ -189,9 +189,9 @@ test('gap 3: doctor counts today and yesterday, quotes the latest, and says the 
   logError(dir, 'PostToolUse: first one', 1);
   logError(dir, `PostToolUse: ${'x'.repeat(200)}`, 0);
   const line = doctor(dir).split('\n').find(l => /Hook errors/.test(l));
-  assert.match(line, /^FIX  Hook errors: 2 in the last two days \(the latest: PostToolUse: x{107}\)/);
+  assert.match(line, /^FIX  Hook errors: 2 in the last two days \(the latest, \d{4}-\d{2}-\d{2} \d{2}:\d{2}: "PostToolUse: x{107}"\)/);
   assert.ok(!line.includes("x".repeat(108)), 'the detail is cut at 120 characters');
-  assert.match(line, /a hook that fails skips its save or block\. Fix: run \/jspark-forge:doctor again after restarting Claude Code; if it stays, report it with the line from .*\.jspark-forge\/log\/\d{4}-\d{2}-\d{2}\.log\.$/);
+  assert.match(line, /a hook that fails skips its save or block\. Fix: restart Claude Code; if a new one appears after that, report it with the line from .*\.jspark-forge\/log\/\d{4}-\d{2}-\d{2}\.log\.$/);
 });
 
 test('gap 3: session start tells the user once a day', () => {

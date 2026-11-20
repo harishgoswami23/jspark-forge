@@ -106,9 +106,10 @@ function checkProject(dir) {
   } else out.push(['ok', 'Handoff: none yet (written once there is work to resume)']);
   // Hook errors (v0.5.1): a hook that fails inside logs a FORGE-ERROR line and carries on, so nothing else shows it.
   const he = require('./log').hookErrors(dir);
+  const stamp = d => { const p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
   out.push(he.n === 0 ? ['ok', 'Hook errors: none in the last two days']
-    : ['FIX', `Hook errors: ${he.n} in the last two days (the latest: ${he.latest.detail.slice(0, 120)}); a hook that fails skips its save or block. ` +
-      `Fix: run /jspark-forge:doctor again after restarting Claude Code; if it stays, report it with the line from ${paths.display(dir, he.latest.file)}.`]);
+    : ['FIX', `Hook errors: ${he.n} in the last two days (the latest, ${stamp(he.latest.when)}: "${he.latest.detail.slice(0, 120)}"); a hook that fails skips its save or block. ` +
+      `Fix: restart Claude Code; if a new one appears after that, report it with the line from ${paths.display(dir, he.latest.file)}.`]);
   return out;
 }
 

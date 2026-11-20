@@ -9,7 +9,7 @@ const paths = require('./paths');
 
 
 const CAP_BYTES = 2 * 1024 * 1024;
-const KEEP_AFTER_CAP = new Set(['SAVE', 'BLOCK', 'CONFIRM', 'COMMIT']);
+const KEEP_AFTER_CAP = new Set(['SAVE', 'BLOCK', 'CONFIRM', 'COMMIT', 'FORGE-ERROR']);
 const ID_WIDTH = 19; // "[a1b2c3d4/9f8e7d6c]"
 const LINE_RE = /^(\d\d:\d\d:\d\d) \[([^\]]*)\]\s+(\S+)\s*(.*)$/;
 
@@ -94,7 +94,7 @@ function rotate(projectDir, now = new Date(), { keepDays = 7, keepSummaries = 60
 }
 
 // v0.5.1: FORGE-ERROR lines (a hook failed inside) in today's and yesterday's log files, oldest first.
-// -> { n, latest: { detail, file } | null }. Reads two small files; never throws.
+// -> { n, latest: { detail, file, when: Date } | null } (when: the file's date plus the line's time). Reads two small files; never throws.
 function hookErrors(projectDir, now = new Date()) {
   let n = 0, latest = null;
   const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
@@ -104,7 +104,7 @@ function hookErrors(projectDir, now = new Date()) {
     try { text = fs.readFileSync(file, 'utf8'); } catch { continue; }
     for (const raw of text.split(/\r?\n/)) {
       const m = raw.match(LINE_RE);
-      if (m && m[3] === 'FORGE-ERROR') { n++; latest = { detail: m[4], file }; }
+      if (m && m[3] === 'FORGE-ERROR') { n++; latest = { detail: m[4], file, when: new Date(`${dayStamp(day)}T${m[1]}`) }; }
     }
   }
   return { n, latest };

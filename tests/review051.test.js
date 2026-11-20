@@ -138,3 +138,27 @@ test('6: a scratchpad segment counts only under the OS temp folder or the Claude
   assert.match(run(path.join(hookTmp, 'plain', 'b.md')), /temporary folder/, 'any file under the OS temp folder');
   assert.doesNotMatch(run(path.join(root, 'work', 'plain', 'notes.md')), /temporary folder/, 'any other folder');
 });
+
+// ---------------- 3: the hook-error line can be cleared, and shows when ----------------
+test('3: hookErrors returns when the latest error happened; the doctor line shows it and quotes the detail', () => {
+  const dir = project();
+  const t = new Date(); t.setHours(9, 41, 7, 0);
+  log.append(dir, { time: t, session: 's1', kind: 'FORGE-ERROR', detail: 'Stop: boom' });
+  const he = log.hookErrors(dir);
+  assert.equal(he.n, 1);
+  assert.equal(he.latest.when.getTime(), t.getTime());
+  const pad = n => String(n).padStart(2, '0');
+  const stamp = `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())} 09:41`;
+  const line = cli(dir, ['doctor']).split('\n').find(l => /Hook errors/.test(l));
+  assert.ok(line.startsWith(`FIX  Hook errors: 1 in the last two days (the latest, ${stamp}: "Stop: boom"); a hook that fails skips its save or block. Fix: restart Claude Code; if a new one appears after that, report it with the line from `), line);
+  assert.match(line, /\.log\.$/);
+});
+
+test('3: a hook error logged after the day\'s log reached its cap is still logged and counted', () => {
+  const dir = project();
+  const t = new Date(); t.setHours(10, 0, 0, 0);
+  log.append(dir, { time: t, session: 's1', kind: 'EDIT', detail: 'x'.repeat(200) }, { capBytes: 300 });
+  log.append(dir, { time: t, session: 's1', kind: 'EDIT', detail: 'y'.repeat(200) }, { capBytes: 300 }); // over the cap: dropped
+  log.append(dir, { time: t, session: 's1', kind: 'FORGE-ERROR', detail: 'Stop: after the cap' }, { capBytes: 300 });
+  assert.equal(log.hookErrors(dir).n, 1);
+});
