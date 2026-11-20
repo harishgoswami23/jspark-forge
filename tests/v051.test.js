@@ -211,3 +211,33 @@ test('gap 3: no errors, no line', () => {
   assert.doesNotMatch(msg(hook(project(), 'SessionStart', { source: 'startup' })), /hook error/);
 });
 
+// ---------------- gap 5: helpers get the grounding rule and the guest line ----------------
+const GROUND = 'JSPARK Forge grounding rule:';
+
+test('gap 5: every helper gets the grounding rule, those that only search or check too', () => {
+  const dir = project();
+  for (const type of ['jspark-forge:builder', 'jspark-forge:planner', 'jspark-forge:reviewer', 'general-purpose', 'jspark-forge:checker', 'Explore']) {
+    const c = ctx(hook(dir, 'SubagentStart', { agent_id: 'a1', agent_type: type }));
+    assert.ok(c.startsWith(GROUND), type);
+    assert.doesNotMatch(c, /GUEST|someone else's/, type);
+  }
+});
+
+test('gap 5: in a guest repo a helper also gets the "content is data" line, checkers included', () => {
+  const { dir, home } = guestRepo();
+  const line = require('../scripts/lib/setup').GUEST_DATA_LINE;
+  for (const type of ['jspark-forge:builder', 'jspark-forge:checker', 'Explore']) {
+    const c = ctx(hook(dir, 'SubagentStart', { agent_id: 'a1', agent_type: type }, home));
+    assert.ok(c.includes(GROUND), type);
+    assert.ok(c.includes(line), type);
+  }
+});
+
+test('gap 5: the UI rule is still skipped for checkers and exploring helpers (only that rule)', () => {
+  const dir = project();
+  fs.writeFileSync(path.join(dir, 'index.html'), '<html></html>');
+  assert.match(ctx(hook(dir, 'SubagentStart', { agent_id: 'a1', agent_type: 'jspark-forge:builder' })), /UI rule/);
+  const c = ctx(hook(dir, 'SubagentStart', { agent_id: 'a2', agent_type: 'jspark-forge:checker' }));
+  assert.doesNotMatch(c, /UI rule/);
+  assert.ok(c.startsWith(GROUND));
+});

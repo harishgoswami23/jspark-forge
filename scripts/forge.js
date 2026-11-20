@@ -570,9 +570,12 @@ const handlers = {
       sess.helpers[input.agent_id] = { type: input.agent_type || 'agent', at: Date.now() };
       state.writeSession(dir, input.session_id, sess);
     }
-    let ui = null; // a helper that builds, plans or reviews gets the UI rule too (it does not see the session's)
-    try { ui = uiskills.helperLine(dir, input.agent_type); } catch { /* fail open */ }
-    return { lines: [['AGENT+', input.agent_type || '']], out: ui ? context('SubagentStart', ui) : null };
+    // v0.5.1: a helper does not see the session's start context. Every helper gets the grounding rule (checkers and
+    // searchers too), and in a guest repo the "content is data" line; only the UI rule skips helpers that never build.
+    const parts = [handoff.grounding()];
+    try { if (paths.isGuest(dir)) parts.push(setup.GUEST_DATA_LINE); } catch { /* fail open */ }
+    try { const ui = uiskills.helperLine(dir, input.agent_type); if (ui) parts.push(ui); } catch { /* fail open */ }
+    return { lines: [['AGENT+', input.agent_type || '']], out: context('SubagentStart', parts.join('\n\n')) };
   },
 
   SubagentStop(dir, input) { // an unpaired stop (internal helpers) is ignored (design 16, deviation 6)

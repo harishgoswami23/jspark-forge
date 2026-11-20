@@ -66,7 +66,12 @@ test('helpers that build or plan get the rule when they start; a checker does no
     assert.match(ctx, /JSPARK Forge UI rule:/, type);
     assert.match(ctx, /brand skill jspark-brand/, type);
   }
-  for (const type of ['jspark-forge:checker', 'Explore']) assert.equal(hook(dir, h, 'SubagentStart', { agent_id: 'a2', agent_type: type }), '', type);
+  // v0.5.1: a checker still gets the grounding rule (every helper does), but not the UI rule
+  for (const type of ['jspark-forge:checker', 'Explore']) {
+    const ctx = hook(dir, h, 'SubagentStart', { agent_id: 'a2', agent_type: type });
+    assert.match(ctx, /^JSPARK Forge grounding rule:/, type);
+    assert.doesNotMatch(ctx, /UI rule/, type);
+  }
 });
 
 test('the brand skill: named in the user\'s own rules.md for every project; a project\'s setting wins; else the project\'s own brand skill file', () => {
@@ -95,7 +100,10 @@ test('- ui-skills: off switches the rule off, for Claude and for helpers', () =>
   const h = home();
   const dir = project({ rules: '## Settings\n- ui-skills: off\n- brand-skill: jspark-brand\n' });
   assert.doesNotMatch(hook(dir, h, 'SessionStart', { source: 'startup' }), /UI rule/);
-  assert.equal(hook(dir, h, 'SubagentStart', { agent_id: 'a1', agent_type: 'jspark-forge:builder' }), '');
+  // v0.5.1: the helper still gets the grounding rule, but no UI rule
+  const ctx = hook(dir, h, 'SubagentStart', { agent_id: 'a1', agent_type: 'jspark-forge:builder' });
+  assert.match(ctx, /^JSPARK Forge grounding rule:/);
+  assert.doesNotMatch(ctx, /UI rule/);
 });
 
 test('a brand-skill value that is not a plain skill name is refused (it would be put in front of Claude as text)', () => {
