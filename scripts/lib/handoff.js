@@ -16,6 +16,7 @@ const CAP_WORDS = 600;
 const OLD_MS = 14 * 24 * 3600 * 1000;
 const ARCHIVE_DAYS = 30;
 const FIELD_MAX = 200;
+const FILES_SHOWN = 8;
 
 const pad2 = n => String(n).padStart(2, '0');
 const hhmm = d => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
@@ -109,12 +110,19 @@ function render(m, opts = {}) {
   if (m.notes && m.notes.text) {
     let t = m.notes.text.replace(/\s+/g, ' ').trim();
     if (level >= 3 && words(t) > 60) t = `${t.split(' ').slice(0, 60).join(' ')}…`;
-    L.push('', `**Claude's notes (${hhmm(m.notes.time)}):** ${t}`);
+    // v0.6.2: a note is a record of when it was written. An old caution must be tested again, not repeated, so the
+    // label carries the date when it is not today's and says so.
+    const nt = m.notes.time;
+    const when = m.asOf && ymd(nt) !== ymd(m.asOf) ? `${ymd(nt)} ${hhmm(nt)}` : hhmm(nt);
+    L.push('', `**Claude's notes (${when}; re-check any caution or limit before acting on it):** ${t}`);
   }
   L.push('');
   if (level < 1 && m.recent && m.recent.length) L.push(`**Recent actions:** ${m.recent.join(' · ')}`);
   if (m.files && m.files.length) {
-    const shown = level >= 2 && m.files.length > 5 ? `${m.files.slice(0, 5).join(', ')} (+${m.files.length - 5} more)` : m.files.join(', ');
+    // v0.6.2: the newest few and a count (the list is newest first); the rest is in the log. A long task listed 50
+    // names at every session start.
+    const max = level >= 2 ? 5 : FILES_SHOWN;
+    const shown = m.files.length > max ? `${m.files.slice(0, max).join(', ')} (+${m.files.length - max} more)` : m.files.join(', ');
     L.push(`**Files touched in this task:** ${shown}`);
   }
   if (level < 4 && m.others && m.others.length) {
@@ -313,9 +321,14 @@ function save(dir, sid, reason, { refreshGit = true, now = new Date(), force = f
 
 // ---------- resume (design 8) ----------
 const notesLine = dir => `JSPARK Forge: update your notes now in ${paths.display(dir, notesFile(dir))} (max 120 words: what you are doing, ` +
-  "anything agreed with the user, what is next). Start with the lines 'Task:', 'Step: n of m: ...' and 'Next:' when you know them.";
+  "anything agreed with the user, what is next). Start with the lines 'Task:', 'Step: n of m: ...' and 'Next:' when you know them. " +
+  'Write a caution or a limit with what was measured (for example "free memory was 2 GB"), so it can be tested again later; drop one that no longer holds.';
+// v0.6.2: the user has already seen the one-line summary ("Say 'continue' or tell me what to do instead"), so a first
+// message that says continue is the answer; asking "Continue?" again cost a turn.
 const WAIT_LINE = "JSPARK Forge: Before doing anything else, in your first reply show this in plain words (≤ 8 lines, ending with 'Continue?') " +
-  'and wait for the user\'s answer. Do not change files or run commands for the old task until they reply. If their first message is ' +
+  'and wait for the user\'s answer. Do not change files or run commands for the old task until they reply. If their first message ' +
+  'already says to carry on ("continue", "resume", "go on", "yes"), that is their answer: say where the work stands in at most 4 lines, ' +
+  'do not ask again, and carry on (when a cut-off session is reported below, check what it left half done first). If their first message is ' +
   'a new task, say in one line what was in progress (parked) and then do the new task.';
 const CARRY_LINE = 'JSPARK Forge: the conversation was just compacted; above is where the work stands. carry on; no need to ask.';
 
@@ -492,5 +505,5 @@ function pruneArchive(dir, now = new Date()) {
   }
 }
 
-module.exports = { render, taskFields, parseNotes, save, hasWork, resumeContext, archive, pruneArchive, notesLine, grounding, shortRule, usageCare, USAGE_CARE_MAIN, isUserPrompt, sinceSave,
+module.exports = { render, taskFields, parseNotes, save, hasWork, resumeContext, archive, pruneArchive, notesLine, WAIT_LINE, grounding, shortRule, usageCare, USAGE_CARE_MAIN, isUserPrompt, sinceSave,
   logEntries, pairHealth, openHandoff, logOnlyContext, mdUsable, hhmm };

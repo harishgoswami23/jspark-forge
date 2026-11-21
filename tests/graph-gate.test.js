@@ -121,8 +121,11 @@ test('a gate left running with nobody running it: graph next names what is left 
   cli(dir, ['next', 'g']);
   hook(dir, 'PostToolUse', { tool_name: 'Bash', tool_input: { command: OK }, tool_response: { stdout: '' } });
   const out = cli(dir, ['next', 'g']);
-  assert.match(out, /waiting for checks running/);
-  assert.match(out, /Gate checks still needs: node -e "require[\s\S]*graph gate g checks/);
+  // v0.6.2: nothing is running, so it is not called running
+  assert.match(out, /waiting for checks not yet passed \(1 of 2 commands passed, none running\)/);
+  assert.doesNotMatch(out, /checks running/);
+  assert.match(out, /Step checks \(gate\) still needs: node -e "require[\s\S]*graph gate g checks/);
+  assert.match(cli(dir, ['status', 'g']), /- checks: not yet passed \(1 of 2 commands passed, none running\)/);
   assert.doesNotMatch(out, /still needs: node -e "process\.exit\(0\)"/, 'the passed command is not listed');
 });
 

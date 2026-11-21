@@ -248,6 +248,13 @@ const MODEL_MAP_LINE = 'JSPARK Forge model map: when a superpowers skill dispatc
   'mechanical checks (tests, logs); jspark-forge:planner for designs and plans. Each runs on its tier (strongest for ' +
   'planner and reviewer, standard for builder, light for checker); if you also pass a model, pass the same tier.';
 
+// v0.6.2: both plugins give "must" rules at a session start; one line says which comes first, so Claude does not have
+// to choose. Shown only when superpowers is installed.
+const PRECEDENCE_LINE = 'JSPARK Forge and superpowers, who decides what: superpowers sets the method (brainstorm, plan, test first, ' +
+  'review, verify). JSPARK Forge sets the guard rails (resume, block list, decisions, grounding). At a session start, do what ' +
+  "JSPARK Forge's lines say first (show where the work stands, check a cut-off session), then use superpowers' skills for the work. " +
+  "If the two still disagree: the user's own instruction, then JSPARK Forge's block list and grounding rule, then superpowers.";
+
 // ---------- handlers ----------
 // A handler returns null, [kind, detail] (one log line), or { lines: [[kind, detail], ...], out: <hook JSON> }.
 const handlers = {
@@ -319,7 +326,7 @@ const handlers = {
     // Model map (design-v0.2 4): superpowers starts general-purpose helpers and names a model per call, so with it the
     // map is steered, not enforced: one line asking Claude to use JSPARK Forge's helpers.
     try {
-      if (setup.superpowersInstalled(setup.claudeHome())) rc.context = `${rc.context}\n\n${MODEL_MAP_LINE}`;
+      if (setup.superpowersInstalled(setup.claudeHome())) rc.context = `${rc.context}\n\n${MODEL_MAP_LINE}\n\n${PRECEDENCE_LINE}`;
     } catch { /* never break a session start */ }
     try { // spec principle 9: local-first, account-independent (own projects)
       if (paths.isOwn(dir)) {

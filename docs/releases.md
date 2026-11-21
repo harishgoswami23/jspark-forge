@@ -26,6 +26,7 @@ that date; **[spike]** depends on a spike. Spike results override review decisio
 | v0.5.2 | A build graph check that takes longer than 10 minutes (`graph gate`) | ~2 hours |
 | v0.6.0 | Token care: `/jspark-forge:usage`, a note when the conversation gets long, helper habits | ~3 hours |
 | v0.6.1 | Tidy-up, no new features: the last missing test, the spec coverage list brought up to date | ~½ hour |
+| v0.6.2 | Six small fixes from real use in another project: no second "Continue?", a shorter handoff, honest gate status, notes with a date | ~1 hour |
 | Later, only if asked | Security review prompts (incl. council mode), `/capacity`, dashboard (incl. git view), `/jspark-forge:review`, migration mode, customer edition, secrets by name, limit handover (spec 5.6–5.8a, 5.12, 5.13) | not estimated |
 | **Total to v0.3** | | ~4–4½ weeks of build after v0.1.1, plus ~2 weeks of feedback, **soft** (v0.4 ~1½–2 weeks more, only if asked) |
 
@@ -440,6 +441,31 @@ failed node.
 **What.** No new features and no change in behaviour. A test for the migration-mapping text of the decide skill (the
 last test the spec coverage check asked for); `spec-coverage.md` brought up to date. With this, every numbered release
 in section 7 of the spec is out; what follows is the outside launch (spec section 7, "First user").
+
+---
+
+## v0.6.2: Six small fixes from real use
+
+**Status: ready, waiting for the owner's yes to release.** Details: [`release-notes/v0.6.2.md`](release-notes/v0.6.2.md).
+
+**Why [owner, 2026-11-21].** Feedback from a Claude session that used JSPARK Forge in another of the owner's projects
+(7 out of 10): a forced second "Continue?", a status that said "running" when nothing ran, a stale note taken as
+current, a heavy start, two plugins both setting the process, and "Gate gate".
+
+**What.**
+1. A first message that already says "continue" (or "resume", "go on", "yes") is the answer: Claude says where the
+   work stands in at most 4 lines and carries on. The question is still asked when the user has not answered.
+2. The handoff lists the newest 8 touched files and a count ("+42 more"), not up to 50 names.
+3. A gate that was handed out and that nobody is running is shown as "not yet passed (1 of 2 commands passed, none
+   running)". "Running" is said only while `graph gate` runs its commands.
+4. Gate messages read "Step <id> (gate) …", so a step named `gate` no longer gives "Gate gate".
+5. Claude's notes in the handoff carry their date when they are not from today, and the label says to re-check any
+   caution or limit before acting on it. The notes reminder asks for what was measured behind a caution.
+6. With superpowers installed, one line at session start says who decides what: superpowers the method, JSPARK Forge
+   the guard rails; then the user's own instruction, the block list and grounding rule, superpowers.
+
+**Not in this release (offered as v0.7, not confirmed).** Pre-flight check for a gate, results kept per run, retry of
+only what failed, flaky versus broken, a progress line for a background gate, time and tokens per step as it goes.
 
 ---
 

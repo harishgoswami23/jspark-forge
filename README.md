@@ -33,7 +33,8 @@ without being a coder and without losing your place. Built for Claude Code, by J
    It counts the files not committed (an untracked folder counts every file in it, up to 2000) and says when a repo
    has no commits yet. Resuming a session never wipes the history.
 2. **Shows it back after any cutoff, and asks first.** Open Claude Code again: JSPARK Forge shows where you were and
-   asks "Continue?" before picking the old task back up. No command to type. If the last session was cut off by a crash
+   asks "Continue?" before picking the old task back up. No command to type. If your first message already says
+   "continue", it does not ask a second time. If the last session was cut off by a crash
    or a power cut, it also says so and tells Claude to check what was half done first (see "When it saves").
 3. **Blocks dangerous actions.** A published list, enforced by hooks, with a typed confirmation to override.
 4. **Keeps a short action log** for the step that was cut off (7 days, then a one-paragraph summary per day).
@@ -116,7 +117,8 @@ folder, never merged) and never connects to a database. What it cannot read is m
 JSPARK Forge does not teach Claude *how* to build. [superpowers](https://github.com/obra/superpowers) by Jesse
 Vincent (MIT) does: brainstorm, plan, test first, review, verify. **It is installed together with JSPARK Forge**: it is
 a declared dependency, listed in the JSPARK Forge marketplace from its own repository (nothing is copied or changed).
-The handoff then shows superpowers plan progress ("Task 3 of 8").
+The handoff then shows superpowers plan progress ("Task 3 of 8"). Who decides what: superpowers sets the method,
+JSPARK Forge sets the guard rails (resume, block list, decisions, grounding), and your own instruction beats both.
 
 Already had superpowers from another marketplace? Then it is installed twice and its skills show twice; JSPARK Forge
 tells you once which copy to remove.

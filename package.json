@@ -1,6 +1,6 @@
 {
   "name": "jspark-forge",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "private": true,
   "description": "JSPARK Forge: resume after a crash, logout or limit. Rules enforced by hooks.",
   "license": "MIT",
