@@ -126,6 +126,90 @@ test('a gate left running with nobody running it: graph next names what is left 
   assert.doesNotMatch(out, /still needs: node -e "process\.exit\(0\)"/, 'the passed command is not listed');
 });
 
+// ---------- review of v0.5.2 ----------
+const preTool = (dir, command, extra = {}) => {
+  const r = hook(dir, 'PreToolUse', Object.assign({ tool_name: 'Bash', tool_input: { command } }, extra));
+  const o = r.stdout ? JSON.parse(r.stdout) : null;
+  return o && o.hookSpecificOutput ? o.hookSpecificOutput.permissionDecision : 'allow';
+};
+const RUNNER = `node "${FORGE.replace(/\\/g, '/')}" graph gate g checks`;
+
+test('review H1: the runner call must be the whole command, from the main session: any prefix, wrapper or helper is denied', () => {
+  const dir = started(gateOf(OK));
+  cli(dir, ['next', 'g']);
+  assert.equal(preTool(dir, RUNNER), 'allow');
+  for (const c of [`PATH="/tmp/fake:$PATH" ${RUNNER}`, `MSYSTEM= ${RUNNER}`, `SHELL=/bin/true ${RUNNER}`, `env -u MSYSTEM ${RUNNER}`,
+    `CLAUDE_CODE_SESSION_ID=gg-1 ${RUNNER}`, `export PATH=/tmp/fake; ${RUNNER}`, `cd /tmp && ${RUNNER}`, `${RUNNER} && echo ok`, `${RUNNER} > out.txt`]) {
+    assert.equal(preTool(dir, c), 'deny', c);
+  }
+  assert.equal(preTool(dir, RUNNER, { agent_id: 'a1', agent_type: 'jspark-forge:builder' }), 'deny', 'a helper');
+});
+
+test('review H1/H2: the shell is a fixed absolute path, never taken from SHELL, MSYSTEM or the first bash on PATH', () => {
+  const graphRun = require('../scripts/lib/graph-run');
+  const sh = graphRun.gateShell({ SHELL: '/bin/true', MSYSTEM: '', PATH: path.join(os.tmpdir(), 'nowhere') });
+  assert.ok(sh && path.isAbsolute(sh), String(sh));
+  assert.match(path.basename(sh), process.platform === 'win32' ? /^bash\.exe$/i : /^(bash|sh)$/);
+  // a failing gate stays failing with a hostile environment
+  const dir = started(gateOf(process.platform === 'win32' ? "node -e 'process.exit(3)'" : BAD));
+  cli(dir, ['next', 'g']);
+  const r = spawnSync(process.execPath, [FORGE, 'graph', 'gate', 'g', 'checks'], { cwd: dir, encoding: 'utf8',
+    env: Object.assign(env(dir), { SHELL: '/bin/true', MSYSTEM: '' }) });
+  assert.match(r.stdout, /exited 3/);
+  assert.equal(st(dir).steps.checks.state, 'failed');
+});
+
+test('review M1: a result from before a stop and a new start is not recorded in the new run', () => {
+  const graphRun = require('../scripts/lib/graph-run');
+  const dir = started(gateOf(OK));
+  cli(dir, ['next', 'g']);
+  const out = graphRun.gate(dir, 'g', 'checks', SID, { write: () => {}, run: () => {
+    cli(dir, ['stop', 'g']); cli(dir, ['start', 'g']); cli(dir, ['next', 'g']);
+    return { status: 0, signal: null };
+  } });
+  assert.match(out, /not recorded/);
+  assert.equal(st(dir).steps.checks.state, 'running');
+  assert.deepEqual(st(dir).steps.checks.passed, []);
+});
+
+test('review M1: a result that arrives after the run was stopped is not recorded', () => {
+  const graphRun = require('../scripts/lib/graph-run');
+  const dir = started(gateOf(OK));
+  cli(dir, ['next', 'g']);
+  const out = graphRun.gate(dir, 'g', 'checks', SID, { write: () => {}, run: () => { cli(dir, ['stop', 'g']); return { status: 0, signal: null }; } });
+  assert.match(out, /not recorded/);
+  assert.notEqual(st(dir).steps.checks.state, 'done');
+});
+
+test('review M2: a busy record at the end of a long command is waited for, not given up after 4 seconds', () => {
+  const graphRun = require('../scripts/lib/graph-run');
+  const dir = started(gateOf(OK));
+  cli(dir, ['next', 'g']);
+  const lock = path.join(dir, '.jspark-forge', 'state', 'graph-g.json.lock');
+  const out = graphRun.gate(dir, 'g', 'checks', SID, { write: () => {}, run: () => {
+    fs.writeFileSync(lock, 'held-by-the-test');
+    require('node:child_process').spawn(process.execPath, ['-e', `setTimeout(() => { try { require('fs').unlinkSync(${JSON.stringify(lock)}); } catch {} }, 6000)`], { detached: true, stdio: 'ignore' }).unref();
+    return { status: 0, signal: null };
+  } });
+  assert.match(out, /passed/);
+  assert.equal(st(dir).steps.checks.state, 'done');
+});
+
+test('review L1/L2: a runner mark that is a day old, or has no real pid or time, does not block or break the output', () => {
+  const dir = started(gateOf(OK));
+  cli(dir, ['next', 'g']);
+  const f = path.join(dir, '.jspark-forge', 'state', 'graph-g.json');
+  for (const runner of [{ pid: process.pid, at: Date.now() - 25 * 3600 * 1000 }, { pid: 0, at: Date.now() }, { pid: process.pid, at: 'x' }]) {
+    const s = st(dir);
+    s.steps.checks.runner = runner;
+    fs.writeFileSync(f, JSON.stringify(s));
+    const text = cli(dir, ['status', 'g']);
+    assert.doesNotMatch(text, /Inval|being run by graph gate/, JSON.stringify(runner));
+    assert.match(cli(dir, ['next', 'g']), /still needs/);
+  }
+  assert.match(cli(dir, ['gate', 'g', 'checks']), /passed/);
+});
+
 test('graph status says when a gate is being run by the runner; the usage line and the build skill name the command', () => {
   const dir = started(gateOf(OK));
   cli(dir, ['next', 'g']);

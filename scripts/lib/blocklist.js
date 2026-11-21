@@ -1394,6 +1394,12 @@ function forgeHits(raw, cwd, ctx, dialect) {
   return [];
 }
 
+// (Triggered only by a JavaScript runner on forge.js, so a commit message or a search that mentions the words is left alone.)
+const GATE_RUN = /\b(?:node|bun|deno)(?:\.exe)?\b[^\n;|&]*forge\.js["']?\s+["']?graph["']?\s+["']?gate\b/i;
+const GATE_RUN_WHOLE = /^node\s+("[^"$`]*forge\.js"|[^\s"'$`;|&<>()]*forge\.js)\s+graph\s+gate\s+[a-z][a-z0-9-]{0,39}\s+[A-Za-z][\w-]{0,63}$/;
+const GATE_RUN_PLAIN = 'the gate runner (forge.js graph gate) records a build graph\'s check, so it runs only as the whole command, ' +
+  'exactly as graph next prints it, from the main session: no variable or cd in front, nothing after it, never from a helper';
+
 // opts.all: return every hit (hard ones first) instead of the one to report.
 function check(input, ctx, opts = {}) {
   try {
@@ -1414,7 +1420,10 @@ function check(input, ctx, opts = {}) {
     } else if (tool === 'Bash' || tool === 'PowerShell') {
       const raw = String(ti.command || '');
       const dialect = tool === 'PowerShell' ? 'ps' : 'bash';
-      hits = forgeHits(raw, cwd, ctx, dialect);
+      // v0.5.2 review H1: the gate runner records a build graph's check, so its call must be the whole command, with
+      // nothing in front of or behind it (an environment prefix chose the shell or the session), and never a helper's.
+      if (GATE_RUN.test(raw) && (!GATE_RUN_WHOLE.test(raw.trim()) || input.agent_id)) hits.push(hit('forge-state', true, raw, GATE_RUN_PLAIN));
+      hits = hits.concat(forgeHits(raw, cwd, ctx, dialect));
       ctx.budget = { calls: 0 };
       hits = hits.concat(shellHits(raw, cwd, ctx, 0, dialect));
       hits = hits.concat(userHits(raw, ctx.rules));
