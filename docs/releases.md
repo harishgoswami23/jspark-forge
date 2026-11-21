@@ -435,7 +435,7 @@ failed node.
 
 ## v0.6.1: Tidy-up
 
-**Status: ready, waiting for the owner's yes to release.** Details: [`release-notes/v0.6.1.md`](release-notes/v0.6.1.md).
+**Status: released 2026-11-21.** Details: [`release-notes/v0.6.1.md`](release-notes/v0.6.1.md).
 
 **What.** No new features and no change in behaviour. A test for the migration-mapping text of the decide skill (the
 last test the spec coverage check asked for); `spec-coverage.md` brought up to date. With this, every numbered release
