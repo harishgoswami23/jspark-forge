@@ -217,9 +217,11 @@ function next(dir, n, sid, opts = {}) {
           ` (if the step fails: node "${FORGE_JS}" graph fail ${n} ${x.id} "<reason>").`);
       } else if (x.kind === 'gate') {
         // Printed exactly as stored and matched exactly (review M2); graph check refuses lines that would print otherwise.
-        st.state = 'running'; st.handedAt = Date.now(); st.pending = x.run.slice(); st.passed = [];
+        st.state = 'running'; st.handedAt = Date.now(); st.pending = x.run.slice(); st.passed = []; delete st.runner;
         out.push(`Step ${x.id} (gate): Run each command with the Bash tool exactly as written, one per call, from the project folder, not in the background:\n` +
-          `${x.run.map(r => `  ${r}`).join('\n')}\nJSPARK Forge records each exit code; a failing one stops the run.`);
+          `${x.run.map(r => `  ${r}`).join('\n')}\nJSPARK Forge records each exit code; a failing one stops the run.\n` +
+          `If a command can take longer than 9 minutes (one tool call waits 10 at most, and a command moved to the background is not recorded), run this instead, with the Bash tool, in the background: node "${FORGE_JS}" graph gate ${n} ${x.id}\n` +
+          `It runs the same commands and records their exit codes itself. When it ends, run graph next again.`);
       } else if (x.kind === 'human') {
         st.state = 'running'; st.handedAt = Date.now();
         out.push(`Step ${x.id} (human): Show the user: ${clean(x.say, 300)} Then stop and wait; only the user's own message DONE ${x.id} completes it.`);
@@ -228,6 +230,13 @@ function next(dir, n, sid, opts = {}) {
     if (!out.length || out.every(l => /^Plan usage/.test(l))) {
       const now = Object.entries(s.steps).filter(([, v]) => v.state === 'running' || v.state === 'interrupted').map(([k, v]) => `${k} ${v.state}`);
       out.push(now.length ? `Nothing new to start: waiting for ${now.join(', ')}.` : 'Nothing can start now.');
+      // A gate left running with nobody running it (its command was moved to the background, or the session was cut off).
+      for (const x of g.steps) {
+        const v = s.steps[x.id];
+        if (x.kind !== 'gate' || v.state !== 'running' || runnerLive(v.runner)) continue;
+        const left = (v.pending || []).filter(c => !(v.passed || []).includes(c));
+        if (left.length) out.push(`Gate ${x.id} still needs: ${left.map(c => clean(c, 120)).join('; ')}. Run them with the Bash tool, or all of them (any length of time) in the background with: node "${FORGE_JS}" graph gate ${n} ${x.id}`);
+      }
     }
     return `${out.join('\n')}\n`;
   });
@@ -350,7 +359,7 @@ function status(dir, n) {
   const sum = summary(dir, n);
   if (!sum) return `Build graph ${n} has not started.\n`;
   const s = readJson(stateFile(dir, n));
-  const lines = Object.entries(s.steps).map(([k, v]) => `- ${k}: ${v.state}${v.reason ? ` (${v.reason})` : ''}${v.tokens ? `, ${v.tokens} tokens` : ''}${v.minutes ? `, ${v.minutes} min` : ''}`);
+  const lines = Object.entries(s.steps).map(([k, v]) => `- ${k}: ${v.state}${v.reason ? ` (${v.reason})` : ''}${v.state === 'running' && runnerLive(v.runner) ? ` (its commands are being run by graph gate since ${clockOf(v.runner.at)})` : ''}${v.tokens ? `, ${v.tokens} tokens` : ''}${v.minutes ? `, ${v.minutes} min` : ''}`);
   return `${sum.text}\n${lines.join('\n')}\n`;
 }
 // The running graph, for session start and the handoff (null when none).
@@ -422,6 +431,104 @@ function onCommand(dir, input, ok) {
     }
   });
 }
+// ---------- a gate that outlasts one tool call (v0.5.2) ----------
+// The Bash tool waits 10 minutes at most; a command moved to the background reaches no hook with its exit code, so
+// such a gate stayed "running" whatever the tests said. `graph gate <name> <step>` runs the gate's own commands (the
+// ones stored at start and trusted by the user), one after another, in the project folder, with no time limit, and
+// records each real exit code itself. Only the run's own session; only commands still pending; nothing the block
+// list would hold (those go through the Bash tool, where the user is asked). A runner that is killed records nothing:
+// the gate stays running and the same command runs it again.
+const RUNNER_MAX_MS = 24 * 3600 * 1000; // a runner mark older than this is a leftover (its pid may belong to something else now)
+const pidAlive = pid => { if (!Number.isInteger(pid) || pid <= 0) return false; try { process.kill(pid, 0); return true; } catch (e) { return !!e && e.code === 'EPERM'; } };
+const runnerLive = r => !!r && typeof r === 'object' && Number.isFinite(r.at) && Date.now() - r.at < RUNNER_MAX_MS && pidAlive(r.pid);
+const clockOf = at => new Date(at).toTimeString().slice(0, 5);
+// The shell that runs a gate's commands: a fixed absolute path, never $SHELL, MSYSTEM or the first bash on PATH (review
+// of v0.5.2 H1, H2: `SHELL=/bin/true` or a fake bash made every command "pass"; cmd.exe reads quotes differently).
+// POSIX: /bin/bash, else /bin/sh. Windows: Git Bash, as Claude's Bash tool uses; none found -> null (the runner refuses).
+function gateShell(env = process.env) {
+  const isFile = p => { try { return fs.statSync(p).isFile(); } catch { return false; } };
+  if (process.platform !== 'win32') return ['/bin/bash', '/bin/sh'].find(isFile) || null;
+  const tries = [];
+  for (const base of [env.ProgramFiles, env['ProgramFiles(x86)'], env.ProgramW6432, 'C:\\Program Files', env.LOCALAPPDATA && path.join(env.LOCALAPPDATA, 'Programs')]) {
+    if (base) tries.push(path.join(base, 'Git', 'bin', 'bash.exe'));
+  }
+  const set = String(env.CLAUDE_CODE_GIT_BASH_PATH || '');
+  if (path.isAbsolute(set) && /[\\/]bash\.exe$/i.test(set)) tries.push(set);
+  return tries.find(isFile) || null;
+}
+function runShell(dir, cmd) {
+  return spawnSync(gateShell(), ['-c', cmd], { cwd: dir, stdio: 'inherit', windowsHide: true });
+}
+// The record can be busy for a moment (another hook holds it): after a long command, wait up to a minute for it.
+function updatePatiently(dir, n, fn, waitMs = 60000) {
+  const until = Date.now() + waitMs;
+  for (;;) {
+    try { return update(dir, n, fn); } catch (e) {
+      if (!e || !e.busy || Date.now() >= until) throw e;
+      sleep(250);
+    }
+  }
+}
+// opts: write (progress lines), blocked (cmd -> reason or null), run (cmd -> { status, signal, error }; for tests).
+function gate(dir, n, id, sid, opts = {}) {
+  if (!NAME.test(String(n || ''))) return BAD_NAME;
+  const write = opts.write || (t => process.stdout.write(t));
+  const mine = { pid: process.pid, at: Date.now() };
+  if (!opts.run && !gateShell()) return 'Git Bash was not found on this machine, so the gate runner cannot run the commands the way Claude\'s Bash tool does. Nothing was run. Run the gate\'s commands with the Bash tool instead.\n';
+  let runStarted = 0, handed = 0; // this run and this hand-out of the step: a result is recorded only into the same ones
+  const refused = update(dir, n, s => {
+    if (!s) return `Build graph ${n} has not started.\n`;
+    if (!s.graph) return OLD_RECORD(n);
+    if (s.stopped) return `Build graph ${n} is stopped (${s.stopped}).\n`;
+    if (s.finished) return `Build graph ${n} is finished.\n`;
+    const x = STEP.test(String(id || '')) && s.graph.steps.find(k => k.id === id);
+    if (!x) return `Build graph ${n} has no step "${clean(id, 40)}".\n`;
+    if (x.kind !== 'gate') return `${id} is not a gate.\n`;
+    if (s.owner !== sid) return `Build graph ${n} is being run by another session; its gate runs there.\n`;
+    const st = s.steps[id];
+    if (st.state !== 'running' || !Array.isArray(st.pending)) return `${id} is not running (${st.state}); run node "${FORGE_JS}" graph next ${n} first.\n`;
+    if (runnerLive(st.runner)) return `${id} is already being run (started ${clockOf(st.runner.at)}); wait for it to end.\n`;
+    st.runner = mine; seen(s, sid);
+    runStarted = s.startedAt || 0; handed = st.handedAt || 0;
+    return null;
+  });
+  const same = (x, t) => !!t && x.owner === sid && !x.stopped && !x.finished && (x.startedAt || 0) === runStarted && (t.handedAt || 0) === handed && t.state === 'running';
+  if (refused) return refused;
+  const release = () => { try { update(dir, n, s => { const st = s && s.steps[id]; if (st && st.runner && st.runner.pid === mine.pid) delete st.runner; }); } catch { /* the mark names a dead process: it does not block */ } };
+  try {
+    for (;;) {
+      const s = readJson(stateFile(dir, n));
+      const st = s && s.steps[id];
+      if (!s || !same(s, st)) return `${id} is no longer running in this session and run; nothing more was run.\n`;
+      const cmd = st.pending.find(c => !(st.passed || []).includes(c));
+      if (cmd === undefined) return `Gate ${id} passed. Now run: node "${FORGE_JS}" graph next ${n}\n`;
+      const why = opts.blocked ? opts.blocked(cmd) : null;
+      if (why) return `Not run: "${clean(cmd, 120)}" (${clean(why, 200)}). The gate runner never runs what the block list would hold: run that command with the Bash tool instead.\n`;
+      write(`JSPARK Forge gate ${id}: running: ${cmd}\n`);
+      const r = (opts.run || (c => runShell(dir, c)))(cmd);
+      if (r.error || r.signal || typeof r.status !== 'number') {
+        return `Gate ${id}: "${clean(cmd, 120)}" did not finish (${clean(r.error ? r.error.message : `stopped by ${r.signal}`, 120)}); nothing was recorded for it. Run the same graph gate command again.\n`;
+      }
+      let verdict;
+      try {
+        verdict = updatePatiently(dir, n, x => {
+        const t = x && x.steps[id];
+        if (!x || !same(x, t) || !t.pending.includes(cmd)) return `${id} changed while its command ran (the run was stopped, started again or moved); the result was not recorded.\n`;
+        seen(x, sid);
+        if (r.status !== 0) { t.state = 'failed'; t.reason = `"${clean(cmd, 120)}" exited ${r.status}`; return `Gate ${id} failed: ${t.reason}. Show the user the command and its output; the run is stopped.\n`; }
+        t.passed = [...new Set((t.passed || []).concat([cmd]))];
+        if (t.pending.every(c => t.passed.includes(c))) { t.state = 'done'; t.doneAt = Date.now(); delete t.runner; return `Gate ${id} passed. Now run: node "${FORGE_JS}" graph next ${n}\n`; }
+        return null;
+        });
+      } catch (e) {
+        if (!e || !e.busy) throw e;
+        return `Gate ${id}: "${clean(cmd, 120)}" finished with exit code ${r.status}, but the run's record stayed busy for a minute, so it was NOT recorded. Tell the user; run the same graph gate command again.\n`;
+      }
+      if (verdict) return verdict;
+    }
+  } finally { release(); }
+}
+
 // The user's own whole message: TRUST GRAPH <name> after `start` showed its commands, or, while a run is active,
 // DONE <step> (or "done" when exactly one human step waits), from any attended session. -> a message for the user
 // (the prompt is a control message, not stored as the last request), or null (an ordinary prompt).
@@ -464,4 +571,4 @@ function onPrompt(dir, prompt, sid) {
   });
 }
 
-module.exports = { check, start, next, takeover, done, fail, rerun, stop, status, current, onSubagentStart, onAgentResult, onCommand, onPrompt, NAME, load };
+module.exports = { check, start, next, takeover, done, fail, rerun, stop, status, current, gate, gateShell, onSubagentStart, onAgentResult, onCommand, onPrompt, NAME, load };

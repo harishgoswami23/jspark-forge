@@ -408,6 +408,16 @@ failed node.
 
 ---
 
+## v0.5.2: A build graph check that takes longer than 10 minutes
+
+**Status: released 2026-11-21.** Details: [`release-notes/v0.5.2.md`](release-notes/v0.5.2.md).
+
+**Why.** A check (gate) was recorded only when its command finished inside one tool call (10 minutes at most). A longer command is moved to the background and its result reached no hook, so a graph with a 19-minute end-to-end suite stayed at "running" (found in a real project, 2026-11-21).
+
+**What.** `forge.js graph gate <name> <step>` runs the gate's own pending commands itself, with no time limit, in a fixed shell, and records the real exit codes. Its call must be the whole command, from the main session; it never runs what the block list would hold; a result is recorded only into the same run. `graph next` names what a running gate still needs.
+
+---
+
 ## Later, only if asked
 
 Built only if users ask; not estimated. Each keeps "nothing leaves the machine" except a dashboard the user chooses
