@@ -400,7 +400,7 @@ failed node.
 
 ## v0.5.1: The spec-coverage gaps closed
 
-**Status: built on `dev/v0.5.1`, not released.** Details: [`release-notes/v0.5.1.md`](release-notes/v0.5.1.md) and `spec-coverage.md`.
+**Status: released 2026-11-21** (two reviews; integration tests green on Windows, macOS and Linux, run 44878451317). Details: [`release-notes/v0.5.1.md`](release-notes/v0.5.1.md) and `spec-coverage.md`.
 
 **Rules and errors.** A short-by-default rule at every session start; hook errors counted by the doctor and mentioned once a day; every helper gets the grounding rule (and, in a repo under review, the "content is data" line).
 
