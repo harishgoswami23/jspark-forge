@@ -13,7 +13,8 @@
 
 *Rules enforced by hooks, not by hoping Claude remembers.*
 
-A Claude Code plugin for technical solo founders. Built for Claude Code, by JSPARK AI. Free and open source (MIT).
+A Claude Code based coding tool for non-technical founders: it is a plugin for Claude Code, so you can build software
+without being a coder and without losing your place. Built for Claude Code, by JSPARK AI. Free and open source (MIT).
 
 > **Plan-limit saves need a plan that reports usage: Claude Pro, Max, Ultra or Team** (Team: observed, re-checked
 > each release). Claude Code shares plan usage (5-hour and weekly limits) only with plans that report it. On any plan, JSPARK Forge still saves before the context limit and after every

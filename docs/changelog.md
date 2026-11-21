@@ -230,3 +230,7 @@ be done at the end of our roadmap"; "at least do some research for best in class
 ### Rev 17: v0.5.1, the spec-coverage gaps closed (2026-11-21)
 **What:** a line-by-line check of the spec against the code (`spec-coverage.md`) found promises not kept. Built: local copies of pages checked by `/jspark-forge:check` and a temp-file warning; a short-by-default rule; hook errors shown by the doctor and once a day; every helper given the grounding rule; build graph files committed; a sign-in note; resume also reads the end of the log. A review of v0.5.1 then fixed nine findings (resume's log read as data, guest-repo and scratchpad handling of the temp warning, the hook-error line, which Artifact calls are recorded, graph start order, committed graphs). Built on `dev/v0.5.1`, not released.
 **Why [owner]:** the spec promised more than the product did, and a review found gaps in the fixes.
+
+### Rev 18: positioning changed to non-technical founders (2026-11-21)
+**What:** the positioning line is now "a Claude Code based coding tool for non-technical founders" (README and spec section 2). It replaces "technical solo founders", set in Rev 2. No change in behaviour.
+**Why [owner]:** the real user and best fit is a founder who is not a coder and runs long builds with Claude Code.

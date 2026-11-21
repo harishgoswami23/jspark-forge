@@ -39,9 +39,10 @@ Claude remembers."* The pitch never asks the user to type a command (Claude Code
 
 ## 2. Audience and positioning [owner]
 
-- **Positioning line:** technical solo founders who ship with Claude Code.
+- **Positioning line [owner, 2026-11-21]:** a Claude Code based coding tool for non-technical founders. (Before:
+  "technical solo founders who ship with Claude Code".)
 - **Output quality:** plain language by default (short, no jargon), with "show details" for files, lines, commits and
-  terms. Non-coders are welcome, but "plain language" is never in the positioning line.
+  terms. Coders are welcome; the product is written for a founder who is not one.
 
 | | Plain view | "Show details" |
 |---|---|---|
