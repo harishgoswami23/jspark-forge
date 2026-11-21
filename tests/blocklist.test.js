@@ -676,12 +676,14 @@ test('unfold stays fast on very long commands with many comments', () => {
   const big = 'echo a # note\n'.repeat(40000) + 'echo b \\\n c; git push --force origin main';
   // unfold itself (what regressed: about 3 s here) takes a few ms; the whole check stays well inside the hook's 3 s,
   // even with the full suite running beside it.
-  let t = Date.now();
-  require('../scripts/lib/shell').unfold(big);
-  assert.ok(Date.now() - t < 1000, `unfold: ${Date.now() - t} ms`);
-  t = Date.now();
-  assert.equal(expectOf(check(bash(big), ctx())), 'git-force-push-main');
-  assert.ok(Date.now() - t < 2000, `check: ${Date.now() - t} ms`);
+  // Clock or processor time under the limit (tests/helpers/timing.js): a busy machine stretched the clock to 5.7 s here
+  // on 2026-11-22 while the work itself took about 1 s.
+  const { cost, fastEnough, say } = require('./helpers/timing');
+  const u = cost(() => require('../scripts/lib/shell').unfold(big));
+  assert.ok(fastEnough(u, 1000), `unfold: ${say(u)}`);
+  const c = cost(() => check(bash(big), ctx()));
+  assert.equal(expectOf(c.value), 'git-force-push-main');
+  assert.ok(fastEnough(c, 2000), `check: ${say(c)}`);
 });
 
 // Review of v0.2 (M1): what hides in an unquoted heredoc split by a continuation.
@@ -863,13 +865,15 @@ test('thousands of targets are checked fast: touch of 20000 files and rm of 3000
     ]) {
       // Best of two, under 1.5 s: alone this takes about 0.25 s, the full suite in parallel doubles it, and the
       // regression it guards against took 3.5 s and 10.5 s.
-      let best = Infinity;
+      // Clock or processor time under the limit (tests/helpers/timing.js): a busy machine stretches only the clock.
+      const { cost, fastEnough, say } = require('./helpers/timing');
+      let best = null;
       for (let i = 0; i < 2; i++) {
-        const t = Date.now();
-        assert.equal(check({ tool_name: 'Bash', tool_input: { command }, cwd: real }, ctx({ projectDir: real })), null);
-        best = Math.min(best, Date.now() - t);
+        const m = cost(() => check({ tool_name: 'Bash', tool_input: { command }, cwd: real }, ctx({ projectDir: real })));
+        assert.equal(m.value, null);
+        if (!best || Math.min(m.wall, m.cpu) < Math.min(best.wall, best.cpu)) best = m;
       }
-      assert.ok(best < 1500, `${label}: ${best} ms`);
+      assert.ok(fastEnough(best, 1500), `${label}: ${say(best)}`);
     }
   } finally { fs.rmSync(real, { recursive: true, force: true }); }
 });
