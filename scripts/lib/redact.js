@@ -20,7 +20,8 @@ const LABELLED = [
   // password=x, pwd=x, token: x, "password is: x", {"password":"x"}
   /(\b(?:password|passwd|pwd|token|secret|api[_-]?key)["']?(?:\s+is)?\s*[:=]\s*["']?)[^\s&;'",]+/gi,
   /((?:^|\s)(?:mysql|mysqldump|mariadb)\b[^\n]*?\s-p)(?=\S)(?!ort\b)[^\s'"]+/gi, // mysql -p<password>
-  /(\b[a-z][a-z0-9+.-]*:\/\/[^\s:@/]+:)[^\s@/]+(@)/gi,    // scheme://user:password@host: keep scheme, user and host
+  // scheme://user:password@host: keep scheme, user and host (the scheme's length is bounded: unbounded is quadratic on a.a.a.…)
+  /(\b[a-z][a-z0-9+.-]{0,30}:\/\/[^\s:@/]+:)[^\s@/]+(@)/gi,
 ];
 
 const MIN_EXTRA = 6; // shorter .env values would mask ordinary words
@@ -39,7 +40,11 @@ function redact(text, extra = []) {
 
 // A URL quoted from a tool call keeps no query string (it can carry a signature or a token the patterns do not know).
 function stripQuery(text) {
-  return String(text).replace(/(\b[a-z][a-z0-9+.-]*:\/\/[^\s?#'"<>]+)\?[^\s#'"<>]*/gi, '$1');
+  return String(text).replace(/(\b[a-z][a-z0-9+.-]{0,30}:\/\/[^\s?#'"<>]+)\?[^\s#'"<>]*/gi, '$1');
 }
 
-module.exports = { redact, stripQuery, R };
+// For text that is cut to a few hundred characters afterwards: redact only its start (redaction is not free on 100 KB).
+const REDACT_MAX = 4000;
+const redactHead = (text, extra) => redact(String(text).slice(0, REDACT_MAX), extra);
+
+module.exports = { redact, redactHead, stripQuery, R, REDACT_MAX };

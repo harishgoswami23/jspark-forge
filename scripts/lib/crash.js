@@ -25,6 +25,7 @@ const { writeAtomic } = require('./fsx');
 const { redact, stripQuery } = require('./redact');
 
 const STALE_MS = 90 * 1000;
+const OWN_MS = 15 * 1000; // the session that is starting cannot be alive in this window: only a start seconds after its last hook run is left alone
 const SLOW_MS = 10 * 60 * 1000; // a session whose only evidence is in-flight calls is judged only after this
 const WINDOW_MS = 2 * 60 * 1000;
 const MAX_AGE_MS = 7 * 24 * 3600 * 1000;
@@ -84,7 +85,7 @@ function judge(dir, s, entries, now, noted, selfMtime) {
   if (!(list.length || background.length || helpers.length || after)) return null; // only a missing ended stamp: say nothing
   const young = list.some(e => now - (Number(e.at) || 0) < SLOW_MS);
   const onlyFlight = list.length > 0 && !(background.length || helpers.length || after);
-  if (now - sign < (young || onlyFlight ? SLOW_MS : STALE_MS)) return null;
+  if (now - sign < (selfMtime !== undefined ? OWN_MS : young || onlyFlight ? SLOW_MS : STALE_MS)) return null;
   return { s, sid, sign, inflight: list, background, helpers, mine, lastSave };
 }
 
@@ -201,7 +202,8 @@ const USER_LINE = at => `JSPARK Forge: the last session here was cut off, or is 
 function check(dir, currentSid, { mark = false, extraFor, own = false, self, skipNewest = false } = {}) {
   try {
     const found = find(dir, currentSid, Date.now(), { self: own ? self : undefined, skipNewest });
-    try { if (mark && own && currentSid) inflight.clear(dir, currentSid); } catch { /* fail open */ }
+    // its own records are cleared once they were judged; a start seconds after its last hook run judged nothing, so they stay
+    try { if (mark && own && currentSid && !(self && !self.ended && Date.now() - self.mtime < OWN_MS)) inflight.clear(dir, currentSid); } catch { /* fail open */ }
     if (!found.length) return null;
     const items = found.slice(0, MAX_BLOCKS);
     const guest = paths.isGuest(dir);
@@ -225,7 +227,6 @@ const SESSION_KEEP_MS = 30 * 24 * 3600 * 1000;
 function prune(dir, currentSid, now = Date.now(), limit = 50) {
   let n = 0;
   try {
-    if (!eligible(dir)) return 0;
     const sd = state.stateDir(dir);
     const cur = String(currentSid || '').replace(/[^A-Za-z0-9-]/g, '');
     const names = fs.readdirSync(sd);

@@ -23,7 +23,7 @@ const dirOf = (dir, sid) => path.join(state.stateDir(dir), `inflight-${sidOf(sid
 const legacyFile = (dir, sid) => path.join(state.stateDir(dir), `inflight-${sidOf(sid)}.json`);
 const cut = (s, n) => { const t = String(s || '').replace(/\s+/g, ' ').trim(); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
 // Redact first, then cut: a secret that straddles the cut must not leak its prefix.
-const clean = (s, n, secrets) => cut(redact(String(s || ''), secrets || []), n);
+const clean = (s, n, secrets) => cut(require('./redact').redactHead(String(s || ''), secrets || []), n);
 let counter = 0;
 
 // The text that says what the call is: the command (cut) with its description, the file path, or the agent type.

@@ -284,7 +284,7 @@ const handlers = {
     if (rules.disabled.length) msgs.push(`JSPARK Forge: you switched off ${rules.disabled.join(', ')} in rules.md.`);
     try { // v0.5.1 gaps 1-2: an own project's missing .gitignore is made again; an older one learns the briefs line
       if (paths.isOwn(dir)) {
-        if (!setup.repairGitignore(dir) && fs.existsSync(path.join(paths.repoForgeDir(dir), 'graphs'))) setup.shareGraphs(dir);
+        if (!setup.repairGitignore(dir) && ['graphs', 'briefs'].some(n => fs.existsSync(path.join(paths.repoForgeDir(dir), n)))) setup.shareGraphs(dir);
         // v0.5.1 gaps 3: no commit yet means nothing can be undone; say so once a day (read from .git, no git process)
         if (git.headBranch(dir) && !git.headCommit(dir) && onceADay(dir, 'noCommitsTold')) {
           msgs.push('JSPARK Forge: this repo has no commits yet, so a crash or a bad edit cannot be undone. Ask Claude to make a first commit.');
