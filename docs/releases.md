@@ -472,7 +472,7 @@ only what failed, flaky versus broken, a progress line for a background gate, ti
 
 ## v0.7.0: Better gates
 
-**Status: built, waiting for the owner's yes to release.** Details: [`release-notes/v0.7.0.md`](release-notes/v0.7.0.md);
+**Status: released 2026-11-22.** Details: [`release-notes/v0.7.0.md`](release-notes/v0.7.0.md);
 design: [`design-v0.7.md`](design-v0.7.md).
 
 **Why [owner, 2026-11-22].** The same feedback as v0.6.2: in the owner's other project the hours went into the full
