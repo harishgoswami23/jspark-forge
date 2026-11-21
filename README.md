@@ -29,17 +29,28 @@ A Claude Code plugin for technical solo founders. Built for Claude Code, by JSPA
    waiting on you) is rewritten on every save trigger below. The task is your last real request (not "go on", and not a
    helper's report); the four requests before it and the end of Claude's last reply are kept, work in another git
    project is named ("Also worked in"), and step progress is read from Claude Code's task tools as well as the plan.
-   Resuming a session never wipes the history.
+   It counts the files not committed (an untracked folder counts every file in it, up to 2000) and says when a repo
+   has no commits yet. Resuming a session never wipes the history.
 2. **Shows it back after any cutoff, and asks first.** Open Claude Code again: JSPARK Forge shows where you were and
    asks "Continue?" before picking the old task back up. No command to type. If the last session was cut off by a crash
-   or a power cut, it also says so and tells Claude to check what was half done first.
+   or a power cut, it also says so and tells Claude to check what was half done first (see "When it saves").
 3. **Blocks dangerous actions.** A published list, enforced by hooks, with a typed confirmation to override.
 4. **Keeps a short action log** for the step that was cut off (7 days, then a one-paragraph summary per day).
-5. **Keeps Claude grounded.** A short rule at every session start: cite the file and line, say "not found"
-   otherwise, never describe code it has not read.
+5. **Keeps Claude grounded, and short.** Two rules at every session start. Grounding: cite the file and line, say
+   "not found" otherwise, never describe code it has not read. Short by default: lead with the answer, bullets or a
+   table for lists, one line of explanation unless you ask for more, and always the warnings, risks, decisions and
+   blockers. `- short-answers: off` switches the second one off.
 6. **Keeps open questions in sight.** A question Claude asks you that holds up work stays on a "waiting on you" list
    until you answer it: in the status line (`⏳ 2 waiting on you · oldest 14h`), first thing at the next session
-   start, and in the handoff, so a cutoff cannot bury it.
+   start, and in the handoff, so a cutoff cannot bury it. A question can say what it blocks and whether the answer can
+   be undone, and shows `blocks launch item: <title>` when it names an item on your launch list. After you answer,
+   Claude offers to record the answer as a decision.
+7. **Keeps a local copy of every page Claude publishes.** A link can stop working when you change account; a file
+   does not. In your own projects the page's file is copied into `.jspark-forge/artifacts/` and listed in
+   `.jspark-forge/artifacts.md` with its link. A page published without a file is listed as having no copy, and Claude
+   is told to save it. Session start and `/jspark-forge:check` list pages whose copy is missing. Claude is warned when
+   it writes a document into a temporary folder, and once a day session start lists up to 5 such documents that are
+   not in the project. The copies stay on your machine: they are not committed.
 
 Your work stays on your machine. No telemetry. JSPARK Forge goes online only when `npm` installs the two servers (once, in the background, on
 their first start) and when it adds two companions with `claude plugin install` (see Install).
@@ -64,10 +75,14 @@ list** against scope creep. It also has **guest mode** (review someone else's re
 Decisions, rules and lessons for a project live in `.jspark-forge/decisions.md` (commit it to share with your team).
 Each is one line, tied to the files it covers. Just before Claude edits one of those files, it sees the decisions that
 touch it (as data, not orders). After a commit that settles a choice, or a plan you approve in plan mode, JSPARK Forge
-offers *"Record the decision?"*; nothing is recorded without your yes. When a covered file changes, the decision is flagged for a look.
+offers *"Record the decision?"*; nothing is recorded without your yes. When a commit changes a covered file, the
+decision is flagged for a look: at most once a day for each decision, and not in the 14 days after it was recorded or
+verified.
 
-- `/jspark-forge:decide` records, updates, verifies or retires a decision.
+- `/jspark-forge:decide` records, updates, verifies or retires a decision. To turn one into a hard block, it prints
+  the line to add to `rules.md` (`forge.js decide --promote <id>`); it never edits `rules.md` itself.
 - `/jspark-forge:decisions` lists what is on file. `/jspark-forge:check` asks whether each is still true.
+- `/jspark-forge:handoff done` offers once to record the task's lasting lessons as decisions.
 
 ## Code map (the what and where)
 
@@ -153,24 +168,40 @@ It never blocks anything.
 1. Every message from you.
 2. After any tool call that writes or edits a file.
 3. Once a minute while Claude works without writing files (commands, helpers, a new branch).
-4. After any commit.
+4. After any commit Claude makes (a commit you make yourself is noticed at the next save).
 5. When Claude finishes a reply.
 6. Just before the conversation is compacted.
 7. When the session ends.
 8. At **80 %** of context or plan usage (quiet) and at **95 %** (forced, and you see:
    *"Usage at 95 %. Handoff saved. Next session, JSPARK Forge shows where you were."*).
+9. When you sign in again during a session. You are told to start a new session and say "resume" if you changed
+   account. This rests on a notice from Claude Code that has not yet been seen to arrive after `/login`, so do not
+   count on it.
+
+`/jspark-forge:handoff` saves on demand. A save is written only when there is work to resume.
 
 A crash or a hard limit gives no warning, so at most the last minute of work is lost, and the next session is also
 given what the action log holds after the last save.
 
-If the machine itself dies (a power cut, a crash), JSPARK Forge writes its files so they survive it, keeps the save
-before the last one in case the newest is damaged, and notes each command, file write or helper that was under way.
-At the next start it tells you the last session was cut off, or is still open in another window, and tells Claude what
-was half done, which files were written just before, and what Claude was saying, so it checks before carrying on. It
-waits 90 seconds of silence (10 minutes when all that is left is a command in flight, such as a long test run) before it
-says so, and it never changes another window's files. It cannot save the reply Claude was in the middle of writing, or
-output a program had not yet written to disk, and the newest log lines can be lost if the cut came before they reached
-the disk. Secrets quoted in what it shows are hidden on a best-effort basis: common shapes, not every secret.
+If the machine itself dies (a power cut, a crash, a killed window):
+
+- **Saves are forced to disk** before they replace the old file, and the handoff before the newest is kept. If the
+  newest is damaged, the one before it is shown and the doctor says so. If both are, the next session is given what
+  the action log holds.
+- **What is in flight is recorded:** each command, file write or helper that has started and not finished.
+- **At the next start** you are told the last session "was cut off, or is still open in another window" (JSPARK Forge
+  cannot tell the two apart). Claude is told what was half done: what was in flight, which background commands and
+  helpers are gone (dev servers die with the machine; Claude asks before starting them again), which files written in
+  the last 2 minutes are now missing, empty or end in NUL bytes, what was logged after the last save, and Claude's last
+  words. Claude checks before carrying on.
+
+It waits 90 seconds of silence (10 minutes when all that is left is a command in flight, such as a long test run)
+before it says so. It never changes another window's files, and it stays quiet after a session that ended normally
+and in a folder that is not a git repo.
+
+**What a crash can still lose:** the reply Claude was writing, output a program had not yet written to disk, and the
+newest log lines if the cut came before they reached the disk. The NUL-byte check is a hint, not proof. Secrets quoted
+in what it shows are hidden on a best-effort basis: common shapes, not every secret.
 
 ## What it blocks (published list)
 
@@ -244,12 +275,15 @@ Those are the only times JSPARK Forge goes online. On Windows, Defender has been
 program wrongly (a false positive): allow it, or switch the code map off.
 
 - **Each git project switches on by itself** the first time you open Claude Code in it: a hidden `.jspark-forge/`
-  folder appears. Commit `rules.md`, `decisions.md`, `launch.md` and `.gitignore` to share them; everything else
-  (handoff, log, the state of a running build graph, local copies of published pages) stays local and git-ignored. Build graph files (`graphs/*.md`) are shared too. Old archived handoffs and the files of
-  repos you reviewed are cleared after 30 days. Folders that are not git projects are left alone.
+  folder appears. Commit `rules.md`, `decisions.md`, `launch.md` and `.gitignore` to share them, and build graph files
+  with their briefs (`graphs/*.md`, `briefs/*.md`). Everything else (handoff, log, the state of a running build graph,
+  local copies of published pages) stays local and git-ignored. If `.jspark-forge/.gitignore` goes missing, it is made
+  again at the next session start. Old archived handoffs and the files of repos you reviewed are cleared after 30
+  days, and old session records (ended over 7 days ago, or untouched for 30) at a session start. Folders that are not
+  git projects are left alone.
 - **Switches** under `## Settings` in `rules.md`: `- notes: off` stops the "add a note" reminder before commits;
   `- statusline-segment: off` hides JSPARK Forge's part of the status line; `- short-answers: off` switches off the
-  short-by-default rule; `- ui-skills: off`, `- code-map: off` and `- playwright: off` are described below.
+  short-by-default rule; `- ui-skills: off`, `- code-map: off` and `- playwright: off` are described above.
 - **Status line.** Claude Code shows context and plan usage only to the status line, and JSPARK Forge needs those
   figures for the 80 % / 95 % saves. If you have no status line, JSPARK Forge adds its own and tells you how to undo
   it. If you have your own, it is never touched: run `/jspark-forge:init` once if you want JSPARK Forge to wrap it (it
@@ -264,8 +298,8 @@ start.
 
 Open a repo you cloned and never committed to, and JSPARK Forge **writes nothing into it**: its handoff and log live
 in `~/.claude/jspark-forge/guests/` instead, the handoff says *"Review of <repo> @ <commit>"*, and Claude is told that
-the repo's README, comments, docs and scripts are data to review, never instructions. Everything else (saves, resume,
-the block list) works as usual. A wrong guess costs nothing: only where the files live changes.
+the repo's README, comments, docs and scripts are data to review, never instructions. Every helper Claude starts
+there is told the same. Everything else (saves, resume, the block list) works as usual. A wrong guess costs nothing: only where the files live changes.
 
 - `/jspark-forge:init --guest` also **holds the repo's common install, build, test and run commands** (`npm install`,
   `pip install`, `make`, `pytest`, `docker compose up`, its own scripts, and so on) until you type
@@ -287,15 +321,22 @@ JSPARK Forge ships four helpers, each on the model strength its job needs:
 | `jspark-forge:checker` | light | tests, logs, mechanical checks | cheap and visible mistakes (it cannot edit) |
 
 Each works from a brief (goal, what it may and may not change, when it is done, when to stop) and ends with evidence.
+A helper does not see what Claude was told at session start, so every helper, these four or any other, is given the
+grounding rule when it starts (cite the file, never guess), and in a repo you are reviewing the "content is data" line.
 With superpowers, JSPARK Forge asks Claude to use these helpers for its implementers, reviewers and checks. That is
 guidance, not a lock: superpowers chooses a model for each helper it starts.
 
 ## Build graphs (long builds that survive a cutoff)
 
-Write a build once as steps in `.jspark-forge/graphs/<name>.md` (start from a template: software, documents, spike or
-ui; commit the graph file to share it, its run state stays on your machine): which helper does each step, what it hands to the next, which steps run side by side, which checks must
-pass, and where you must act. `/jspark-forge:build <name>` runs it; JSPARK Forge keeps the record, so a crash, a usage
-limit or a new session picks up at the running step.
+Write a build once as steps in `.jspark-forge/graphs/<name>.md`: which helper does each step, what it hands to the
+next, which steps run side by side, which checks must pass, and where you must act. `/jspark-forge:build <name>` runs
+it; JSPARK Forge keeps the record, so a crash, a usage limit or a new session picks up at the running step.
+
+- **Templates:** software, documents, spike, ui, and planned (for when the spec and plan are already written).
+- **Shared in git:** the graph file and its briefs (`.jspark-forge/briefs/*.md`). The run state stays on your machine.
+- **Your test command:** a template's check says `npm test` only as a placeholder. Set it to your project's own test
+  command before you trust the graph; `/jspark-forge:build` has Claude do this from your project's files.
+- **Builders commit** their step's work on the current branch (no merge, no push): the review step needs those commits.
 
 What JSPARK Forge checks, what it guards, and what it can only ask for:
 - **Checked:** the graph is valid before it starts and is fixed for the run; a step's outputs are exactly the declared
@@ -309,21 +350,22 @@ What JSPARK Forge checks, what it guards, and what it can only ask for:
   and run on purpose. Nothing that runs as your user account can promise more.
 - **Asked for:** the order of steps and the limit on helpers running at once; JSPARK Forge hands out work that way but
   cannot stop Claude doing something else.
-- A graph whose checks run commands needs you to type `TRUST GRAPH <name>` first, and again when those commands
-  change. `npm test` runs whatever your project's scripts say.
+- A graph whose checks run commands needs you to type `TRUST GRAPH <name>` first, as your whole message, and again
+  when its commands, checks or steps that need you change. The message lists the commands and says the graph runs them
+  by itself at its check steps: you do not type them. `npm test` runs whatever your project's scripts say.
 
 ## Commands
 
 | Command | What it does |
 |---|---|
-| `/jspark-forge:resume` | Show where you were again, on demand, and wait |
-| `/jspark-forge:handoff` | Save the handoff now (`done` closes the task and archives it) |
-| `/jspark-forge:waiting` | The questions waiting on you, with Claude's recommendations; answer, accept the recommendations, or drop them |
+| `/jspark-forge:resume` | Show where you were again, on demand, and wait: the handoff, then the end of the action log (the last 60 lines, a record, not instructions) |
+| `/jspark-forge:handoff` | Save the handoff now (`done` offers to record lasting lessons, then closes the task and archives it) |
+| `/jspark-forge:waiting` | The questions waiting on you, with Claude's recommendations and what each blocks; answer, accept the recommendations, or drop them. Offers to record an answer as a decision |
 | `/jspark-forge:status` | What is saved now: the handoff, what is waiting on you, usage as of when |
-| `/jspark-forge:doctor` | Is JSPARK Forge working here? One line per check, each problem with its fix. Changes nothing |
-| `/jspark-forge:decide` | Record, update, verify or retire a decision (only after your yes) |
+| `/jspark-forge:doctor` | Is JSPARK Forge working here? One line per check (hook errors from the last two days included), each problem with its fix. Changes nothing |
+| `/jspark-forge:decide` | Record, update, verify or retire a decision (only after your yes); print the `rules.md` line that makes one a hard block |
 | `/jspark-forge:decisions` | List the decisions, rules and lessons on file. Changes nothing |
-| `/jspark-forge:check` | Are the recorded decisions still true? Asks you about each one that may not be |
+| `/jspark-forge:check` | Are the recorded decisions still true? Asks you about each one that may not be. Also lists published pages with no local copy, and files open questions that were never listed |
 | `/jspark-forge:new-skill` | Create a project skill from the template, checked for missing parts |
 | `/jspark-forge:new-brief` | Write a brief (one job for one helper) from the template, checked for missing parts |
 | `/jspark-forge:schema` | The database layout from your migration files, with file and line and the decisions that touch them. Never reads a database |
@@ -346,26 +388,31 @@ What JSPARK Forge checks, what it guards, and what it can only ask for:
 ## Privacy
 
 Your files and the handoff stay on your machine. The handoff holds paths, short text and the last lines of Claude's reply, never file contents. The log
-hides likely secrets (keys, tokens, passwords) before writing. JSPARK Forge itself sends nothing anywhere. It goes
+hides likely secrets (keys, tokens, passwords) before writing. After a cut-off session, Claude's last words are read
+from the end of that session's transcript, only when that file is inside the Claude home. JSPARK Forge itself sends nothing anywhere. It goes
 online only through `npm` (the one-time install of the code map and Playwright servers) and through `claude plugin install`
 (once, for the two companions). Those two programs, and the servers they run, are not JSPARK Forge's own code. A hook
 never waits on a download.
 
 ## Every hook, documented
 
-Every hook runs `node scripts/forge.js <event>` and fails open: an error never blocks Claude Code. Files are written
+Every hook runs `node scripts/forge.js <event>` and fails open: an error never blocks Claude Code. A hook that fails
+skips its save or block, so the error is not hidden: `/jspark-forge:doctor` counts hook errors from the last two days,
+and a session start says so once a day. Files are written
 only in the project's `.jspark-forge/` (or, for a repo you are reviewing, `~/.claude/jspark-forge/guests/<id>/`).
 Details per feature: [design-v0.1.md](docs/design-v0.1.md), [design-v0.1.1.md](docs/design-v0.1.1.md),
 [design-v0.2.md](docs/design-v0.2.md), [design-v0.3.md](docs/design-v0.3.md), [design-v0.4.md](docs/design-v0.4.md).
+Before each release, every promise in the spec is checked against the code and its tests; what is partly built or not
+built is listed in [spec-coverage.md](docs/spec-coverage.md).
 
 | Hook (time limit) | What it does | What it writes | Can it block? |
 |---|---|---|---|
-| SessionStart (10 s; a Node check first, 5 s) | Switches JSPARK Forge on in a git project; shows where you were and waits; questions waiting on you; the grounding rule; the short-by-default rule; decision index; code map freshness; launch list; a running build graph; one-time tips; one line a day when a hook error was logged | the handoff state, the action log, `state/` files | No |
-| UserPromptSubmit (10 s) | Switches JSPARK Forge on if session start missed it; your `CONFIRM <name>`, `TRUST GRAPH <name>`, `DONE <step>`; clears a question you answered; offers to record a decision; the launch-scope nudge | confirm tokens, session state, graph trust and state | No |
-| PreToolUse (3 s; shell, edits, the question tool, MCP tools) | The block list (asks or denies); files a question you are asked; the decisions about a file just before Claude edits it; the notes reminder before a commit | waiting list, "already shown" ids | **Yes**: deny or ask |
-| PostToolUse (10 s) | Saves after file changes and commits; offers to record a decision; stale-decision flags; code map freshness on map answers; build graph evidence (gate results, helper tokens); "recorded" notices | handoff, task and session state, map and graph state | No |
-| PostToolUseFailure (10 s) | Logs the failure; a failed gate command stops a build graph | log, graph state | No |
-| Stop (10 s) | Saves the handoff after each reply; files a closing question when there is work | handoff, waiting list | No |
+| SessionStart (10 s; a Node check first, 5 s) | Switches JSPARK Forge on in a git project; shows where you were and waits; the crash check after a cut-off session; questions waiting on you; the grounding rule; the short-by-default rule; decision index; code map freshness; launch list; a running build graph; pages with no local copy; one-time tips; at most once a day each: a hook error was logged, documents left in a temporary folder, a repo with no commits yet | the handoff state, the action log, `state/` files | No |
+| UserPromptSubmit (10 s) | Switches JSPARK Forge on if session start missed it; saves the handoff on each message from you; your `CONFIRM <name>`, `TRUST GRAPH <name>`, `DONE <step>`; clears a question you answered; offers to record a decision; the launch-scope nudge | handoff, confirm tokens, session state, graph trust and state | No |
+| PreToolUse (3 s; shell, edits, the question tool, MCP tools) | The block list (asks or denies); files a question you are asked; the decisions about a file just before Claude edits it; the notes reminder before a commit; notes an allowed command, file write or helper as in flight | waiting list, "already shown" ids, in-flight records | **Yes**: deny or ask |
+| PostToolUse (10 s) | Saves after file changes and commits, and once a minute while Claude works; clears the in-flight record; keeps a local copy of a published page; warns about a document written to a temporary folder; offers to record a decision; stale-decision flags; code map freshness on map answers; build graph evidence (gate results, helper tokens); "recorded" notices | handoff, task and session state, map and graph state, `artifacts/` and `artifacts.md` | No |
+| PostToolUseFailure (10 s) | Logs the failure; clears the in-flight record; a failed gate command stops a build graph | log, graph state | No |
+| Stop (10 s) | Saves the handoff after each reply; files a closing question when there is work; clears what was in flight | handoff, waiting list | No |
 | PreCompact (10 s) | Saves before compaction (prints nothing) | handoff | No |
 | SessionEnd (1 s) | Marks the session ended | session state | No |
 | Notification, sign-in only (10 s) | Shows one line when a sign-in completes during a session, saves the handoff and writes the log, and says how to carry on after a change of account (not yet seen to arrive after `/login`) | the handoff, the action log | No |

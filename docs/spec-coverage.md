@@ -65,16 +65,16 @@ Items 2, 3, 5, 6, 7, 8, 9 and 10 are closed (above). What is left, with the reas
 4. **"Waiting on you" (lines 218-234).** Built (above) except the timed reminder and the once-a-day summary, which the
    spec defers. A question captured from the question tool still has no "blocks" until Claude sets it; that is by
    design (the tool gives no data for it).
-11. **superpowers review notes are not read (lines 379, 573). Not built.** superpowers 7.0.2 (checked in the Claude
+11. **superpowers review notes. Cut from the spec [owner 2026-11-21].** superpowers 7.0.2 (checked in the Claude
     home's plugin cache) writes plans and specs under `docs/superpowers/` and a progress ledger and review diffs under
-    `.superpowers/sdd/`, but no file of review notes. No path could be confirmed, so none was guessed. Cut the words
-    "review notes" from the spec, or name the file once superpowers writes one.
+    `.superpowers/sdd/`, but no file of review notes, so there is nothing to read. Bring it back if superpowers ever
+    writes one.
 12. **Build graph leftovers (lines 616-631, 694):** memory cap rejected, platform workflow facility not used, templates
     only validated. The two behaviour tests the spec names ("a skill run twice makes no second fetch and no
-    overwrite"; "a brief's log after a killed session still holds every row") were **not written**: no code runs a
-    skill or writes a brief's log. Both are instructions in `templates/skill.md` and `templates/brief.md` that Claude
-    follows, so a test could only check the template's words, which is not the behaviour. Build the behaviour (a
-    runner for skills, a log writer for briefs) or change the spec's test list.
+    overwrite"; "a brief's log after a killed session still holds every row") were **cut from the spec
+    [owner 2026-11-21]**: no code runs a skill or writes a brief's log. Both are instructions in `templates/skill.md`
+    and `templates/brief.md` that Claude follows, so a test could only check the template's words, which is not the
+    behaviour. The lint of both templates is tested.
 13. **Map (lines 407-411):** no per-file refresh, no git post-commit hook; and for read-only sources (line 269) no
     "last read". All three are recorded deviations (design-v0.3 section 3, design-v0.1.1 section 3). Not built: the
     owner's and the spec's to settle.

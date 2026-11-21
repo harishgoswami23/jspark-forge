@@ -184,8 +184,10 @@ function superpowersInstalled(home) {
   try { return fs.readdirSync(path.join(plugins, 'cache')).some(m => fs.existsSync(path.join(plugins, 'cache', m, 'superpowers'))); } catch {}
   return false;
 }
-const SUPERPOWERS_TIP = 'Tip (shown once): JSPARK Forge works best with superpowers (https://github.com/obra/superpowers) for ' +
-  'planning, tests first and reviews. Install it with: /plugin install superpowers@jspark-forge . Optional; JSPARK Forge never needs it.';
+// superpowers is required (owner 2026-11-20): it is installed with JSPARK Forge as a declared dependency. This line is
+// only seen when it is missing all the same (a copy loaded from a folder, or superpowers removed by hand).
+const SUPERPOWERS_TIP = 'JSPARK Forge (shown once): superpowers (https://github.com/obra/superpowers) is missing. JSPARK Forge ' +
+  'needs it for planning, tests first and reviews, and it normally comes with the install. Add it with: /plugin install superpowers@jspark-forge';
 
 // A wrapper copy installed by an older JSPARK Forge is replaced by the plugin's current one (it must know about guest
 // folders). Only when JSPARK Forge installed it (statusline.json is there); never touches settings.json.
