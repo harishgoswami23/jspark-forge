@@ -304,12 +304,14 @@ test('speed: 300 migration files read in under 200 ms (2 s on Windows)', () => {
   const files = {};
   for (let i = 1; i <= 300; i++) files[`migrations/${String(i).padStart(4, '0')}_m.sql`] = i === 1 ? 'CREATE TABLE a (id int);' : `ALTER TABLE a ADD COLUMN c${i} text NOT NULL DEFAULT 'x';\nCREATE TABLE t${i} (id int PRIMARY KEY, a_id int REFERENCES a (id));\n`;
   const dir = mk(files);
+  // Clock or processor time under the limit (tests/helpers/timing.js): a busy machine stretches only the clock.
+  const { cost } = require('./helpers/timing');
   let ms = Infinity;
   let r;
   for (let k = 0; k < 3; k++) { // best of three: other tests run at the same time
-    const t0 = process.hrtime.bigint();
-    r = schema.read(dir).roots[0];
-    ms = Math.min(ms, Number(process.hrtime.bigint() - t0) / 1e6);
+    const m = cost(() => schema.read(dir).roots[0]);
+    r = m.value;
+    ms = Math.min(ms, m.wall, m.cpu);
   }
   assert.equal(tbl(r, 'a').columns.length, 300);
   const limit = process.platform === 'win32' ? 2000 : 200; // Windows file opens cost ~0.6 ms each here (virus scanning); the parser itself is ~10 ms
