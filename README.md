@@ -20,7 +20,10 @@ without being a coder and without losing your place. Built for Claude Code, by J
 > each release). Claude Code shares plan usage (5-hour and weekly limits) only with plans that report it. On any plan, JSPARK Forge still saves before the context limit and after every
 > step, and `/jspark-forge:handoff` saves on demand.
 
-<!-- demo GIF: kill a session mid-task, reopen, "here's where we were, continue?" -->
+<!-- demo GIF: kill a session mid-task, reopen, "here's where we were, continue?"
+     How to record it: docs/demo-gif-script.md. When assets/demo-resume.gif exists, replace this comment with:
+     <p align="center"><img alt="A Claude Code window is closed mid-task; a new session shows where the work stood and carries on" src="assets/demo-resume.gif" width="820"></p>
+-->
 
 ---
 
