@@ -613,7 +613,28 @@ const handlers = {
     const q = waiting.lastQuestion(input.last_assistant_message);
     if (q && handoff.hasWork(dir, sid) && waiting.add(dir, [{ question: q, session: sid, source: 'reply' }])) lines.push(['WAIT', '1 asked']);
     doSave(dir, sid, 'reply finished', lines);
-    return { lines, out: null };
+    // v0.6 token care: every step re-reads the whole conversation, so a long one is the largest cost by far (measured
+    // 2026-11-21: 417k tokens per step). Say so to the user (not to Claude: it costs no tokens) each time the
+    // conversation passes another 150k tokens; after a compaction it starts over.
+    let out = null;
+    try {
+      if (loadRules(dir).settings['fresh-session'] !== 'off') {
+        const tokens = require('./lib/transcript').contextTokens(input.transcript_path);
+        if (tokens !== null) {
+          const s2 = state.readSession(dir, sid);
+          const step = Math.floor(tokens / FRESH_EVERY);
+          if (step !== (s2.freshStep || 0)) {
+            if (step > (s2.freshStep || 0)) {
+              out = { systemMessage: `JSPARK Forge: this conversation is now about ${Math.round(tokens / 1000)}k tokens, and every step re-reads all of it. To save usage: finish the current small step, then start a new session and say "resume" (the handoff is saved). To stop this note: "- fresh-session: off" under "## Settings" in rules.md.` };
+              lines.push(['FRESH', `${Math.round(tokens / 1000)}k tokens`]);
+            }
+            s2.freshStep = step;
+            state.writeSession(dir, sid, s2);
+          }
+        }
+      }
+    } catch { /* only a hint */ }
+    return { lines, out };
   },
 
   PreCompact(dir, input) { // must print nothing (design 16, deviation 1)
@@ -679,6 +700,7 @@ const handlers = {
 // Checked on the events that can show output; PreCompact cannot, PreToolUse stays lean.
 const USAGE_EVENTS = new Set(['UserPromptSubmit', 'PostToolUse', 'Stop']);
 const MSG95 = 'Usage at 95 %. Handoff saved. Next session, JSPARK Forge shows where you were.';
+const FRESH_EVERY = 150000; // tokens of conversation between two "start a new session" notes (v0.6)
 const ctx95 = dir => 'JSPARK Forge: usage is at 95 %. The handoff is saved. Please finish the current small step, update your ' +
   `notes in ${paths.display(dir, path.join(paths.forgeDir(dir), 'state', 'notes.md'))}, and do not start new work.`;
 
@@ -892,6 +914,23 @@ function cliWaiting(args) {
 // `forge.js doctor` / `forge.js status` (spec 5.13c): read-only health check; what is saved now.
 const cliDoctor = () => process.stdout.write(require('./lib/doctor').doctor(cliProject(), setup.claudeHome()));
 const cliStatus = () => process.stdout.write(require('./lib/doctor').status(cliProject()));
+// `forge.js usage` (v0.6): where this session's tokens went, from its transcript. Read-only. The transcript path is the
+// one the hooks stored for the session Claude Code names; without one, the session with the newest save.
+function cliUsage() {
+  const dir = cliProject();
+  if (!dir) { process.stdout.write(NOT_SET_UP); return; }
+  const sid = process.env.CLAUDE_CODE_SESSION_ID;
+  let tp = null;
+  try {
+    if (sid) tp = state.readSession(dir, sid).transcriptPath || null;
+    else {
+      const withPath = state.allSessions(dir).filter(s => s && typeof s.transcriptPath === 'string').sort((a, b) => (Number(b.lastSaveAt) || 0) - (Number(a.lastSaveAt) || 0));
+      tp = withPath.length ? withPath[0].transcriptPath : null;
+    }
+  } catch { /* no session file */ }
+  if (!tp && sid) tp = require('./lib/usage-report').find(sid);
+  process.stdout.write(require('./lib/usage-report').report(tp));
+}
 
 // `forge.js decide --from <file.json> | --verify <id> | --retire <id> [--by <id>]` (design-v0.2 1.4).
 function cliDecide(args) {
@@ -975,7 +1014,7 @@ function cliLaunch(args) {
   process.stdout.write(launch.run(dir, args || []));
 }
 
-const CLI = { schema: cliSchema, lint: cliLint, save: cliSave, show: cliShow, where: cliWhere, waiting: cliWaiting, doctor: cliDoctor, status: cliStatus, decide: cliDecide,
+const CLI = { schema: cliSchema, lint: cliLint, save: cliSave, show: cliShow, where: cliWhere, waiting: cliWaiting, doctor: cliDoctor, status: cliStatus, usage: cliUsage, decide: cliDecide,
   decisions: cliMemory('list'), check: cliMemory('check'), map: cliMap, launch: cliLaunch, graph: cliGraph };
 if (CLI[event]) {
   try { CLI[event](process.argv.slice(3)); } catch (e) { process.stdout.write(`JSPARK Forge could not ${event}: ${e.message}\n`); }

@@ -23,3 +23,4 @@ Example: - ui-skills: off
 Example: - playwright: off
 Example: - brand-skill: my-brand
 Example: - short-answers: off
+Example: - fresh-session: off

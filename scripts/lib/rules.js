@@ -8,7 +8,7 @@ const BUILTINS = require('../../rules/default-blocklist.json');
 const paths = require('./paths');
 
 
-const SETTINGS = { notes: ['on', 'off'], 'statusline-segment': ['on', 'off'], 'code-map': ['on', 'off'], playwright: ['on', 'off'], 'ui-skills': ['on', 'off'], 'short-answers': ['on', 'off'] };
+const SETTINGS = { notes: ['on', 'off'], 'statusline-segment': ['on', 'off'], 'code-map': ['on', 'off'], playwright: ['on', 'off'], 'ui-skills': ['on', 'off'], 'short-answers': ['on', 'off'], 'fresh-session': ['on', 'off'] };
 // brand-skill (v0.5): a skill name, shown to Claude as text, so only a plain name is accepted.
 const SKILL_NAME = /^[A-Za-z0-9][A-Za-z0-9:_.-]{0,79}$/;
 
