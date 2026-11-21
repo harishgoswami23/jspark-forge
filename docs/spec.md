@@ -76,6 +76,10 @@ Claude remembers."* The pitch never asks the user to type a command (Claude Code
 8. **Honest output.** No invented numbers, no "all clear". Estimates are marked as estimates.
 9. **Local-first, account-independent [owner 2026-11-03].** Nothing the project depends on may live only inside one Claude account or one session's temporary folder. Every page, mockup, dashboard, decision or handoff JSPARK Forge creates is written first as a file in the project (`.jspark-forge/` or the project's docs folder), committed where sensible; a published Artifact is only a *view* of that file, never the only copy. [updated 2026-11-20: v0.5] Claude is told this rule at every session start. When a page is published, JSPARK Forge keeps its file (the copy is made after the publish; a file from outside the project is copied into `.jspark-forge/artifacts/`) and lists it in `.jspark-forge/artifacts.md` with date, title, local file and link (no account: a hook cannot read the account); Claude tells the user the path. At session start a listed page whose local file has gone is flagged. What of this principle is built and what is not yet is kept in [`spec-coverage.md`](spec-coverage.md). [updated 2026-11-21: v0.5.1] The flag in `/jspark-forge:check` and the temp-file warning are built in v0.5.1; what remains is the account field (a hook cannot read the account) and files nobody listed. [owner 2026-11-20] `artifacts.md` and `artifacts/` stay local: they are git-ignored and exist on one machine only. Build graph files are committed. Reason: a design approved on one account became unreadable after a login switch.
 10. **Short by default [owner 2026-11-03].** Every status, answer and explanation JSPARK Forge shows (and the instruction file asks Claude to give) leads with the answer, uses bullets or a table, keeps explanations to one line, and offers details only on request. Short never means missing: warnings, risks, decisions and blockers are always stated, one line each. Reason: users skip long paragraphs and miss what matters; shorter output also saves tokens now and on every later turn (history is re-read).
+    **Stay reachable [owner 2026-11-22: v0.7].** A message the user sends mid-task reaches Claude only when its
+    current command ends. At every session start Claude is told to run anything longer than about a minute in the
+    background and to answer the user's mid-task message first (`- stay-reachable: off` switches it off). A rule, not
+    a hook: a running command cannot be interrupted. A second "side window" for questions was considered and dropped.
 11. **Store nothing JSPARK Forge can re-derive from the repo [owner 2026-11-03].** Specs, schema and architecture are
    indexed from their source files by the v0.3 map (5.4), never copied into memory. Users may still write whatever
    they want into `decisions.md`; JSPARK Forge never blocks it (it warns, points to a reference and counts locally, 5.3).
@@ -731,8 +735,19 @@ that the graph offers, never add nodes or edges while running.
   shows the graph with the current node highlighted and waits (5.1 show-and-wait).
 - A gate that was handed out and that nobody is running is shown as "not yet passed", with how many of its commands
   passed; "running" is said only while `graph gate` runs them [owner 2026-11-21: v0.6.2].
+- **Better gates [owner 2026-11-22: v0.7; design-v0.7.md].** (a) `before:` lines on a gate (free memory, a port open
+  or free, a container running; fixed forms, never commands) are checked before the gate is handed out and again
+  when `graph gate` starts; not met: the gate is not started and nothing fails. This replaces the graph-wide memory
+  line cut in v0.4. (b) Every run of a gate command is recorded: counts and failing test names read from the
+  runner's output (eight common runners; an unknown one keeps the exit code only), and `graph gate` keeps each run's
+  output in a log file (the last 5 per step). (c) `retry:` (one command, on a gate with one `run:` line, shown and
+  covered by TRUST GRAPH): a failing full run is followed by the retry of what failed, then by the full command once
+  more; only a passing full run completes a gate. (d) A test that failed and then passed with no change git can see
+  is recorded and named as flaky, never as fixed. (e) `graph status` reads a running gate's log for progress.
+  (f) Every `graph next` ends with the time and tokens so far.
 - Principle 12 holds: the runner moves state and enforces gates; it produces no verdicts. A gate's checks are commands
-  with exit codes, not judgments.
+  with exit codes, not judgments. Counts and names read from a runner's output are for people: they never change a
+  verdict.
 - Parallel nodes are capped by `max_parallel` and by plan usage from the usage bridge (nothing new is handed out at
   the 95 % band; unknown usage counts as under the limit). There is no memory cap [updated 2026-11-20: as built in
   v0.4]. JSPARK Forge never hands out more than the cap; it cannot see helpers Claude starts by itself.

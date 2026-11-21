@@ -27,6 +27,7 @@ that date; **[spike]** depends on a spike. Spike results override review decisio
 | v0.6.0 | Token care: `/jspark-forge:usage`, a note when the conversation gets long, helper habits | ~3 hours |
 | v0.6.1 | Tidy-up, no new features: the last missing test, the spec coverage list brought up to date | ~½ hour |
 | v0.6.2 | Six small fixes from real use in another project: no second "Continue?", a shorter handoff, honest gate status, notes with a date | ~1 hour |
+| v0.7.0 | Better gates for build graphs: checks before a long run starts, results without reading logs, retry only what failed, flaky named, progress and cost as it goes | ~3 hours |
 | Later, only if asked | Security review prompts (incl. council mode), `/capacity`, dashboard (incl. git view), `/jspark-forge:review`, migration mode, customer edition, secrets by name, limit handover (spec 5.6–5.8a, 5.12, 5.13) | not estimated |
 | **Total to v0.3** | | ~4–4½ weeks of build after v0.1.1, plus ~2 weeks of feedback, **soft** (v0.4 ~1½–2 weeks more, only if asked) |
 
@@ -466,6 +467,34 @@ current, a heavy start, two plugins both setting the process, and "Gate gate".
 
 **Not in this release (offered as v0.7, not confirmed).** Pre-flight check for a gate, results kept per run, retry of
 only what failed, flaky versus broken, a progress line for a background gate, time and tokens per step as it goes.
+
+---
+
+## v0.7.0: Better gates
+
+**Status: released 2026-11-22.** Details: [`release-notes/v0.7.0.md`](release-notes/v0.7.0.md);
+design: [`design-v0.7.md`](design-v0.7.md).
+
+**Why [owner, 2026-11-22].** The same feedback as v0.6.2: in the owner's other project the hours went into the full
+end-to-end run. It failed late for reasons that could be checked first, its results had to be read out of logs, one
+failing test meant the whole suite again, and a flaky test looked like a broken one.
+
+**What.** On a gate step of a build graph:
+1. `before:` lines (free memory, a port open or free, a container running), checked before the gate starts. Not met:
+   the gate is not started and nothing fails.
+2. Every run recorded: passed, failed, skipped, not run, and the failing test names, read from the output of eight
+   common test runners. `graph gate` keeps each run's output in a log file and prints a summary.
+3. `retry:` line: a failing full run is followed by only what failed, then by the full command once more. A retry
+   alone never completes a gate.
+4. A test that failed and then passed with no change to the code is named flaky, every time, and never called fixed.
+5. `graph status` says how far a running gate has got.
+6. Every `graph next` ends with the time and tokens so far.
+
+Also [owner, 2026-11-22]: a "stay reachable" rule at every session start (long commands in the background, the user's
+mid-task message answered first; `- stay-reachable: off`). A second "side window" for questions was considered and
+dropped: with the rule, the same window answers, and it knows more.
+
+A graph without the new lines behaves as before.
 
 ---
 

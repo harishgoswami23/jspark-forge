@@ -35,6 +35,11 @@
 ## tasks (parallel)
 - steps: build-core, build-ui
 
+<!-- Optional, for a long run (remove what you do not need):
+     "- before: free memory 4 GB", "- before: port 5432 open", "- before: container app-db running": checked before the
+     check starts, so it does not fail late.
+     "- retry: <your test tool's command that runs only what failed>" (for example "npx playwright test --last-failed"
+     or "pytest --lf"): a failing run then repeats only what failed, and the full command must pass once more. -->
 <!-- Set this to the project's own test command (pnpm test, yarn test, pytest, go test ./..., …) before you trust the graph. -->
 ## gate (gate)
 - after: tasks

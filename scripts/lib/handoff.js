@@ -353,6 +353,14 @@ function shortRule() {
   catch { return null; }
 }
 
+// v0.7 (owner 2026-11-22): a message the user sends mid-task is seen only when the running command ends; the owner
+// asked "Can I start the docker??" three times while Claude sat in 4 to 9 minute foreground waits. A hook cannot
+// interrupt a running command, so this is a rule, shown with the others at every session start.
+function reachableRule() {
+  try { return fs.readFileSync(path.join(__dirname, '..', '..', 'rules', 'stay-reachable.md'), 'utf8').trim(); }
+  catch { return null; }
+}
+
 // ---------- the handoff pair and its previous good copy (v0.5.1 crash recovery) ----------
 // The pair is handoff.md + state/handoff.json. Before a save replaces it, the pair that was good is kept as
 // handoff.prev.md + state/handoff.prev.json; if a crash damages the newest pair, the previous one is read.
@@ -505,5 +513,5 @@ function pruneArchive(dir, now = new Date()) {
   }
 }
 
-module.exports = { render, taskFields, parseNotes, save, hasWork, resumeContext, archive, pruneArchive, notesLine, WAIT_LINE, grounding, shortRule, usageCare, USAGE_CARE_MAIN, isUserPrompt, sinceSave,
+module.exports = { render, taskFields, parseNotes, save, hasWork, resumeContext, archive, pruneArchive, notesLine, WAIT_LINE, grounding, shortRule, reachableRule, usageCare, USAGE_CARE_MAIN, isUserPrompt, sinceSave,
   logEntries, pairHealth, openHandoff, logOnlyContext, mdUsable, hhmm };

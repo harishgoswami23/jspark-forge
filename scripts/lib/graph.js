@@ -23,7 +23,7 @@ function parse(text) {
     const title = line.match(/^#\s+Graph:\s*(\S.*?)\s*$/);
     if (title && !g.name) { g.name = title[1]; g.nameLine = n; return; }
     const head = line.match(/^##\s+(\S.*?)\s+\(([^)]*)\)\s*$/);
-    if (head) { cur = { id: head[1], kind: head[2].trim().toLowerCase(), line: n, needs: [], gives: [], after: [], steps: [], run: [], fieldLines: {} }; g.steps.push(cur); return; }
+    if (head) { cur = { id: head[1], kind: head[2].trim().toLowerCase(), line: n, needs: [], gives: [], after: [], steps: [], run: [], before: [], retries: [], fieldLines: {} }; g.steps.push(cur); return; }
     const f = line.match(/^-\s+([A-Za-z_]+):\s*(.*?)\s*$/);
     if (!f) return;
     const key = f[1].toLowerCase();
@@ -35,6 +35,8 @@ function parse(text) {
     }
     cur.fieldLines[key] = cur.fieldLines[key] || n;
     if (key === 'run') { if (val) cur.run.push(val); return; }
+    if (key === 'before') { cur.before.push({ value: val, line: n }); return; } // v0.7: what must be true before a gate starts
+    if (key === 'retry') { cur.retries.push({ value: val, line: n }); return; } // v0.7: the command that runs only what failed
     if (LIST_KEYS.has(key)) { cur[key] = cur[key].concat(list(val)); return; }
     cur[key] = val;
   });
@@ -72,6 +74,20 @@ function validate(g, fileName) {
       }
     }
     if (s.kind === 'human' && !s.say) err(s.line, `human step needs "say:" (one plain instruction)`);
+    // v0.7 (design-v0.7 1): "before:" and "retry:" belong to gates. A "before:" line is one of a few fixed forms, never
+    // a command; "retry:" is a command like "run:", and needs a gate with one "run:" line so "what failed" has one meaning.
+    if (s.kind !== 'gate') {
+      if (s.before.length) err(s.before[0].line, `"before:" belongs to a gate step ("${s.id}" is ${s.kind})`);
+      if (s.retries.length) err(s.retries[0].line, `"retry:" belongs to a gate step ("${s.id}" is ${s.kind})`);
+    } else {
+      for (const b of s.before) { const p = require('./preflight').parse(b.value); if (p.error) err(b.line, `gate "${s.id}": ${p.error}`); }
+      if (s.retries.length > 1) err(s.retries[1].line, `gate "${s.id}" has more than one "retry:" line (one at most)`);
+      if (s.retries.length && s.run.length !== 1) err(s.retries[0].line, `gate "${s.id}": "retry:" needs exactly one "run:" line (it has ${s.run.length})`);
+      for (const r of s.retries) {
+        if (!r.value || /[;&|<>`]|\$\(/.test(r.value) || !cleanRun(r.value)) err(r.line, `gate "${s.id}": the "retry:" line must be one simple command (no ; && | > < \` or $( ), no tabs, double spaces or hidden characters, at most ${MAX_RUN} characters)`);
+        else if (s.run.includes(r.value)) err(r.line, `gate "${s.id}": the "retry:" command is the same as its "run:" command; it should run only what failed`);
+      }
+    }
     for (const k of ['needs', 'gives']) for (const name of s[k]) if (!FIELD.test(name)) err(s.fieldLines[k] || s.line, `field name "${name}" must be lower-case letters, digits and underscores`);
   }
   const giver = new Map();

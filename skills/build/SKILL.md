@@ -28,6 +28,15 @@ Run a build graph step by step. JSPARK Forge keeps the record and checks it; you
      command moved to the background is not recorded. Run
      `node "${CLAUDE_PLUGIN_ROOT}/scripts/forge.js" graph gate <name> <step>` with the Bash tool in the background
      instead: it runs the gate's commands itself and records their exit codes. When it ends, run `graph next` again.
+     A gate can have `before:` lines (free memory, a port, a container). If `graph next` or `graph gate` says the gate
+     is "not started" or "was not run" and what is missing, tell the user in plain words and wait: nothing failed, and
+     you do not work around it. A gate can have a `retry:` line: when the full command fails, the gate is not failed
+     yet: the retry command (only what failed) is next, then the full command once more; `graph gate` does all three
+     by itself, and `graph next` names the command when you run them by hand. Never call a gate passed on a retry.
+     `graph gate` keeps the output in a log file and prints the counts, the failing tests and, on a failure, the last
+     lines: read the log only when those are not enough. When the user asks how far a background gate has got, run
+     `graph status <name>` (it says "31 of 63 tests done, 0 failed"); do not read the log for that. When a message
+     names flaky tests, tell the user their names: a flaky test is not a fixed test.
    - **human step:** show the user the instruction and stop. Only the user's own message `DONE <step>` completes it.
    - **interrupted / stopped / finished:** show the user and wait.
 4. Never add steps, skip a human step, edit `.jspark-forge/state/graph-*` files, or report outputs a helper did not

@@ -320,6 +320,10 @@ const handlers = {
       const sr = rules.settings['short-answers'] === 'off' ? null : handoff.shortRule();
       if (sr) rc.context = `${rc.context}\n\n${sr}`;
     } catch { /* never break a session start */ }
+    try { // v0.7: stay reachable (long commands in the background, the user's mid-task question first); at every start, like the short rule
+      const rr = rules.settings['stay-reachable'] === 'off' ? null : handoff.reachableRule();
+      if (rr) rc.context = `${rc.context}\n\n${rr}`;
+    } catch { /* never break a session start */ }
     try { // v0.6 token care: one line on helper habits, at every start (a compaction drops it, so then too)
       if (rules.settings['usage-care'] !== 'off') rc.context = `${rc.context}\n\n${handoff.USAGE_CARE_MAIN}`;
     } catch { /* never break a session start */ }
