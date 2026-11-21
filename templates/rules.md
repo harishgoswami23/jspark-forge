@@ -24,3 +24,4 @@ Example: - playwright: off
 Example: - brand-skill: my-brand
 Example: - short-answers: off
 Example: - fresh-session: off
+Example: - usage-care: off

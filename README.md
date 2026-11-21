@@ -338,6 +338,11 @@ own notes to Claude were about 8k tokens in all.
 - **A note when the conversation gets long.** Each time a conversation passes another 150k tokens, JSPARK Forge tells
   you (not Claude, so it costs nothing) that a new session would save usage. Because the handoff is saved on every
   message, starting a new session and saying "resume" loses nothing. `- fresh-session: off` stops the note.
+- **Helper habits.** Helpers were the second-largest cost measured (15 builders, 790 steps). Every helper is told four
+  habits when it starts: run only the tests of what it changed while working and the whole suite once at the end;
+  send long output to a file and read only the totals and the failing lines; read the needed part of a file, not a
+  large file whole; report in short bullets. The main session is told to give each helper one task.
+  `- usage-care: off` stops both.
 - **Short by default** (above) keeps replies small.
 
 ## Build graphs (long builds that survive a cutoff)

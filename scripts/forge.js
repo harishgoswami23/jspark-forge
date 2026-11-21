@@ -313,6 +313,9 @@ const handlers = {
       const sr = rules.settings['short-answers'] === 'off' ? null : handoff.shortRule();
       if (sr) rc.context = `${rc.context}\n\n${sr}`;
     } catch { /* never break a session start */ }
+    try { // v0.6 token care: one line on helper habits (not after a compaction: the conversation already has it)
+      if (rules.settings['usage-care'] !== 'off') rc.context = `${rc.context}\n\n${handoff.USAGE_CARE_MAIN}`;
+    } catch { /* never break a session start */ }
     // Model map (design-v0.2 4): superpowers starts general-purpose helpers and names a model per call, so with it the
     // map is steered, not enforced: one line asking Claude to use JSPARK Forge's helpers.
     try {
@@ -668,6 +671,7 @@ const handlers = {
     const parts = [handoff.grounding()];
     try { if (paths.isGuest(dir)) parts.push(setup.GUEST_DATA_LINE); } catch { /* fail open */ }
     try { const ui = uiskills.helperLine(dir, input.agent_type); if (ui) parts.push(ui); } catch { /* fail open */ }
+    try { const uc = loadRules(dir).settings['usage-care'] !== 'off' && handoff.usageCare(); if (uc) parts.push(uc); } catch { /* fail open */ } // v0.6
     let tier = null; // the model map: the tier shows when one of JSPARK Forge's four helpers starts (spec 815-821)
     try { tier = require('./lib/tiers').tierOfAgent(input.agent_type); } catch { /* fail open */ }
     return { lines: [['AGENT+', `${input.agent_type || ''}${tier ? ` (${tier})` : ''}`]], out: context('SubagentStart', parts.join('\n\n')) };
