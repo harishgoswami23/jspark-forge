@@ -283,7 +283,7 @@ program wrongly (a false positive): allow it, or switch the code map off.
   git projects are left alone.
 - **Switches** under `## Settings` in `rules.md`: `- notes: off` stops the "add a note" reminder before commits;
   `- statusline-segment: off` hides JSPARK Forge's part of the status line; `- short-answers: off` switches off the
-  short-by-default rule; `- ui-skills: off`, `- code-map: off` and `- playwright: off` are described above.
+  short-by-default rule; `- fresh-session: off` stops the "start a new session" note; `- ui-skills: off`, `- code-map: off` and `- playwright: off` are described above.
 - **Status line.** Claude Code shows context and plan usage only to the status line, and JSPARK Forge needs those
   figures for the 80 % / 95 % saves. If you have no status line, JSPARK Forge adds its own and tells you how to undo
   it. If you have your own, it is never touched: run `/jspark-forge:init` once if you want JSPARK Forge to wrap it (it
@@ -326,6 +326,25 @@ grounding rule when it starts (cite the file, never guess), and in a repo you ar
 With superpowers, JSPARK Forge asks Claude to use these helpers for its implementers, reviewers and checks. That is
 guidance, not a lock: superpowers chooses a model for each helper it starts.
 
+## Token care (hitting limits less often)
+
+Measured on a real two-day session (2026-11-21): almost all usage was the conversation being re-read. Every step
+re-reads the whole conversation so far, and that conversation averaged about 417k tokens per step. JSPARK Forge's
+own notes to Claude were about 8k tokens in all.
+
+- **`/jspark-forge:usage`** shows this for your own session: steps and tokens re-read per step for the main
+  conversation and for each kind of helper, the biggest tool outputs, what JSPARK Forge itself added, and what would
+  save most. It reads only the session's own record inside the Claude folder and changes nothing.
+- **A note when the conversation gets long.** Each time a conversation passes another 150k tokens, JSPARK Forge tells
+  you (not Claude, so it costs nothing) that a new session would save usage. Because the handoff is saved on every
+  message, starting a new session and saying "resume" loses nothing. `- fresh-session: off` stops the note.
+- **Helper habits.** Helpers were the second-largest cost measured (15 builders, 790 steps). Every helper is told four
+  habits when it starts: run only the tests of what it changed while working and the whole suite once at the end;
+  send long output to a file and read only the totals and the failing lines; read the needed part of a file, not a
+  large file whole; report in short bullets. The main session is told to give each helper one task.
+  `- usage-care: off` stops both texts (the builder and checker helper files keep the habit).
+- **Short by default** (above) keeps replies small.
+
 ## Build graphs (long builds that survive a cutoff)
 
 Write a build once as steps in `.jspark-forge/graphs/<name>.md`: which helper does each step, what it hands to the
@@ -365,6 +384,7 @@ What JSPARK Forge checks, what it guards, and what it can only ask for:
 | `/jspark-forge:handoff` | Save the handoff now (`done` offers to record lasting lessons, then closes the task and archives it) |
 | `/jspark-forge:waiting` | The questions waiting on you, with Claude's recommendations and what each blocks; answer, accept the recommendations, or drop them. Offers to record an answer as a decision |
 | `/jspark-forge:status` | What is saved now: the handoff, what is waiting on you, usage as of when |
+| `/jspark-forge:usage` | Where this session's tokens went (the conversation, helpers, tool outputs, JSPARK Forge's own notes) and what would save most. Changes nothing |
 | `/jspark-forge:doctor` | Is JSPARK Forge working here? One line per check (hook errors from the last two days included), each problem with its fix. Changes nothing |
 | `/jspark-forge:decide` | Record, update, verify or retire a decision (only after your yes); print the `rules.md` line that makes one a hard block |
 | `/jspark-forge:decisions` | List the decisions, rules and lessons on file. Changes nothing |

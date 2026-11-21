@@ -938,7 +938,7 @@ const NODE_VALUE_FLAGS = /^(-r|--require|--import|--loader|--experimental-loader
 const FORGE_SCRIPT = /(^|[\\/])forge(\.[cm]?js)?$/i;
 // The plugin's own CLI commands (forge.js CLI table): `node .../forge.js graph done ...` is how Claude reports a step.
 const FORGE_CLI = new Set(['graph', 'save', 'show', 'where', 'waiting', 'doctor', 'status', 'decide', 'decisions', 'check', 'map',
-  'launch', 'schema', 'lint']);
+  'launch', 'schema', 'lint', 'usage']);
 const DOTNET_IO = /\[(system\.)?io\.(file|directory|fileinfo|directoryinfo)\]::/i;
 // Writing words in code. A string's .replace( and a plain open( read; open(..., 'w' / 'a' / 'x' / '+') writes.
 const WRITES_TEXT = /write|append|copy|rename|move|unlink|remove|\brm|symlink|truncate|chmod|mkdir|\bos\.replace\b|open\s{0,5}\([^)]{0,300}?['"](?=[rbt]{0,3}[wax+])[rwaxbt+]{1,4}['"]|out-file|set-content|add-content/i;

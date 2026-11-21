@@ -324,6 +324,16 @@ function grounding() {
   catch { return 'JSPARK Forge grounding rule: cite path:line; say "not found" otherwise; never describe code you have not read.'; }
 }
 
+// v0.6 token care (owner 2026-11-21): what every helper is told when it starts (helpers were the second-largest cost
+// measured), and the one line the main session gets.
+function usageCare() {
+  try { return fs.readFileSync(path.join(__dirname, '..', '..', 'rules', 'usage-care.md'), 'utf8').trim(); }
+  catch { return null; }
+}
+const USAGE_CARE_MAIN = 'JSPARK Forge usage care: give each helper one task with its own tests (several short helpers cost less than one ' +
+  'long one) and ask for a short report; have the checker helper run a long test suite and report the totals and the failures, ' +
+  'or send its output to a file and read only those lines.';
+
 // v0.5.1: the general "short by default" rule (spec principle 10), shown with the grounding rule at every session start.
 function shortRule() {
   try { return fs.readFileSync(path.join(__dirname, '..', '..', 'rules', 'short-answers.md'), 'utf8').trim(); }
@@ -482,5 +492,5 @@ function pruneArchive(dir, now = new Date()) {
   }
 }
 
-module.exports = { render, taskFields, parseNotes, save, hasWork, resumeContext, archive, pruneArchive, notesLine, grounding, shortRule, isUserPrompt, sinceSave,
+module.exports = { render, taskFields, parseNotes, save, hasWork, resumeContext, archive, pruneArchive, notesLine, grounding, shortRule, usageCare, USAGE_CARE_MAIN, isUserPrompt, sinceSave,
   logEntries, pairHealth, openHandoff, logOnlyContext, mdUsable, hhmm };

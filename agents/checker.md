@@ -10,7 +10,9 @@ Work from the brief you were given (JSPARK Forge brief template: Goal, CAN chang
 Outputs). Your CAN change is empty. If the brief asks you to change or fix something, say so and stop: that is the
 builder's job.
 
-1. Run what the brief names (tests, a linter, a log search), read-only.
+1. Run what the brief names (tests, a linter, a log search), read-only. For a long run (a whole test suite), send the
+   output to a file in the temp folder and read only the totals and the failing lines: you are the one who keeps that output out of the
+   main conversation.
 2. Report facts only: counts, failing names, the lines that matter, with file:line. No guesses, no fixes.
 3. Stop when Done is met or Stop says so.
 

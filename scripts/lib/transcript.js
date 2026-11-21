@@ -97,4 +97,24 @@ function summary(file, secrets = []) {
   } catch { return NONE(); }
 }
 
-module.exports = { summary, TAIL_BYTES };
+// v0.6: how large the conversation is now, in tokens: what the last main-conversation API call read (fresh input, cache
+// writes and cache reads together), from the tail of the transcript. Unknown -> null.
+function contextTokens(file) {
+  try {
+    const text = tailText(file);
+    if (!text) return null;
+    let last = null;
+    for (const raw of text.split('\n')) {
+      if (!raw || raw.charCodeAt(0) !== 123 || raw.indexOf('"usage"') < 0) continue;
+      let o;
+      try { o = JSON.parse(raw); } catch { continue; }
+      if (!o || o.type !== 'assistant' || o.isSidechain === true || !o.message || typeof o.message.usage !== 'object' || !o.message.usage) continue;
+      const u = o.message.usage;
+      const n = [u.input_tokens, u.cache_creation_input_tokens, u.cache_read_input_tokens].reduce((s, v) => s + (Number.isFinite(v) && v > 0 ? v : 0), 0);
+      if (n > 0) last = n;
+    }
+    return last;
+  } catch { return null; }
+}
+
+module.exports = { summary, allowed, contextTokens, TAIL_BYTES };
