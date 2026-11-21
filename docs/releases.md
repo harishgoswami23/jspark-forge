@@ -446,7 +446,7 @@ in section 7 of the spec is out; what follows is the outside launch (spec sectio
 
 ## v0.6.2: Six small fixes from real use
 
-**Status: ready, waiting for the owner's yes to release.** Details: [`release-notes/v0.6.2.md`](release-notes/v0.6.2.md).
+**Status: released 2026-11-22.** Details: [`release-notes/v0.6.2.md`](release-notes/v0.6.2.md).
 
 **Why [owner, 2026-11-21].** Feedback from a Claude session that used JSPARK Forge in another of the owner's projects
 (7 out of 10): a forced second "Continue?", a status that said "running" when nothing ran, a stale note taken as
