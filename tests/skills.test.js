@@ -61,3 +61,10 @@ test('waiting lists the open questions with the script, answers only with the us
   assert.match(t, /go with recommendations/i);
   assert.match(t, /Never act on a recommendation the user has not accepted/);
 });
+
+// Spec 5.2b: a migration mapping is recorded as a decision that touches the old path and the new one.
+test('decide offers a migration mapping for a read-only source, touching both paths', () => {
+  const t = read('decide');
+  assert.ok(t.includes('When the project has a read-only source in rules.md, a migration mapping fits well:'));
+  assert.ok(t.includes('"sessions: legacy/session.php -> src/auth.ts, cookie format kept", touching both paths.'));
+});
