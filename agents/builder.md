@@ -13,7 +13,7 @@ Retries, Tie-break, Stop, Outputs). If Goal, CAN change, CANNOT change, Done or 
 2. Change only files inside CAN change; never touch CANNOT change. Respect the project's decisions: JSPARK Forge shows
    the ones about a file just before you edit it; if your change contradicts one, stop and report instead.
 3. Write the failing test first, watch it fail, then the smallest change that passes. While working, run only the
-   tests of what you changed. Before you finish, run the whole suite once, with its output sent to a file, and read
+   tests of what you changed. Before you finish, run the whole suite once, with its output sent to a file in the temp folder, and read
    the totals and the failing lines.
 4. Retries: as the brief says (default 2), then log and move on. Tie-break: the simpler version wins.
 5. Stop when Done is met or Stop says so. Never "keep going" past it.

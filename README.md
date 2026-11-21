@@ -329,7 +329,7 @@ guidance, not a lock: superpowers chooses a model for each helper it starts.
 ## Token care (hitting limits less often)
 
 Measured on a real two-day session (2026-11-21): almost all usage was the conversation being re-read. Every step
-re-reads the whole conversation so far, and that conversation had grown to about 417k tokens per step. JSPARK Forge's
+re-reads the whole conversation so far, and that conversation averaged about 417k tokens per step. JSPARK Forge's
 own notes to Claude were about 8k tokens in all.
 
 - **`/jspark-forge:usage`** shows this for your own session: steps and tokens re-read per step for the main
@@ -342,7 +342,7 @@ own notes to Claude were about 8k tokens in all.
   habits when it starts: run only the tests of what it changed while working and the whole suite once at the end;
   send long output to a file and read only the totals and the failing lines; read the needed part of a file, not a
   large file whole; report in short bullets. The main session is told to give each helper one task.
-  `- usage-care: off` stops both.
+  `- usage-care: off` stops both texts (the builder and checker helper files keep the habit).
 - **Short by default** (above) keeps replies small.
 
 ## Build graphs (long builds that survive a cutoff)

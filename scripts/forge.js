@@ -313,7 +313,7 @@ const handlers = {
       const sr = rules.settings['short-answers'] === 'off' ? null : handoff.shortRule();
       if (sr) rc.context = `${rc.context}\n\n${sr}`;
     } catch { /* never break a session start */ }
-    try { // v0.6 token care: one line on helper habits (not after a compaction: the conversation already has it)
+    try { // v0.6 token care: one line on helper habits, at every start (a compaction drops it, so then too)
       if (rules.settings['usage-care'] !== 'off') rc.context = `${rc.context}\n\n${handoff.USAGE_CARE_MAIN}`;
     } catch { /* never break a session start */ }
     // Model map (design-v0.2 4): superpowers starts general-purpose helpers and names a model per call, so with it the
@@ -932,8 +932,9 @@ function cliUsage() {
       tp = withPath.length ? withPath[0].transcriptPath : null;
     }
   } catch { /* no session file */ }
-  if (!tp && sid) tp = require('./lib/usage-report').find(sid);
-  process.stdout.write(require('./lib/usage-report').report(tp));
+  const ur = require('./lib/usage-report');
+  if (sid && !require('./lib/transcript').allowed(tp)) tp = ur.find(sid) || tp; // no stored path, or one that is gone
+  process.stdout.write(ur.report(tp, { which: sid ? 'this session' : 'the most recent session' }));
 }
 
 // `forge.js decide --from <file.json> | --verify <id> | --retire <id> [--by <id>]` (design-v0.2 1.4).

@@ -23,6 +23,8 @@ that date; **[spike]** depends on a spike. Spike results override review decisio
 | v0.4.2 | Updates without a command: install steps turn on auto-update, a once-per-machine tip when it is off; version set in `plugin.json` only | ~1 hour |
 | v0.5.0 | Installs once, runs on its own (issue #7): auto-update, code map, Playwright and UI companions set up from the one install command; resume that survives a crash | not estimated |
 | v0.5.1 | The gaps a line-by-line check of the spec found, closed: short answers by default, hook errors shown, helpers get the rules, page copies and temp-file warning, sign-in note | not estimated |
+| v0.5.2 | A build graph check that takes longer than 10 minutes (`graph gate`) | ~2 hours |
+| v0.6.0 | Token care: `/jspark-forge:usage`, a note when the conversation gets long, helper habits | ~3 hours |
 | Later, only if asked | Security review prompts (incl. council mode), `/capacity`, dashboard (incl. git view), `/jspark-forge:review`, migration mode, customer edition, secrets by name, limit handover (spec 5.6–5.8a, 5.12, 5.13) | not estimated |
 | **Total to v0.3** | | ~4–4½ weeks of build after v0.1.1, plus ~2 weeks of feedback, **soft** (v0.4 ~1½–2 weeks more, only if asked) |
 
@@ -415,6 +417,18 @@ failed node.
 **Why.** A check (gate) was recorded only when its command finished inside one tool call (10 minutes at most). A longer command is moved to the background and its result reached no hook, so a graph with a 19-minute end-to-end suite stayed at "running" (found in a real project, 2026-11-21).
 
 **What.** `forge.js graph gate <name> <step>` runs the gate's own pending commands itself, with no time limit, in a fixed shell, and records the real exit codes. Its call must be the whole command, from the main session; it never runs what the block list would hold; a result is recorded only into the same run. `graph next` names what a running gate still needs.
+
+---
+
+## v0.6.0: Token care
+
+**Status: released 2026-11-21.** Details: [`release-notes/v0.6.0.md`](release-notes/v0.6.0.md).
+
+**Why [owner].** Limits were hit often. Measured first (a real two-day session): almost all usage was the conversation re-read on every step (about 417k tokens per step); helpers were second; JSPARK Forge's own notes were about 8k tokens in all.
+
+**What.** `/jspark-forge:usage` (where a session's tokens went and what would save most); a note to the user each time a conversation passes another 150k tokens (`fresh-session`); four habits told to every helper and one line to the main session (`usage-care`, owner's plan A). Trimming JSPARK Forge's own notes was measured as not worth doing.
+
+**Not built, offered:** tokens per build graph step (plan B).
 
 ---
 

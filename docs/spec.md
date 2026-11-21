@@ -84,6 +84,13 @@ Claude remembers."* The pitch never asks the user to type a command (Claude Code
    decision (e.g. headless detection is impossible from hook input, or the PostToolUse matcher misses a write path
    we need), the spike wins: record the deviation, the evidence and the reason in the "Deviations from review" list
    in [`design-v0.1.md`](design-v0.1.md#16-deviations-from-review), and update the affected decision.
+14. **Token care: measure, then act on the largest cost [owner 2026-11-21, v0.6].** Measured on a real session: the
+   conversation re-read on every step is nearly all the usage; helpers are second; JSPARK Forge's own notes are
+   negligible. So: `/jspark-forge:usage` reports where a session's tokens went (read-only, only from inside the Claude
+   home); the user is told each time a conversation passes another 150k tokens that a new session would save usage
+   (to the user only, `fresh-session` setting); every helper is told four usage-care habits and the main session one
+   line (`usage-care` setting). These are measurements and hints, never blocks. Tests: `tests/usage-report.test.js`,
+   `tests/fresh-session.test.js`, `tests/usage-care.test.js`.
 
 ---
 
