@@ -119,7 +119,9 @@ function defaultPaths(dir) {
     }
   }
   const agents = path.join(dir, 'agents');
-  if (fs.existsSync(agents)) {
+  // Only JSPARK Forge's own helper files: a project's agents/ folder follows its own rules (model: inherit, any wording).
+  const pj = (() => { try { return JSON.parse(fs.readFileSync(path.join(dir, '.claude-plugin', 'plugin.json'), 'utf8')); } catch { return null; } })();
+  if (pj && pj.name === 'jspark-forge' && fs.existsSync(agents)) {
     for (const n of fs.readdirSync(agents).sort()) if (n.endsWith('.md')) out.push(path.join(agents, n));
   }
   const briefs = path.join(require('./paths').forgeDir(dir), 'briefs');

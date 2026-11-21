@@ -32,12 +32,22 @@ function parseStatus(out, cap) {
 // not counted as dirty. dirty counts files (an untracked folder shows every file in it), up to 2000 (capped). One
 // 3 s limit in all: the full count gets 2 s; when it does not finish, today's count (an untracked folder is one line)
 // is used and marked approx. noCommits: the repo has no commit yet (no HEAD).
+// opts.slowFile: a marker file; when the full count timed out within the last hour, it is skipped (a save runs on
+// every message, so a huge untracked tree must not cost 2 s each time); a full count that works removes the marker.
+const SLOW_KEEP_MS = 3600 * 1000;
 function gitInfo(dir, opts = {}) {
   let out, approx = false;
-  try {
-    out = run(dir, ['status', '--porcelain=v2', '--branch', '--untracked-files=all'], opts.fullTimeoutMs || 2000);
-  } catch {
-    try { out = run(dir, ['status', '--porcelain=v2', '--branch'], 1000); approx = true; } catch { return null; }
+  const quick = () => { try { out = run(dir, ['status', '--porcelain=v2', '--branch'], 1000); approx = true; return true; } catch { return false; } };
+  let slow = false;
+  try { slow = !!opts.slowFile && Date.now() - fs.statSync(opts.slowFile).mtimeMs < SLOW_KEEP_MS; } catch { /* no marker */ }
+  if (slow) { if (!quick()) return null; } else {
+    try {
+      out = run(dir, ['status', '--porcelain=v2', '--branch', '--untracked-files=all'], opts.fullTimeoutMs || 2000);
+      if (opts.slowFile) try { fs.unlinkSync(opts.slowFile); } catch { /* none */ }
+    } catch {
+      if (!quick()) return null;
+      if (opts.slowFile) try { fs.mkdirSync(path.dirname(opts.slowFile), { recursive: true }); fs.writeFileSync(opts.slowFile, ''); } catch { /* only a memory */ }
+    }
   }
   const r = parseStatus(out, approx ? 0 : DIRTY_CAP);
   const info = { branch: r.branch, head: r.head, dirty: r.dirty };
@@ -88,14 +98,21 @@ function headBranch(start) {
 }
 
 // The short HEAD commit from .git files, no git process (read-only sources in the handoff). Unknown -> null.
+// Walks up to the repo root like headBranch (a project can be a subfolder of its repo).
 function headCommit(start) {
   try {
-    const g = path.join(path.resolve(start), '.git');
+    let d = path.resolve(start);
+    while (!fs.existsSync(path.join(d, '.git'))) {
+      const up = path.dirname(d);
+      if (up === d) return null;
+      d = up;
+    }
+    const g = path.join(d, '.git');
     let gitDir = g;
     if (fs.statSync(g).isFile()) {
       const m = fs.readFileSync(g, 'utf8').match(/^gitdir:\s*(.+?)\s*$/m);
       if (!m) return null;
-      gitDir = path.resolve(start, m[1]);
+      gitDir = path.resolve(d, m[1]);
     }
     const head = fs.readFileSync(path.join(gitDir, 'HEAD'), 'utf8').trim();
     const ref = head.match(/^ref:\s*(.+)$/);

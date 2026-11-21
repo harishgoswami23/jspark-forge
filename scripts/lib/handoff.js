@@ -244,7 +244,7 @@ function save(dir, sid, reason, { refreshGit = true, now = new Date(), force = f
   if (!force && !workOf(sess, task, notes, planFile)) return null;
   if (refreshGit) {
     const prevGit = sess.git;
-    sess.git = gitInfo(dir);
+    sess.git = gitInfo(dir, { slowFile: path.join(forgeDir(dir), 'state', 'git-slow') });
     outsideCommit(dir, sid, prevGit, sess.git, task, now);
   }
   if (planFile) {

@@ -178,10 +178,10 @@ test('two sessions cut off together are both handled, newest first', () => {
   assert.ok(noted[A] > 0 && noted['cccccccc-0000-0000-0000-000000000000'] > 0, 'both are recorded in crash-noted.json');
 });
 
-test('the session that is starting is never judged', () => {
+test('the session that is starting is judged from its state before the start: a call in flight 400 s ago is reported (second review 1)', () => {
   const dir = repo();
   died(dir, { sid: B, inflight: [{ tool: 'Bash', what: 'npm run dev' }], inflightAgo: 400, lastSaveAgo: 500 });
-  assert.doesNotMatch(ctxOf(start(dir)), /crash check/);
+  assert.match(ctxOf(start(dir)), /crash check/);
 });
 
 test('a hook that fails inside the crash check never breaks the start', () => {
@@ -270,11 +270,11 @@ test('M3: resume under the same id: the crashed session is reported, its in-flig
   assert.doesNotMatch(ctxOf(again), /crash check/, 'not twice');
 });
 
-test('M3: startup with the same id is judged as well; a session that was alive 30 seconds ago is not', () => {
+test('M3: startup with the same id is judged as well; a session that was alive 5 seconds ago is not', () => {
   const dir = repo(); files(dir); cutOff(dir);
   assert.match(ctxOf(run(dir, 'SessionStart', { source: 'startup' }, A)), HEAD);
   const fresh = repo();
-  died(fresh, { lastSaveAgo: 40, log: [[30, 'BASH', 'npm test']], inflight: [{ tool: 'Bash', what: 'npm test', agoSecs: 30 }], inflightAgo: 30 });
+  died(fresh, { lastSaveAgo: 40, log: [[5, 'BASH', 'npm test']], inflight: [{ tool: 'Bash', what: 'npm test', agoSecs: 5 }], inflightAgo: 5 });
   assert.doesNotMatch(ctxOf(run(fresh, 'SessionStart', { source: 'resume' }, A)), /crash check/);
 });
 

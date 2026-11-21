@@ -32,7 +32,7 @@ function completeLines(text) {
 }
 
 function formatLine({ time, session, agent, kind, detail }, secrets = []) {
-  const clean = redact(String(detail || ''), secrets).replace(/\s+/g, ' ').trim().slice(0, 300);
+  const clean = require('./redact').redactHead(String(detail || ''), secrets).replace(/\s+/g, ' ').trim().slice(0, 300);
   return `${clock(time)} ${idField(session, agent).padEnd(ID_WIDTH)} ${String(kind).padEnd(5)} ${clean}`.trimEnd();
 }
 
