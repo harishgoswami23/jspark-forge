@@ -21,3 +21,7 @@ Show the user where the work stands, then wait.
 3. Offer "show details" in one line. If the user asks for details, list: branch and HEAD, files touched, recent
    actions, and the path of the log file named in the handoff (do not open it unless asked).
 4. Wait for the user's answer. Do not change files or run commands for the old task until they reply.
+   One exception: the user's first message of a session already said to carry on ("continue", "resume", "go on",
+   "yes") after JSPARK Forge showed them its one-line summary at the start. That is their answer. Say where the work
+   stands in at most 4 lines, do not end with "Continue?", do the crash check if there is one, and carry on.
+   A question ("where did I leave off?") or the `/jspark-forge:resume` command is not a go-ahead: show and wait.

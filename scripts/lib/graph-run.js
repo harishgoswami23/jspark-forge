@@ -228,14 +228,14 @@ function next(dir, n, sid, opts = {}) {
       }
     }
     if (!out.length || out.every(l => /^Plan usage/.test(l))) {
-      const now = Object.entries(s.steps).filter(([, v]) => v.state === 'running' || v.state === 'interrupted').map(([k, v]) => `${k} ${v.state}`);
+      const now = Object.entries(s.steps).filter(([, v]) => v.state === 'running' || v.state === 'interrupted').map(([k, v]) => `${k} ${stateWord((byId.get(k) || {}).kind, v)}`);
       out.push(now.length ? `Nothing new to start: waiting for ${now.join(', ')}.` : 'Nothing can start now.');
       // A gate left running with nobody running it (its command was moved to the background, or the session was cut off).
       for (const x of g.steps) {
         const v = s.steps[x.id];
         if (x.kind !== 'gate' || v.state !== 'running' || runnerLive(v.runner)) continue;
         const left = (v.pending || []).filter(c => !(v.passed || []).includes(c));
-        if (left.length) out.push(`Gate ${x.id} still needs: ${left.map(c => clean(c, 120)).join('; ')}. Run them with the Bash tool, or all of them (any length of time) in the background with: node "${FORGE_JS}" graph gate ${n} ${x.id}`);
+        if (left.length) out.push(`Step ${x.id} (gate) still needs: ${left.map(c => clean(c, 120)).join('; ')}. Run them with the Bash tool, or all of them (any length of time) in the background with: node "${FORGE_JS}" graph gate ${n} ${x.id}`);
       }
     }
     return `${out.join('\n')}\n`;
@@ -345,13 +345,25 @@ function stop(dir, n, sid) {
   return r ? `Build graph ${n} stopped (its record is kept).\n` : `Build graph ${n} has not started.\n`;
 }
 
+// v0.6.2: what a step's state is called when shown. A gate is "running" in the record from the moment it is handed
+// out, but nothing may be running: it is shown as running only while graph gate runs its commands, and as
+// "not yet passed" otherwise. A human step that was handed out is waiting for the user.
+function stateWord(kind, v) {
+  if (!v || v.state !== 'running') return v ? v.state : 'unknown';
+  if (kind === 'human') return 'waiting for the user';
+  if (kind !== 'gate' || runnerLive(v.runner)) return 'running';
+  const all = Array.isArray(v.pending) ? v.pending : [];
+  const ok = all.filter(c => (v.passed || []).includes(c)).length;
+  return `not yet passed (${ok} of ${all.length} commands passed, none running)`;
+}
+
 function summary(dir, n) {
   const s = readJson(stateFile(dir, n));
   if (!s || !s.graph) return null;
   const kind = new Map(s.graph.steps.map(x => [x.id, x.kind]));
   const ids = s.graph.steps.filter(x => x.kind !== 'parallel').map(x => x.id);
   const doneN = ids.filter(i => s.steps[i] && s.steps[i].state === 'done').length;
-  const now = ids.filter(i => s.steps[i] && ['running', 'interrupted', 'failed'].includes(s.steps[i].state)).map(i => `${i} ${s.steps[i].state === 'running' && kind.get(i) === 'human' ? 'waiting for the user' : s.steps[i].state}`);
+  const now = ids.filter(i => s.steps[i] && ['running', 'interrupted', 'failed'].includes(s.steps[i].state)).map(i => `${i} ${stateWord(kind.get(i), s.steps[i])}`);
   return { task: `Build graph ${n}`, step: `${doneN} of ${ids.length} done${now.length ? `; ${now.join(', ')}` : ''}`, text: `Build graph ${n}: ${doneN} of ${ids.length} steps done${now.length ? `; ${now.join(', ')}` : ''}${s.stopped ? ` (stopped: ${s.stopped})` : ''}.` };
 }
 function status(dir, n) {
@@ -359,7 +371,8 @@ function status(dir, n) {
   const sum = summary(dir, n);
   if (!sum) return `Build graph ${n} has not started.\n`;
   const s = readJson(stateFile(dir, n));
-  const lines = Object.entries(s.steps).map(([k, v]) => `- ${k}: ${v.state}${v.reason ? ` (${v.reason})` : ''}${v.state === 'running' && runnerLive(v.runner) ? ` (its commands are being run by graph gate since ${clockOf(v.runner.at)})` : ''}${v.tokens ? `, ${v.tokens} tokens` : ''}${v.minutes ? `, ${v.minutes} min` : ''}`);
+  const kinds = new Map(s.graph.steps.map(x => [x.id, x.kind]));
+  const lines = Object.entries(s.steps).map(([k, v]) => `- ${k}: ${stateWord(kinds.get(k), v)}${v.reason ? ` (${v.reason})` : ''}${v.state === 'running' && runnerLive(v.runner) ? ` (its commands are being run by graph gate since ${clockOf(v.runner.at)})` : ''}${v.tokens ? `, ${v.tokens} tokens` : ''}${v.minutes ? `, ${v.minutes} min` : ''}`);
   return `${sum.text}\n${lines.join('\n')}\n`;
 }
 // The running graph, for session start and the handoff (null when none).
@@ -501,13 +514,13 @@ function gate(dir, n, id, sid, opts = {}) {
       const st = s && s.steps[id];
       if (!s || !same(s, st)) return `${id} is no longer running in this session and run; nothing more was run.\n`;
       const cmd = st.pending.find(c => !(st.passed || []).includes(c));
-      if (cmd === undefined) return `Gate ${id} passed. Now run: node "${FORGE_JS}" graph next ${n}\n`;
+      if (cmd === undefined) return `Step ${id} (gate) passed. Now run: node "${FORGE_JS}" graph next ${n}\n`;
       const why = opts.blocked ? opts.blocked(cmd) : null;
       if (why) return `Not run: "${clean(cmd, 120)}" (${clean(why, 200)}). The gate runner never runs what the block list would hold: run that command with the Bash tool instead.\n`;
-      write(`JSPARK Forge gate ${id}: running: ${cmd}\n`);
+      write(`JSPARK Forge: step ${id} (gate): running: ${cmd}\n`);
       const r = (opts.run || (c => runShell(dir, c)))(cmd);
       if (r.error || r.signal || typeof r.status !== 'number') {
-        return `Gate ${id}: "${clean(cmd, 120)}" did not finish (${clean(r.error ? r.error.message : `stopped by ${r.signal}`, 120)}); nothing was recorded for it. Run the same graph gate command again.\n`;
+        return `Step ${id} (gate): "${clean(cmd, 120)}" did not finish (${clean(r.error ? r.error.message : `stopped by ${r.signal}`, 120)}); nothing was recorded for it. Run the same graph gate command again.\n`;
       }
       let verdict;
       try {
@@ -515,14 +528,14 @@ function gate(dir, n, id, sid, opts = {}) {
         const t = x && x.steps[id];
         if (!x || !same(x, t) || !t.pending.includes(cmd)) return `${id} changed while its command ran (the run was stopped, started again or moved); the result was not recorded.\n`;
         seen(x, sid);
-        if (r.status !== 0) { t.state = 'failed'; t.reason = `"${clean(cmd, 120)}" exited ${r.status}`; return `Gate ${id} failed: ${t.reason}. Show the user the command and its output; the run is stopped.\n`; }
+        if (r.status !== 0) { t.state = 'failed'; t.reason = `"${clean(cmd, 120)}" exited ${r.status}`; return `Step ${id} (gate) failed: ${t.reason}. Show the user the command and its output; the run is stopped.\n`; }
         t.passed = [...new Set((t.passed || []).concat([cmd]))];
-        if (t.pending.every(c => t.passed.includes(c))) { t.state = 'done'; t.doneAt = Date.now(); delete t.runner; return `Gate ${id} passed. Now run: node "${FORGE_JS}" graph next ${n}\n`; }
+        if (t.pending.every(c => t.passed.includes(c))) { t.state = 'done'; t.doneAt = Date.now(); delete t.runner; return `Step ${id} (gate) passed. Now run: node "${FORGE_JS}" graph next ${n}\n`; }
         return null;
         });
       } catch (e) {
         if (!e || !e.busy) throw e;
-        return `Gate ${id}: "${clean(cmd, 120)}" finished with exit code ${r.status}, but the run's record stayed busy for a minute, so it was NOT recorded. Tell the user; run the same graph gate command again.\n`;
+        return `Step ${id} (gate): "${clean(cmd, 120)}" finished with exit code ${r.status}, but the run's record stayed busy for a minute, so it was NOT recorded. Tell the user; run the same graph gate command again.\n`;
       }
       if (verdict) return verdict;
     }

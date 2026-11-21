@@ -125,7 +125,7 @@ test("Claude's notes appear with their time", () => {
   run(dir, 'Stop', {});
   const t = handoffText(dir);
   assert.match(t, /\*\*Task:\*\* Fix login/);
-  assert.match(t, /\*\*Claude's notes \(\d\d:\d\d\):\*\* We agreed: keep the cookie format\./);
+  assert.match(t, /\*\*Claude's notes \(\d\d:\d\d; re-check[^)]*\):\*\* We agreed: keep the cookie format\./);
 });
 
 // ---- resume flow ----

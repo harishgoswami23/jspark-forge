@@ -35,7 +35,7 @@ test('renders the design 5.2 layout', () => {
   assert.match(t, /^\*\*Still running at cutoff:\*\* `npm run dev`/m);
   assert.match(t, /^\*\*Waiting on you:\*\* nothing$/m);
   assert.match(t, /^\*\*Your last request:\*\* "carry on with the plan, stop before deploy"$/m);
-  assert.match(t, /^\*\*Claude's notes \(14:28\):\*\* The save route/m);
+  assert.match(t, /^\*\*Claude's notes \(14:28; re-check any caution or limit before acting on it\):\*\* The save route/m);
   assert.match(t, /^\*\*Recent actions:\*\* 14:20 edited src\/routes\/save\.ts · 14:24 ran tests · 14:31 commit 3f2e1d0$/m);
   assert.match(t, /^\*\*Files touched in this task:\*\* src\/routes\/save\.ts, src\/models\/chart\.ts$/m);
   assert.match(t, /^\*\*More detail:\*\* \.jspark-forge\/log\/2026-11-02\.log · older handoffs: \.jspark-forge\/archive\/$/m);
@@ -61,7 +61,7 @@ test('600-word cap: drops recent actions, then trims files to 5, then notes to 6
   assert.ok(words(t) <= 600, `${words(t)} words`);
   assert.ok(!/Recent actions/.test(t), 'recent actions dropped first');
   assert.match(t, /\*\*Files touched in this task:\*\* (?:[^,\n]+, ){4}[^,\n]+ \(\+15 more\)$/m);
-  const notes = t.match(/\*\*Claude's notes \(14:28\):\*\* (.*)$/m)[1];
+  const notes = t.match(/\*\*Claude's notes \(14:28; [^)]*\):\*\* (.*)$/m)[1];
   assert.ok(words(notes) <= 61, 'notes trimmed to 60 words');
   for (const f of ['Task', 'Step', 'Done', 'Next action', 'Still running at cutoff', 'Waiting on you', 'Your last request']) {
     assert.match(t, new RegExp(`\\*\\*${f}:\\*\\*`));

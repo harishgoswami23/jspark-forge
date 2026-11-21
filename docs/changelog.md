@@ -234,3 +234,7 @@ be done at the end of our roadmap"; "at least do some research for best in class
 ### Rev 18: positioning changed to non-technical founders (2026-11-21)
 **What:** the positioning line is now "a Claude Code based coding tool for non-technical founders" (README and spec section 2). It replaces "technical solo founders", set in Rev 2. No change in behaviour.
 **Why [owner]:** the real user and best fit is a founder who is not a coder and runs long builds with Claude Code.
+
+### Rev 19: v0.6.2, six small fixes from real use (2026-11-21)
+**What:** a first message that says "continue" is the go-ahead (no second "Continue?"); the handoff lists the newest 8 touched files and a count; a gate nobody is running is "not yet passed", not "running"; gate messages read "Step <id> (gate)"; notes are dated and say to re-check a caution; one line says who decides what when superpowers is installed too.
+**Why [owner]:** feedback from a Claude session that used JSPARK Forge in another of the owner's projects (7 out of 10).

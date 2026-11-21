@@ -186,6 +186,12 @@ branch, Claude's own notes. Enough to resume the work, not a map of the system. 
 - `/jspark-forge:resume` starts from the handoff and may also read the action log, Claude's notes and the other files the handoff names, whenever they add to it [owner 2026-11-20] (until then: only the handoff, never the log). Target: back to work < 30 s.
   [updated 2026-11-20: v0.5] At session start the log lines written after the last save are added (the gap a crash
   leaves), never the whole log.
+- **A go-ahead is asked for once [owner 2026-11-21: v0.6.2]:** the session-start line already tells the user to say
+  "continue". A first message that says so ("continue", "resume", "go on", "yes") is the answer: Claude says where
+  the work stands in at most 4 lines and carries on, after the crash check when there is one. A question or the
+  `/jspark-forge:resume` command is not a go-ahead.
+- **Notes are dated [owner 2026-11-21: v0.6.2]:** the handoff shows the notes' date when it is not today's and says to
+  re-check any caution or limit before acting on it; the notes reminder asks for what was measured behind a caution.
 - Short-term only: when a task is closed, the handoff is archived (and from v0.2 its lasting lessons move into
   decision memory).
 
@@ -194,8 +200,8 @@ branch, Claude's own notes. Enough to resume the work, not a map of the system. 
 `.jspark-forge/log/summary.md`, `.jspark-forge/archive/`.
 
 **Handoff fields:** as-of time and save reason; branch, HEAD, uncommitted count; Task; Step "n of m"; Done; Next
-action; Still running at cutoff; Waiting on you; Your last request; Claude's notes; recent actions; files touched;
-pointers to log and archive.
+action; Still running at cutoff; Waiting on you; Your last request; Claude's notes; recent actions; files touched
+(the newest 8 and a count of the rest, v0.6.2); pointers to log and archive.
 
 **Commands** `/jspark-forge:resume`, `/jspark-forge:handoff [done]`, `/jspark-forge:init` (optional).
 
@@ -677,6 +683,10 @@ Hidden command (never in the README top section).
   as decision-memory sources (review notes cut [owner 2026-11-21]: superpowers writes no file of them). **v0.1 already reads one file [owner 2026-11-19]:** the plan's progress
   ledger (`.superpowers/sdd/<plan>/progress.md`), so the handoff shows "Task 3 of 8" for superpowers users.
 - Reads defensively: if the layout changes or a read fails, skip that source silently (covered by a test).
+- **Who decides what [owner 2026-11-21: v0.6.2]:** both plugins give rules at a session start, so one line says the
+  order: superpowers sets the method, JSPARK Forge the guard rails (resume, block list, decisions, grounding); at a
+  session start JSPARK Forge's lines come first; if the two still disagree, the user's own instruction, then the
+  block list and grounding rule, then superpowers.
 - JSPARK Forge does not run without it [owner 2026-11-20]: Claude Code switches the plugin off when the dependency is missing,
   and the install puts both in place.
 
@@ -719,6 +729,8 @@ that the graph offers, never add nodes or edges while running.
 - `human` nodes are first-class. JSPARK Forge never performs them, never skips them, never asks a helper to.
 - State lives in `.jspark-forge/state/graph-<name>.json` (as built; the plan said `forge/graph-state.json`) (`done`, `running`, `next`, outputs per node, "as of"). `/jspark-forge:resume`
   shows the graph with the current node highlighted and waits (5.1 show-and-wait).
+- A gate that was handed out and that nobody is running is shown as "not yet passed", with how many of its commands
+  passed; "running" is said only while `graph gate` runs them [owner 2026-11-21: v0.6.2].
 - Principle 12 holds: the runner moves state and enforces gates; it produces no verdicts. A gate's checks are commands
   with exit codes, not judgments.
 - Parallel nodes are capped by `max_parallel` and by plan usage from the usage bridge (nothing new is handed out at
