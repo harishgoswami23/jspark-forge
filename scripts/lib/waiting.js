@@ -19,7 +19,31 @@ function read(dir, now = Date.now()) {
   } catch { return []; }
 }
 
-function render(items) {
+// The open items of the launch list (spec 224-225: cost of delay, linked to the launch list). Own projects with a
+// launch.md only; any failure -> none.
+function launchTitles(dir) {
+  try {
+    const l = require('./launch').read(dir);
+    return l ? l.list.items.filter(x => x.section === 'list' && !x.blank && !x.done).map(x => x.title) : [];
+  } catch { return []; }
+}
+// The open launch item whose title the question's text or its "blocks" field names, or null.
+function launchLink(x, titles) {
+  const hay = `${x.question} ${x.blocks || ''}`.toLowerCase();
+  return (titles || []).find(t => t.length >= 3 && hay.includes(t.toLowerCase())) || null;
+}
+const yesNo = v => (v === true ? 'yes' : v === false ? 'no' : '');
+// What follows the question on its line: what it blocks, whether the answer can be undone, the launch item it holds up.
+function extras(x, titles) {
+  const out = [];
+  if (x.blocks) out.push(`blocks: ${x.blocks}`);
+  if (yesNo(x.reversible)) out.push(`reversible: ${yesNo(x.reversible)}`);
+  const t = launchLink(x, titles);
+  if (t) out.push(`blocks launch item: ${t}`);
+  return out;
+}
+
+function render(items, titles = []) {
   if (!items.length) return '# Waiting on you\n\nNothing is waiting on you.\n';
   const L = ['# Waiting on you', '', `${items.length} question${items.length === 1 ? '' : 's'} that hold up work. ` +
     'Answer them in Claude Code, or run /jspark-forge:waiting.', ''];
@@ -27,6 +51,10 @@ function render(items) {
     L.push(`${i + 1}. [${x.id}] ${x.question}${x.recommendation ? ` (recommended: ${x.recommendation})` : ''}`);
     if (x.about) L.push(`   About: ${x.about}`);
     if (x.options && x.options.length) L.push(`   Options: ${x.options.join(' / ')}`);
+    if (x.blocks) L.push(`   Blocks: ${x.blocks}`);
+    if (yesNo(x.reversible)) L.push(`   Reversible: ${yesNo(x.reversible)}`);
+    const t = launchLink(x, titles);
+    if (t) L.push(`   Blocks launch item: ${t}`);
     L.push(`   Asked: ${new Date(x.askedAt).toISOString().replace('T', ' ').slice(0, 16)} UTC`);
   });
   return `${L.join('\n')}\n`;
@@ -36,8 +64,20 @@ function write(dir, items) {
   const now = Date.now();
   const kept = items.filter(x => now - (x.askedAt || 0) <= MAX_AGE_MS).slice(-MAX_ITEMS);
   writeAtomic(fileOf(dir), `${JSON.stringify({ items: kept }, null, 2)}\n`);
-  try { writeAtomic(path.join(paths.forgeDir(dir), 'waiting.md'), render(kept)); } catch { /* the list is what counts */ }
+  try { writeAtomic(path.join(paths.forgeDir(dir), 'waiting.md'), render(kept, launchTitles(dir))); } catch { /* the list is what counts */ }
   return kept;
+}
+
+// Optional fields Claude can set for an open question (the question tool gives no data for them): what it blocks
+// (plain words) and whether the answer can be undone. -> the item, or null when there is no such open question.
+function set(dir, id, f = {}) {
+  const items = read(dir);
+  const x = items.find(i => i.id === id);
+  if (!x) return null;
+  if (f.blocks !== undefined) { const b = short(f.blocks, 160); if (b) x.blocks = b; else delete x.blocks; }
+  if (f.reversible === true || f.reversible === false) x.reversible = f.reversible;
+  write(dir, items);
+  return x;
 }
 
 // Adds questions not already waiting (same question text in the same session). -> how many were added.
@@ -48,8 +88,11 @@ function add(dir, questions) {
   for (const q of questions) {
     const question = short(q.question);
     if (!question || items.some(x => x.question === question && x.session === q.session)) continue;
-    items.push({ id: `w${++next}`, question, about: short(q.about, 60), options: (q.options || []).map(o => short(o, 80)),
-      recommendation: short(q.recommendation, 80), askedAt: q.askedAt || Date.now(), session: q.session || '', source: q.source || 'reply' });
+    const item = { id: `w${++next}`, question, about: short(q.about, 60), options: (q.options || []).map(o => short(o, 80)),
+      recommendation: short(q.recommendation, 80), askedAt: q.askedAt || Date.now(), session: q.session || '', source: q.source || 'reply' };
+    if (short(q.blocks, 160)) item.blocks = short(q.blocks, 160);
+    if (q.reversible === true || q.reversible === false) item.reversible = q.reversible;
+    items.push(item);
     added++;
   }
   if (added) write(dir, items);
@@ -84,7 +127,7 @@ function lastQuestion(msg) {
 }
 
 const ago = ms => { const h = Math.floor(ms / 3600000); return h >= 48 ? `${Math.floor(h / 24)}d` : h >= 1 ? `${h}h` : `${Math.max(1, Math.floor(ms / 60000))}m`; };
-const line = x => `${x.question}${x.recommendation ? ` (recommended: ${x.recommendation})` : ''}`;
+const line = (x, titles = []) => [`${x.question}${x.recommendation ? ` (recommended: ${x.recommendation})` : ''}`, ...extras(x, titles)].join(' · ');
 // One-line summary for the handoff; null when nothing waits.
 function summary(dir) {
   const items = read(dir);
@@ -92,4 +135,4 @@ function summary(dir) {
   return items.length === 1 ? `Claude asked: "${items[0].question}"` : `${items.length} questions; oldest: "${items[0].question}"`;
 }
 
-module.exports = { read, add, remove, fromTool, lastQuestion, render, summary, line, ago, MAX_ITEMS };
+module.exports = { read, add, set, remove, launchTitles, fromTool, lastQuestion, render, summary, line, ago, MAX_ITEMS };

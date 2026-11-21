@@ -98,12 +98,21 @@ function checkProject(dir) {
   }
   // Handoff
   const md = path.join(f, 'handoff.md');
-  if (fs.existsSync(md)) {
+  const hp = require('./handoff').pairHealth(dir);
+  if (hp.newest !== 'good' && hp.prev === 'good') { // v0.5.1: a crash damaged the newest save; the one before it is used
+    out.push(['ok', 'Handoff: the newest save is damaged (a crash or a power cut can do that); the previous save is intact and is used. The next save writes a fresh one.']);
+  } else if (fs.existsSync(md)) {
     const meta = readJson(path.join(f, 'state', 'handoff.json'));
     out.push(meta && typeof meta === 'object'
       ? ['ok', `Handoff: readable, saved ${meta.savedAt ? ago(Date.now() - meta.savedAt) : 'at an unknown time'}`]
       : ['FIX', 'Handoff: its record (state/handoff.json) is damaged, so the next session cannot offer to resume. Fix: run /jspark-forge:handoff to write a fresh one.']);
   } else out.push(['ok', 'Handoff: none yet (written once there is work to resume)']);
+  // Hook errors (v0.5.1): a hook that fails inside logs a FORGE-ERROR line and carries on, so nothing else shows it.
+  const he = require('./log').hookErrors(dir);
+  const stamp = d => { const p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
+  out.push(he.n === 0 ? ['ok', 'Hook errors: none in the last two days']
+    : ['FIX', `Hook errors: ${he.n} in the last two days (the latest, ${stamp(he.latest.when)}: "${he.latest.detail.slice(0, 120)}"); a hook that fails skips its save or block. ` +
+      `Fix: restart Claude Code; if a new one appears after that, report it with the line from ${paths.display(dir, he.latest.file)}.`]);
   return out;
 }
 
@@ -182,7 +191,7 @@ function checkCompanions(home) {
   const flags = (readJson(path.join(home, 'jspark-forge', 'state.json')) || {}).companions || {};
   const results = c.results(home);
   const missing = c.LIST.filter(x => !c.installed(home, x.name));
-  if (!missing.length) return [['ok', `UI companions: ${c.LIST.map(x => x.name).join(' and ')} installed`]];
+  if (!missing.length) return [['ok', `UI companions: ${c.LIST.map(x => { const v = c.versionOf(home, x.name); return v ? `${x.name} ${v}` : x.name; }).join(' and ')} installed`]];
   return missing.map(x => {
     const r = results[x.name];
     if (!flags[x.name]) return ['ok', `UI companions: ${x.name} not added yet (JSPARK Forge adds it at the next start from its marketplace; or: /plugin install ${x.id})`];

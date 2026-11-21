@@ -16,7 +16,34 @@ const companions = require('./companions');
 const { writeAtomic } = require('./fsx');
 
 
-const GITIGNORE = '*\n!.gitignore\n!rules.md\n!launch.md\n'; // launch.md is shared (design-v0.3 2.1)
+// launch.md is shared (design-v0.3 2.1); so are the build graph files (owner 2026-11-20; their run state stays local).
+// A graph names its briefs (.jspark-forge/briefs/<name>.md), so they are committed with it (owner, v0.5.1 gaps 2).
+const GRAPH_LINES = ['!graphs/', '!graphs/*.md', '!briefs/', '!briefs/*.md'];
+const GITIGNORE = `*\n!.gitignore\n!rules.md\n!launch.md\n${GRAPH_LINES.join('\n')}\n`;
+// A project set up before v0.5.1: add the graph lines to its .jspark-forge/.gitignore (in the file's own line ending).
+function shareGraphs(dir) {
+  const g = path.join(paths.repoForgeDir(dir), '.gitignore');
+  try {
+    const t = fs.readFileSync(g, 'utf8');
+    const have = new Set(t.split(/\r?\n/).map(l => l.trim()));
+    const add = GRAPH_LINES.filter(l => !have.has(l));
+    if (!add.length) return;
+    const eol = /\r\n/.test(t) ? '\r\n' : '\n';
+    fs.writeFileSync(g, `${t.replace(/\s*$/, eol)}${add.join(eol)}${eol}`);
+  } catch { /* no .gitignore: nothing hides the files */ }
+}
+// At session start in an own project: a missing .jspark-forge/.gitignore is made again (v0.5.1 gaps 1). An existing
+// one is left alone. Never in a guest repo (nothing is written there).
+function repairGitignore(dir) {
+  if (!paths.isOwn(dir)) return false;
+  const forge = paths.repoForgeDir(dir);
+  const g = path.join(forge, '.gitignore');
+  try {
+    if (fs.existsSync(g) || !fs.statSync(forge).isDirectory()) return false;
+    fs.writeFileSync(g, GITIGNORE);
+    return true;
+  } catch { return false; }
+}
 const claudeHome = () => process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
 const readJson = f => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return null; } };
 
@@ -98,7 +125,8 @@ function stateMadeHere(dir) {
   const tracked = git(dir, ['-c', 'core.quotePath=false', 'ls-files', '--', `:(icase)${paths.NAME}`]);
   if (!tracked.ok) return false;
   const allowed = new Set([`${paths.NAME}/rules.md`, `${paths.NAME}/.gitignore`, `${paths.NAME}/decisions.md`, `${paths.NAME}/launch.md`]); // the shared files
-  return tracked.out.split(/\r?\n/).filter(Boolean).every(p => allowed.has(p));
+  const graphFile = new RegExp(`^${paths.NAME.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/(?:graphs|briefs)/[^/]+\\.md$`); // committed graphs and their briefs, one level (shared, owner 2026-11-20)
+  return tracked.out.split(/\r?\n/).filter(Boolean).every(p => allowed.has(p) || graphFile.test(p));
 }
 
 // -> 'created' (yours: files in the repo) | 'guest' (files in the guest folder) | 'exists' | 'skipped'
@@ -156,8 +184,10 @@ function superpowersInstalled(home) {
   try { return fs.readdirSync(path.join(plugins, 'cache')).some(m => fs.existsSync(path.join(plugins, 'cache', m, 'superpowers'))); } catch {}
   return false;
 }
-const SUPERPOWERS_TIP = 'Tip (shown once): JSPARK Forge works best with superpowers (https://github.com/obra/superpowers) for ' +
-  'planning, tests first and reviews. Install it with: /plugin install superpowers@jspark-forge . Optional; JSPARK Forge never needs it.';
+// superpowers is required (owner 2026-11-20): it is installed with JSPARK Forge as a declared dependency. This line is
+// only seen when it is missing all the same (a copy loaded from a folder, or superpowers removed by hand).
+const SUPERPOWERS_TIP = 'JSPARK Forge (shown once): superpowers (https://github.com/obra/superpowers) is missing. JSPARK Forge ' +
+  'needs it for planning, tests first and reviews, and it normally comes with the install. Add it with: /plugin install superpowers@jspark-forge';
 
 // A wrapper copy installed by an older JSPARK Forge is replaced by the plugin's current one (it must know about guest
 // folders). Only when JSPARK Forge installed it (statusline.json is there); never touches settings.json.
@@ -254,4 +284,4 @@ function machineMessages(home = claudeHome()) {
 }
 
 module.exports = { ensureProject, touchGuest, writeGuest, decide, git, startBudget, SETUP_BUDGET_MS, cleanOrigin, guestMessage, GUEST_DATA_LINE, machineMessages, inGitProject,
-  superpowersInstalled, claudeHome, ON_MESSAGE, SUPERPOWERS_TIP, GITIGNORE };
+  superpowersInstalled, claudeHome, ON_MESSAGE, SUPERPOWERS_TIP, GITIGNORE, shareGraphs, repairGitignore, stateMadeHere };

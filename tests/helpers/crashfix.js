@@ -1,0 +1,131 @@
+'use strict';
+// Fixtures for the crash-recovery tests: a temp git project, hooks run as `node scripts/forge.js <Event>`, and a
+// session that "died" at a chosen moment (its state, log lines and in-flight file written by hand, no real crash).
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { spawnSync, execFileSync } = require('node:child_process');
+
+const FORGE = path.join(__dirname, '..', '..', 'scripts', 'forge.js');
+const A = 'aaaaaaaa-0000-0000-0000-000000000000'; // the session that gets cut off
+const B = 'bbbbbbbb-0000-0000-0000-000000000000'; // the session that starts next
+
+function repo(prefix = 'forge-crashfx-') {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  fs.mkdirSync(path.join(dir, '.jspark-forge', 'state'), { recursive: true });
+  const g = (...a) => execFileSync('git', a, { cwd: dir, stdio: 'ignore' });
+  g('init', '-q', '-b', 'main');
+  require('../../scripts/lib/paths').markOwn(dir);
+  g('config', 'user.email', 't@example.invalid'); g('config', 'user.name', 't');
+  fs.writeFileSync(path.join(dir, 'a.txt'), 'a\n');
+  g('add', 'a.txt'); g('commit', '-qm', 'init');
+  return dir;
+}
+function run(dir, event, input = {}, sid = B) {
+  const stdin = JSON.stringify(Object.assign({ session_id: sid, cwd: dir, hook_event_name: event }, input));
+  return spawnSync(process.execPath, [FORGE, event], { input: stdin, encoding: 'utf8',
+    env: Object.assign({}, process.env, { CLAUDE_PROJECT_DIR: dir }) });
+}
+const show = (dir, ...args) => spawnSync(process.execPath, [FORGE, 'show', ...args], { cwd: dir, encoding: 'utf8',
+  env: Object.assign({}, process.env, { CLAUDE_PROJECT_DIR: dir, CLAUDE_CODE_SESSION_ID: B }) }).stdout;
+const out = r => (r.stdout ? JSON.parse(r.stdout) : null);
+const ctxOf = r => { const o = out(r); return o && o.hookSpecificOutput ? o.hookSpecificOutput.additionalContext || '' : ''; };
+const msgOf = r => { const o = out(r); return (o && o.systemMessage) || ''; };
+const start = (dir, source = 'startup', extra = {}) => run(dir, 'SessionStart', Object.assign({ source }, extra), B);
+
+const forge = dir => require('../../scripts/lib/paths').forgeDir(dir); // the project's own folder, or the guest folder
+const stateFile = (dir, name) => path.join(forge(dir), 'state', name);
+const readSessionFile = (dir, sid = A) => JSON.parse(fs.readFileSync(stateFile(dir, `session-${sid}.json`), 'utf8'));
+const pad = n => String(n).padStart(2, '0');
+const stamp = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const clock = d => `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+const logPath = dir => path.join(forge(dir), 'log', `${stamp(new Date())}.log`);
+const hhmm = ms => `${pad(new Date(ms).getHours())}:${pad(new Date(ms).getMinutes())}`;
+
+// One log line as the product writes it, `secsAgo` seconds before now.
+const logLine = (secsAgo, kind, detail, sid = A) => `${clock(new Date(Date.now() - secsAgo * 1000))} ${`[${sid.slice(0, 8)}]`.padEnd(19)} ${kind.padEnd(5)} ${detail}\n`;
+
+// Log lines `secsAgo` seconds old, each into the file of the day it belongs to (so no test depends on the time of day).
+function appendLog(dir, lines, sid = A) {
+  for (const [s, k, d] of lines) {
+    const f = path.join(forge(dir), 'log', `${stamp(new Date(Date.now() - s * 1000))}.log`);
+    fs.mkdirSync(path.dirname(f), { recursive: true });
+    fs.appendFileSync(f, logLine(s, k, d, sid));
+  }
+}
+
+// Write a session that died: opts = { sid, lastSaveAgo (s), lastPrompt, log: [[secsAgo, kind, detail]], inflight: [{tool, what, agoSecs, agent}],
+// inflightAgo (s: the file's mtime), background: [{id, command, agoSecs}], helpers: {id: {type, agoSecs}}, ended, transcriptPath, extra }
+function died(dir, opts = {}) {
+  const sid = opts.sid || A;
+  const now = Date.now();
+  const sess = Object.assign({ session: sid, lastSaveAt: now - (opts.lastSaveAgo === undefined ? 600 : opts.lastSaveAgo) * 1000, lastSaveReason: 'file write',
+    lastPrompt: opts.lastPrompt || 'build the invoice report with the monthly totals', helpers: {}, background: [], waiting: null, git: null,
+    ended: opts.ended || null, notesDue: false, worked: true }, opts.extra || {});
+  for (const b of opts.background || []) sess.background.push({ id: b.id || 'bg1', command: b.command, description: b.description || '', at: now - (b.agoSecs || 300) * 1000 });
+  for (const [id, h] of Object.entries(opts.helpers || {})) sess.helpers[id] = { type: h.type, at: now - (h.agoSecs || 300) * 1000 };
+  if (opts.transcriptPath) sess.transcriptPath = opts.transcriptPath;
+  fs.mkdirSync(path.dirname(stateFile(dir, 'x')), { recursive: true });
+  fs.writeFileSync(stateFile(dir, `session-${sid}.json`), JSON.stringify(sess, null, 2));
+  if (opts.log && opts.log.length) appendLog(dir, opts.log, sid);
+  // the session file's own time is the session's last hook run: by default the newest of the evidence written here (opts.seenAgo overrides)
+  const newest = [opts.lastSaveAgo === undefined ? 600 : opts.lastSaveAgo, ...(opts.log || []).map(l => l[0]), ...(opts.inflight ? [opts.inflightAgo === undefined ? 700 : opts.inflightAgo] : [])];
+  const seen = new Date(now - (opts.seenAgo === undefined ? Math.min(...newest) : opts.seenAgo) * 1000);
+  fs.utimesSync(stateFile(dir, `session-${sid}.json`), seen, seen);
+  if (opts.inflight) {
+    const d = stateFile(dir, `inflight-${sid}`);
+    fs.mkdirSync(d, { recursive: true });
+    opts.inflight.forEach((e, i) => fs.writeFileSync(path.join(d, `call-${i}.json`), JSON.stringify({ tool: e.tool, what: e.what, at: now - (e.agoSecs || 700) * 1000, agent: e.agent || null, id: null })));
+    const t = new Date(now - (opts.inflightAgo === undefined ? 700 : opts.inflightAgo) * 1000);
+    fs.utimesSync(d, t, t);
+  }
+  return sess;
+}
+
+// A save through the product (handoff.save) is a real sign of life and moves the session file's time: put it back.
+const setSeen = (dir, sid, secsAgo) => { const t = new Date(Date.now() - secsAgo * 1000); fs.utimesSync(stateFile(dir, `session-${sid}.json`), t, t); };
+
+// Make everything the hooks wrote look `secs` older: session files' times, inflight file mtimes, today's log clock times.
+// (Log lines carry only a clock time; near midnight a shift would cross the day, so callers check `nearMidnight()`.)
+function age(dir, secs) {
+  const ms = secs * 1000;
+  const sd = path.join(forge(dir), 'state');
+  for (const n of fs.readdirSync(sd)) {
+    const f = path.join(sd, n);
+    if (/^session-.+\.json$/.test(n)) {
+      const s = JSON.parse(fs.readFileSync(f, 'utf8'));
+      if (s.lastSaveAt) s.lastSaveAt -= ms;
+      for (const b of s.background || []) b.at -= ms;
+      for (const h of Object.values(s.helpers || {})) h.at -= ms;
+      const mt = fs.statSync(f).mtimeMs;
+      fs.writeFileSync(f, JSON.stringify(s));
+      fs.utimesSync(f, new Date(mt - ms), new Date(mt - ms));
+    } else if (/^inflight-[^.]+$/.test(n) && fs.statSync(f).isDirectory()) {
+      for (const c of fs.readdirSync(f)) {
+        const cf = path.join(f, c);
+        const e = JSON.parse(fs.readFileSync(cf, 'utf8'));
+        e.at -= ms;
+        fs.writeFileSync(cf, JSON.stringify(e));
+      }
+      const t = new Date(Date.now() - ms);
+      fs.utimesSync(f, t, t);
+    }
+  }
+  const lp = logPath(dir);
+  if (fs.existsSync(lp)) {
+    const d = new Date();
+    const shifted = fs.readFileSync(lp, 'utf8').split('\n').map(l => {
+      const m = l.match(/^(\d\d):(\d\d):(\d\d) /);
+      if (!m) return l;
+      const t = new Date(d.getFullYear(), d.getMonth(), d.getDate(), +m[1], +m[2], +m[3]).getTime() - ms;
+      return `${clock(new Date(t))}${l.slice(8)}`;
+    });
+    fs.writeFileSync(lp, shifted.join('\n'));
+  }
+}
+// Log lines carry only a clock time, so shifting them into the past by more than the time since midnight would cross
+// the day. One shared guard for every test that writes or ages log lines: `{ skip: fx.skipNearMidnight(secs) }`.
+const nearMidnight = (secs = 900) => { const d = new Date(); return d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds() < secs + 300; };
+const skipNearMidnight = (secs = 900) => (nearMidnight(secs) ? 'too close to midnight to put log lines in the past' : false);
+
+module.exports = { setSeen, appendLog, age, nearMidnight, skipNearMidnight, FORGE, A, B, repo, run, show, out, ctxOf, msgOf, start, forge, stateFile, readSessionFile, logPath, logLine, hhmm, died };

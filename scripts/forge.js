@@ -30,6 +30,8 @@ const uitip = require('./lib/uitip');
 const artifacts = require('./lib/artifacts'); // spec principle 9: a published page is kept as a local file
 const uiskills = require('./lib/uiskills'); // v0.5: Claude and its helpers load the design and brand skills before UI work
 const launch = require('./lib/launch'); // launch-scope guard (design-v0.3 section 2)
+const inflight = require('./lib/inflight'); // v0.5.1 crash recovery: calls started and not yet finished
+const crashLib = require('./lib/crash'); // v0.5.1 crash recovery: the check at the next start
 
 const event = process.argv[2] || '';
 const DEBOUNCE_MS = 5000;
@@ -102,7 +104,45 @@ function otherProjects(dir, absPaths) {
   return out;
 }
 
+// v0.5.1 (spec principle 9): an html, md or pdf file that Claude writes in the OS temp folder or a scratchpad folder,
+// outside the project, can vanish. One line per file per session (kept in sess.tempWarned). Cheap: the tool name and
+// the extension are checked first. Mutates sess; -> text or null.
+const TEMP_EXT = /\.(html?|md|pdf)$/i;
+function tempFileNote(dir, t, ti, sess) {
+  try {
+    if ((t !== 'Edit' && t !== 'Write') || !ti.file_path || !TEMP_EXT.test(String(ti.file_path))) return null;
+    if (!paths.isOwn(dir)) return null; // a guest repo: nothing is written there, so do not tell Claude to save into it
+    const abs = path.resolve(toFs(String(ti.file_path)));
+    const under = (base, p) => { const r = path.relative(base, p); return r !== '' && !r.startsWith('..') && !path.isAbsolute(r); };
+    if (under(dir, abs)) return null; // anything inside the project, its forge folder included
+    const key = process.platform === 'win32' ? abs.toLowerCase() : abs;
+    const roots = [os.tmpdir()];
+    try { roots.push(fs.realpathSync.native(os.tmpdir())); } catch { /* as given */ }
+    // a scratchpad segment counts only inside the OS temp folder or the Claude home (not any folder called Scratchpad)
+    const homes = [path.resolve(setup.claudeHome())];
+    try { homes.push(fs.realpathSync.native(homes[0])); } catch { /* as given */ }
+    const scratch = abs.split(/[\\/]/).some(seg => seg.toLowerCase() === 'scratchpad') && homes.some(b => under(b, abs));
+    const temp = roots.some(b => under(b, abs)) || scratch;
+    if (!temp) return null;
+    const warned = Array.isArray(sess.tempWarned) ? sess.tempWarned : [];
+    if (warned.includes(key)) return null;
+    sess.tempWarned = warned.concat(key).slice(-50);
+    return `JSPARK Forge: ${abs.replace(/\\/g, '/')} is in a temporary folder and can vanish. If the user will need it, save it in the project and give them that path.`;
+  } catch { return null; }
+}
+
 const branchOf = dir => git.headBranch(dir) || ''; // read from .git/HEAD, no git process
+// A note shown at most once a day per project: true the first time today (and remembered in state/tips.json).
+function onceADay(dir, key) {
+  const tipsFile = path.join(paths.forgeDir(dir), 'state', 'tips.json');
+  let tips = {};
+  try { tips = JSON.parse(fs.readFileSync(tipsFile, 'utf8')) || {}; } catch { /* none yet */ }
+  const today = log.dayStamp(new Date());
+  if (tips[key] === today) return false;
+  fs.mkdirSync(path.dirname(tipsFile), { recursive: true });
+  fs.writeFileSync(tipsFile, `${JSON.stringify(Object.assign(tips, { [key]: today }), null, 1)}\n`);
+  return true;
+}
 // quarantine: only in a guest repo after /jspark-forge:init --guest (one small file read, no git).
 const blockCtx = (dir, rules) => ({ projectDir: dir, home: os.homedir(), rules, branchOf,
   quarantine: paths.isGuest(dir) && !!(paths.guestMeta(dir) || {}).quarantine, repoRoot: paths.repoRoot(dir) });
@@ -113,11 +153,14 @@ const context = (ev, text) => ({ hookSpecificOutput: { hookEventName: ev, additi
 const notesOn = dir => loadRules(dir).settings.notes !== 'off';
 
 const WAIT_CTX = 'JSPARK Forge: these questions to the user are still open. Ask them again in one short list, ' +
-  "or carry on with work they do not block and say what is parked. Never act on a recommendation without the user's answer.";
+  "or carry on with work they do not block and say what is parked. Never act on a recommendation without the user's answer. " +
+  'State for each open question what it blocks (and whether the answer can be undone), and record it with: ' +
+  `node "${path.join(__dirname, 'forge.js').replace(/\\/g, '/')}" waiting --set <id> --blocks "<what it holds up>" --reversible yes|no`;
 function waitingNotice(dir) { // -> { msg, ctx } for session start, or null
   const items = waiting.read(dir);
   if (!items.length) return null;
-  const list = items.map((x, i) => `${i + 1}. ${waiting.line(x)}`).join('\n');
+  const titles = waiting.launchTitles(dir);
+  const list = items.map((x, i) => `${i + 1}. ${waiting.line(x, titles)}`).join('\n');
   return { msg: `Waiting on you (${items.length}):\n${list}\nAnswer here, or run /jspark-forge:waiting.`, ctx: `${WAIT_CTX}\n${list}` };
 }
 
@@ -153,6 +196,18 @@ function taskTool(task, t, ti, tr, sid) {
   task.taskList = list;
   task.todos = list.filter(x => x.status !== 'deleted').map(x => ({ content: x.content, status: x.status }));
   return true;
+}
+
+// v0.5.1 crash recovery: the session's transcript file, stored only when it changes (a resumed session may have a new one).
+function rememberTranscript(dir, input) {
+  try {
+    const tp = input.transcript_path;
+    if (typeof tp !== 'string' || !tp || !input.session_id) return;
+    const sess = state.readSession(dir, input.session_id);
+    if (sess.transcriptPath === tp) return;
+    sess.transcriptPath = tp;
+    state.writeSession(dir, input.session_id, sess);
+  } catch { /* never break a session start */ }
 }
 
 function doSave(dir, sid, reason, lines, opts) {
@@ -197,6 +252,8 @@ const MODEL_MAP_LINE = 'JSPARK Forge model map: when a superpowers skill dispatc
 // A handler returns null, [kind, detail] (one log line), or { lines: [[kind, detail], ...], out: <hook JSON> }.
 const handlers = {
   SessionStart(dir, input) {
+    let selfBefore = null; // this session's own file as it was before this start wrote anything (the crash check judges it)
+    try { selfBefore = crashLib.snapshot(dir, input.session_id); } catch { /* fail open */ }
     log.rotate(dir, new Date());
     handoff.pruneArchive(dir);
     const rules = loadRules(dir);
@@ -210,7 +267,30 @@ const handlers = {
     if (licItems.length) msgs.push(...licence.notices(dir, licItems));
     const uiTip = uitip.notice(dir); // UI/UX companions tip, once per own front-end project (spec 5.14)
     if (uiTip) msgs.push(uiTip);
+    try { // v0.5.1: hook errors were only logged; say so once a day (the date is kept in state/tips.json)
+      const he = log.hookErrors(dir);
+      const tipsFile = path.join(paths.forgeDir(dir), 'state', 'tips.json');
+      const todayStamp = log.dayStamp(new Date());
+      if (he.n > 0) {
+        let tips = {};
+        try { tips = JSON.parse(fs.readFileSync(tipsFile, 'utf8')) || {}; } catch { /* none yet */ }
+        if (tips.hookErrorsTold !== todayStamp) {
+          msgs.push(`JSPARK Forge: ${he.n} hook error(s) were logged; run /jspark-forge:doctor.`);
+          fs.mkdirSync(path.dirname(tipsFile), { recursive: true });
+          fs.writeFileSync(tipsFile, `${JSON.stringify(Object.assign(tips, { hookErrorsTold: todayStamp }), null, 1)}\n`);
+        }
+      }
+    } catch { /* never break a session start */ }
     if (rules.disabled.length) msgs.push(`JSPARK Forge: you switched off ${rules.disabled.join(', ')} in rules.md.`);
+    try { // v0.5.1 gaps 1-2: an own project's missing .gitignore is made again; an older one learns the briefs line
+      if (paths.isOwn(dir)) {
+        if (!setup.repairGitignore(dir) && ['graphs', 'briefs'].some(n => fs.existsSync(path.join(paths.repoForgeDir(dir), n)))) setup.shareGraphs(dir);
+        // v0.5.1 gaps 3: no commit yet means nothing can be undone; say so once a day (read from .git, no git process)
+        if (git.headBranch(dir) && !git.headCommit(dir) && onceADay(dir, 'noCommitsTold')) {
+          msgs.push('JSPARK Forge: this repo has no commits yet, so a crash or a bad edit cannot be undone. Ask Claude to make a first commit.');
+        }
+      }
+    } catch { /* never break a session start */ }
     let offerAfterCompact = null;
     if (input.source === 'compact') { // the summary dropped the decisions Claude was shown: show them again when relevant
       const sess = state.readSession(dir, input.session_id);
@@ -220,8 +300,19 @@ const handlers = {
       offerAfterCompact = offerContext(dir, input, sess);
       state.writeSession(dir, input.session_id, sess);
     }
-    const rc = handoff.resumeContext(dir, input.session_id, input.source || 'startup');
+    rememberTranscript(dir, input); // so a later crash check can read the tail of this session's transcript
+    // v0.5.1 crash recovery: another session of this project was cut off (not at compact or clear: the conversation goes on).
+    let crashInfo = null;
+    try { if (input.source === 'startup' || input.source === 'resume') crashInfo = crashLib.check(dir, input.session_id, { mark: true, own: true, self: selfBefore }); } catch { /* fail open */ }
+    crashLib.revive(dir, input.session_id); // this session is alive again (a resumed id may still carry an ended stamp)
+    try { if (input.source === 'startup' || input.source === 'resume') crashLib.prune(dir, input.session_id); } catch { /* fail open */ } // old session files and in-flight records (at most 50 a start)
+    const rc = handoff.resumeContext(dir, input.session_id, input.source || 'startup', new Date(), { skipSince: !!crashInfo });
+    if (crashInfo) { rc.context = `${rc.context}\n\n${crashInfo.block}`; msgs.unshift(crashInfo.userLine); }
     if (offerAfterCompact) rc.context = `${rc.context}\n\n${offerAfterCompact}`;
+    try { // short by default (spec principle 10): like the grounding rule, at every start, compact included; own and guest alike
+      const sr = rules.settings['short-answers'] === 'off' ? null : handoff.shortRule();
+      if (sr) rc.context = `${rc.context}\n\n${sr}`;
+    } catch { /* never break a session start */ }
     // Model map (design-v0.2 4): superpowers starts general-purpose helpers and names a model per call, so with it the
     // map is steered, not enforced: one line asking Claude to use JSPARK Forge's helpers.
     try {
@@ -232,6 +323,10 @@ const handlers = {
         rc.context = `${rc.context}\n\n${artifacts.RULE}`;
         const gone = input.source === 'compact' ? null : artifacts.missing(dir);
         if (gone) msgs.push(gone);
+        if (input.source !== 'compact' && onceADay(dir, 'unlistedDocsScanned')) { // documents written to a temp folder, never listed
+          const un = artifacts.unlisted(dir, new Date(), setup.claudeHome());
+          if (un) msgs.push(un);
+        }
       }
     } catch { /* never break a session start */ }
     try { // the UI rule, every session start in an own front-end project (compact included)
@@ -306,6 +401,7 @@ const handlers = {
     // A new user turn: pending offers to record are delivered again (design-v0.2 1.4).
     const sess = state.readSession(dir, input.session_id);
     sess.turn = (sess.turn || 0) + 1;
+    if (typeof input.transcript_path === 'string' && input.transcript_path && sess.transcriptPath !== input.transcript_path) sess.transcriptPath = input.transcript_path;
     // A short reply ("yes", "skip", "edit: …") is most likely the answer to the last offer: do not repeat it with it.
     const offer = prompt.trim().length < 25 ? null : offerContext(dir, input, sess);
     // ---- Launch-scope nudge (design-v0.3 2.2): one conditional line, at most every 30 minutes (mutates sess).
@@ -326,7 +422,18 @@ const handlers = {
     return { lines, out };
   },
 
+  // v0.5.1 crash recovery: an allowed call that can change things is recorded as in flight (one small write, never throws).
   PreToolUse(dir, input) {
+    const res = handlers.preToolCore(dir, input);
+    try {
+      const denied = res && !Array.isArray(res) && res.out && res.out.hookSpecificOutput && res.out.hookSpecificOutput.permissionDecision === 'deny';
+      if (!denied && inflight.TOOLS.has(input.tool_name)) inflight.add(dir, input, log.envSecrets(dir));
+    } catch { /* fail open */ }
+    inflight.pulse(dir, input.session_id); // a sign of life for the crash check of another window
+    return res;
+  },
+
+  preToolCore(dir, input) {
     if (input.tool_name === 'AskUserQuestion') { // filed before the dialog shows: a cutoff cannot lose it (spec 5.2a)
       const n = waiting.add(dir, waiting.fromTool(input.tool_input, input.session_id));
       return n ? ['WAIT', `${n} asked`] : null;
@@ -384,6 +491,8 @@ const handlers = {
   },
 
   PostToolUse(dir, input) {
+    try { inflight.remove(dir, input, log.envSecrets(dir)); } catch { /* fail open */ } // the call finished
+    inflight.pulse(dir, input.session_id); // a sign of life for the crash check of another window
     const lines = [];
     const first = toolLine(dir, input);
     if (first) lines.push(first);
@@ -404,9 +513,10 @@ const handlers = {
       return { lines, out: text ? context('PostToolUse', text) : null };
     }
     if (t === 'Artifact') { // a published page: keep its file in the project (spec principle 9)
-      const kept = paths.isOwn(dir) ? artifacts.onPublish(dir, ti, input.tool_response) : null;
-      if (kept) lines.push(['KEEP', String(ti.file_path || '')]);
-      return { lines, out: kept ? context('PostToolUse', kept) : null };
+      const r = paths.isOwn(dir) ? artifacts.publish(dir, ti, input.tool_response) : null;
+      if (r && r.kept) lines.push(['KEEP', r.kept]);
+      else if (r && r.unkept) lines.push(['UNKEPT', r.unkept]);
+      return { lines, out: r ? context('PostToolUse', r.text) : null };
     }
     if (t === 'AskUserQuestion') { // answered in the dialog
       const asked = new Set(waiting.fromTool(ti, sid).map(q => q.question.replace(/\s+/g, ' ').trim()));
@@ -467,13 +577,17 @@ const handlers = {
     if (!reason && now - sess.lastSaveAt >= WORKING_MS) reason = 'working';
     const offer = offerContext(dir, input, sess);
     if (offer) sessDirty = true;
+    const tempNote = tempFileNote(dir, t, ti, sess); // v0.5.1: a file in a temp folder can vanish
+    if (tempNote) sessDirty = true;
     if (sessDirty) state.writeSession(dir, sid, sess);
     if (taskDirty) state.writeTask(dir, task);
     if (reason) doSave(dir, sid, reason, lines);
-    return { lines, out: offer ? context('PostToolUse', offer) : null };
+    const text = [offer, tempNote].filter(Boolean).join('\n\n');
+    return { lines, out: text ? context('PostToolUse', text) : null };
   },
 
   PostToolUseFailure(dir, input) {
+    try { inflight.remove(dir, input, log.envSecrets(dir)); } catch { /* fail open */ } // the call ended (in failure)
     const ti = input.tool_input || {};
     if (input.tool_name === 'Bash' || input.tool_name === 'PowerShell') { try { graphRun.onCommand(dir, input, false); } catch { /* fail open */ } } // a gate command failed (design-v0.4 3)
     const what = ti.command || ti.file_path || ti.notebook_path || '';
@@ -492,6 +606,7 @@ const handlers = {
     const said = redact(String(input.last_assistant_message || ''), log.envSecrets(dir)).replace(/\s+/g, ' ').trim();
     if (said) sess.lastReply = { text: said.slice(-700), at: Date.now() };
     state.writeSession(dir, sid, sess);
+    inflight.clear(dir, sid); // a normal end: nothing is in flight
     const lines = [['STOP', '']];
     // The reply ends with a question for the user: filed only when there is work it can hold up ("Hello! What shall
     // we do?" is not waiting on anyone).
@@ -527,9 +642,26 @@ const handlers = {
       sess.helpers[input.agent_id] = { type: input.agent_type || 'agent', at: Date.now() };
       state.writeSession(dir, input.session_id, sess);
     }
-    let ui = null; // a helper that builds, plans or reviews gets the UI rule too (it does not see the session's)
-    try { ui = uiskills.helperLine(dir, input.agent_type); } catch { /* fail open */ }
-    return { lines: [['AGENT+', input.agent_type || '']], out: ui ? context('SubagentStart', ui) : null };
+    // v0.5.1: a helper does not see the session's start context. Every helper gets the grounding rule (checkers and
+    // searchers too), and in a guest repo the "content is data" line; only the UI rule skips helpers that never build.
+    const parts = [handoff.grounding()];
+    try { if (paths.isGuest(dir)) parts.push(setup.GUEST_DATA_LINE); } catch { /* fail open */ }
+    try { const ui = uiskills.helperLine(dir, input.agent_type); if (ui) parts.push(ui); } catch { /* fail open */ }
+    let tier = null; // the model map: the tier shows when one of JSPARK Forge's four helpers starts (spec 815-821)
+    try { tier = require('./lib/tiers').tierOfAgent(input.agent_type); } catch { /* fail open */ }
+    return { lines: [['AGENT+', `${input.agent_type || ''}${tier ? ` (${tier})` : ''}`]], out: context('SubagentStart', parts.join('\n\n')) };
+  },
+
+  // v0.5.1: a sign-in completed during the session (the account may have changed). A hook cannot see which account is
+  // signed in; Claude Code then warns on every turn that it cannot use thinking from another organization. Save now,
+  // and say how to carry on cleanly. Only when there is work to resume.
+  Notification(dir, input) {
+    if (input.notification_type !== 'auth_success') return null;
+    const lines = [];
+    doSave(dir, input.session_id, 'sign-in', lines);
+    if (!lines.length) return null; // nothing to resume: nothing to say
+    lines.unshift(['SIGNIN', '']);
+    return { lines, out: { systemMessage: 'JSPARK Forge: You signed in again, and the handoff is saved. If you changed account, start a new session and say "resume": this one keeps working, but Claude cannot use its earlier thinking here, so replies may be slower.' } };
   },
 
   SubagentStop(dir, input) { // an unpaired stop (internal helpers) is ignored (design 16, deviation 6)
@@ -538,6 +670,7 @@ const handlers = {
       delete sess.helpers[input.agent_id];
       state.writeSession(dir, input.session_id, sess);
     }
+    if (input.agent_id) inflight.removeAgent(dir, input.session_id, input.agent_id); // a finished helper has nothing in flight
     return ['AGENT-', input.agent_type || ''];
   },
 };
@@ -642,11 +775,58 @@ function cliProject() {
 const NOT_SET_UP = 'JSPARK Forge is not set up in this project yet (it switches on by itself in a git project).\n';
 
 // `forge.js show`: print the handoff (the resume skill reads it this way: in guest mode the file is not in the repo).
-function cliShow() {
+// With --log [n] (default 60, at most 200) it then prints the last n lines of the action log (v0.5.1 review).
+const TAIL_BYTES = 256 * 1024; // enough for 200 lines of at most ~330 bytes; a 2 MB log is never loaded whole
+function tailLines(file, n) { // the last n lines of a file, reading only its end; never throws
+  let fd;
+  try {
+    fd = fs.openSync(file, 'r');
+    const size = fs.fstatSync(fd).size;
+    const len = Math.min(size, TAIL_BYTES);
+    const buf = Buffer.alloc(len);
+    fs.readSync(fd, buf, 0, len, size - len);
+    let lines = log.completeLines(buf.toString('utf8')); // drops a cut last line and NUL bytes
+    if (size > len) lines.shift(); // the first line may be cut
+    lines = lines.filter(l => l !== '');
+    return lines.slice(-n);
+  } catch { return []; } finally { if (fd !== undefined) try { fs.closeSync(fd); } catch { /* closed */ } }
+}
+function logTail(dir, n) { // newest day first, going back until n lines are found
+  let files = [];
+  try { files = fs.readdirSync(path.join(paths.forgeDir(dir), 'log')).filter(f => /^\d{4}-\d{2}-\d{2}\.log$/.test(f)).sort().reverse(); } catch { return []; }
+  let out = [];
+  for (const f of files) {
+    out = tailLines(path.join(paths.forgeDir(dir), 'log', f), n - out.length).concat(out);
+    if (out.length >= n) break;
+  }
+  return out;
+}
+function cliShow(args) {
   const dir = cliProject();
   if (!dir) { process.stdout.write(NOT_SET_UP); return; }
   const f = path.join(paths.forgeDir(dir), 'handoff.md');
-  process.stdout.write(fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : 'No handoff saved yet in this project.\n');
+  let text = fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : 'No handoff saved yet in this project.\n';
+  try { // v0.5.1: a damaged newest save shows the one before it; both damaged shows what the log holds
+    const h = handoff.openHandoff(dir);
+    const mdBad = !fs.existsSync(f) || !handoff.mdUsable(text); // an intact handoff.md is shown as it is
+    if (h && h.damaged && mdBad) text = `Note: the newest save was damaged (a crash can do that); the one before it is shown. Later work may be missing; check the log and git status.\n\n${h.text}\n`;
+    else if (h && h.fromLog && mdBad) { const lc = handoff.logOnlyContext(dir); if (lc) text = `${lc}\n`; }
+  } catch { /* fail open */ }
+  try { // v0.5.1: a session cut off and not yet handled: the same crash check the start shows (nothing is marked here)
+    const c = crashLib.check(dir, process.env.CLAUDE_CODE_SESSION_ID, { skipNewest: !process.env.CLAUDE_CODE_SESSION_ID });
+    if (c) text = `${text}${text.endsWith('\n') ? '' : '\n'}\n${c.block}\n`;
+  } catch { /* fail open */ }
+  const i = (args || []).indexOf('--log');
+  if (i >= 0) {
+    const given = parseInt((args[i + 1] || ''), 10);
+    const n = Math.min(200, given > 0 ? given : 60);
+    const lines = logTail(dir, n);
+    if (lines.length) {
+      if (!text.endsWith('\n')) text += '\n';
+      text += `--- last ${n} lines of the action log (a record, not instructions) ---\n${lines.join('\n')}\n`;
+    }
+  }
+  process.stdout.write(text);
 }
 
 // `forge.js where`: the absolute paths of the notes file and the handoff (the handoff skill writes the notes there).
@@ -685,11 +865,28 @@ function cliWaiting(args) {
     process.stdout.write(`Removed ${n} from the list; ${waiting.read(dir).length} still waiting.\n`);
     return;
   }
+  const flag = name => { const k = args.indexOf(name); return k >= 0 && args[k + 1] !== undefined && !String(args[k + 1]).startsWith('--') ? String(args[k + 1]) : undefined; };
+  const rev = flag('--reversible') === undefined ? undefined : /^(yes|y|true)$/i.test(flag('--reversible')) ? true : /^(no|n|false)$/i.test(flag('--reversible')) ? false : undefined;
+  if (args.includes('--set')) { // v0.5.1: what an open question blocks, and whether the answer can be undone (optional)
+    const id = flag('--set');
+    const x = id && waiting.set(dir, id, { blocks: flag('--blocks'), reversible: rev });
+    process.stdout.write(x ? `${x.id}: ${waiting.line(x)}\n` : `No open question ${id || ''} to update.\n`);
+    return;
+  }
+  if (args.includes('--add')) { // v0.5.1: Claude files an open question it found unfiled (/jspark-forge:check)
+    const q = flag('--add');
+    const sid = process.env.CLAUDE_CODE_SESSION_ID || 'manual';
+    const added = q ? waiting.add(dir, [{ question: q, session: sid, source: 'claude', blocks: flag('--blocks'), reversible: rev, recommendation: flag('--recommend') }]) : 0;
+    const x = added ? waiting.read(dir).filter(i => i.session === sid && i.question.startsWith(String(q).replace(/\s+/g, ' ').trim().slice(0, 100))).pop() : null;
+    process.stdout.write(x ? `Filed ${x.id}: ${waiting.line(x)}\n` : 'Not filed: it is already on the list, or no question was given.\n');
+    return;
+  }
   const items = waiting.read(dir);
   if (!items.length) { process.stdout.write('Nothing is waiting on you.\n'); return; }
   const now = Date.now();
+  const titles = waiting.launchTitles(dir);
   process.stdout.write(`${items.length} waiting on you (oldest first):\n${items.map((x, n) =>
-    `${n + 1}. [${x.id}] ${waiting.line(x)}${x.about ? ` (about: ${x.about})` : ''}${x.options.length ? `; options: ${x.options.join(' / ')}` : ''}; asked ${waiting.ago(now - x.askedAt)} ago`).join('\n')}\n`);
+    `${n + 1}. [${x.id}] ${waiting.line(x, titles)}${x.about ? ` (about: ${x.about})` : ''}${x.options.length ? `; options: ${x.options.join(' / ')}` : ''}; asked ${waiting.ago(now - x.askedAt)} ago`).join('\n')}\n`);
 }
 
 // `forge.js doctor` / `forge.js status` (spec 5.13c): read-only health check; what is saved now.
@@ -711,6 +908,8 @@ const cliMemory = fn => args => {
   if (fn === 'check') { // the code map's state too (design-v0.3 1.5)
     const ml = mapLayer.checkLines(dir);
     if (ml.length) out += `\n${ml.map(l => `- ${l}`).join('\n')}\n`;
+    const am = paths.isOwn(dir) ? artifacts.checkLines(dir) : []; // pages whose local copy has gone or was never kept (principle 9)
+    if (am.length) out += `\n${am.map(l => `- ${l}`).join('\n')}\n`;
   }
   process.stdout.write(out);
 };

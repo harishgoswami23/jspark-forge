@@ -19,3 +19,7 @@ Record a decision the user made. Only ever after the user's own words: never rec
    newer one replaces it).
 4. If the user declined ("skip"), record nothing. Write `{ "skip": ["<commit sha>"] }` and run the same command, so the
    offer is not repeated.
+5. When the user wants a recorded decision or rule to be a hard block, run
+   `node "${CLAUDE_PLUGIN_ROOT}/scripts/forge.js" decide --promote D-012` and show the one line it prints. It does not
+   edit rules.md: a rule is the user's to add, so tell them to paste the line under `## Never` themselves (or ask you
+   to, in so many words), and to change the text in backticks to what a command would contain.

@@ -29,8 +29,11 @@ test('superpowers comes from its own GitHub repo at a pinned commit, not from a 
 });
 
 test('init suggests the one-line install from this marketplace', () => {
-  const src = fs.readFileSync(path.join(ROOT, 'scripts', 'init.js'), 'utf8');
-  assert.match(src, /\/plugin install superpowers@jspark-forge/);
+  // init.js and automatic setup share one text (scripts/lib/setup.js SUPERPOWERS_TIP)
+  assert.match(fs.readFileSync(path.join(ROOT, 'scripts', 'init.js'), 'utf8'), /SUPERPOWERS_TIP/);
+  const tip = require('../scripts/lib/setup').SUPERPOWERS_TIP;
+  assert.match(tip, /\/plugin install superpowers@jspark-forge/);
+  assert.doesNotMatch(tip, /Optional|never needs it/, 'superpowers is required (owner 2026-11-20)');
 });
 
 test('JSPARK Forge declares superpowers as a dependency, so installing one installs both (owner 2026-11-19)', () => {
@@ -69,9 +72,9 @@ test('v0.5: the README no longer says JSPARK Forge never installs anything', () 
   assert.ok(!README.includes('never installs anything'));
 });
 
-test('v0.5: versions are 0.5.0 in plugin.json and package.json', () => {
+test('versions are 0.5.1 in plugin.json and package.json', () => {
   const p = JSON.parse(fs.readFileSync(path.join(ROOT, '.claude-plugin', 'plugin.json'), 'utf8'));
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
-  assert.equal(p.version, '0.5.0');
-  assert.equal(pkg.version, '0.5.0');
+  assert.equal(p.version, '0.5.1');
+  assert.equal(pkg.version, '0.5.1');
 });

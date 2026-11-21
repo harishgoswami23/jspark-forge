@@ -59,7 +59,7 @@
             "timeout": 3
           }
         ],
-        "matcher": "Bash|PowerShell|Edit|Write|NotebookEdit|AskUserQuestion|mcp__.*"
+        "matcher": "Bash|PowerShell|Edit|Write|NotebookEdit|Agent|AskUserQuestion|mcp__.*"
       }
     ],
     "PostToolUse": [
@@ -134,6 +134,22 @@
               "SessionEnd"
             ],
             "timeout": 1
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "auth_success",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/forge.js",
+              "Notification"
+            ],
+            "timeout": 10
           }
         ]
       }

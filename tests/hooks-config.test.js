@@ -19,7 +19,7 @@ const matches = (matcher, tool) => new RegExp(`^(?:${matcher})$`).test(tool);
 
 test('every design hook event is registered, in exec form with node and forge.js', () => {
   const events = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'Stop',
-    'PreCompact', 'SessionEnd', 'SubagentStart', 'SubagentStop'];
+    'PreCompact', 'SessionEnd', 'SubagentStart', 'SubagentStop', 'Notification'];
   assert.deepEqual(Object.keys(hooks).sort(), [...events].sort());
   for (const ev of events) {
     const h = only(ev).hooks[0];
@@ -54,4 +54,10 @@ test('plugin.json names the plugin jspark-forge, MIT, no reserved words', () => 
   assert.equal(p.name, 'jspark-forge');
   assert.equal(p.license, 'MIT');
   assert.ok(!/claude|anthropic/i.test(p.name));
+});
+
+test('crash review S1: the PreToolUse matcher covers Agent, so helper calls are recorded in flight', () => {
+  const m = only('PreToolUse').matcher;
+  for (const t of ['Bash', 'PowerShell', 'Edit', 'Write', 'NotebookEdit', 'Agent', 'AskUserQuestion', 'mcp__db__query']) assert.ok(matches(m, t), `should match ${t}`);
+  for (const t of ['Read', 'Grep', 'Glob']) assert.ok(!matches(m, t), `must not match ${t}`);
 });

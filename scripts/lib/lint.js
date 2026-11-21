@@ -49,6 +49,31 @@ function lintSkill(text, file) {
   return errs;
 }
 
+// A helper file in agents/ (model map, spec 815-821): its model is one of the tiers' models in rules/model-tiers.json,
+// and its description says when to use it ("Use for") and why that tier ("because").
+function lintAgent(text, file) {
+  const errs = [];
+  const err = (line, message) => errs.push({ file, line, message });
+  const lines = linesOf(text);
+  if (lines[0].trim() !== '---') return [{ file, line: 1, message: 'frontmatter missing (the file must start with ---, then name, description and model)' }];
+  const end = lines.findIndex((l, i) => i > 0 && l.trim() === '---');
+  if (end < 0) return [{ file, line: 1, message: 'frontmatter is not closed with ---' }];
+  const fm = {};
+  lines.slice(1, end).forEach((l, i) => {
+    const m = l.match(/^([A-Za-z-]+):\s*(.*)$/);
+    if (m) fm[m[1]] = { value: m[2].trim(), line: i + 2 };
+  });
+  const T = require('./tiers');
+  if (!fm.model || !fm.model.value) err(fm.model ? fm.model.line : 1, 'frontmatter field model is missing or empty');
+  else if (!T.models().includes(fm.model.value)) err(fm.model.line, `model "${fm.model.value}" is not one of the tiers' models (${T.models().join(', ')}) in rules/model-tiers.json`);
+  if (!fm.description || !fm.description.value) err(fm.description ? fm.description.line : 1, 'frontmatter field description is missing or empty');
+  else {
+    if (!/\bUse for\b/.test(fm.description.value)) err(fm.description.line, 'description must say when to use the helper: it needs the words "Use for"');
+    if (!/\bbecause\b/i.test(fm.description.value)) err(fm.description.line, 'description must say why this tier: it needs the word "because"');
+  }
+  return errs;
+}
+
 const REQUIRED = ['Goal', 'CAN change', 'CANNOT change', 'Done', 'Stop'];
 const FIELDS = REQUIRED.concat(['Setup', 'Log', 'Retries', 'Tie-break', 'Outputs']);
 
@@ -81,7 +106,8 @@ function lintBrief(text, file) {
 // A build graph (design-v0.4 2): the graph's own validation, with its line numbers.
 const lintGraph = (text, f) => { const G = require('./graph'); return G.validate(G.parse(text)).map(e => ({ file: f, line: e.line, message: e.message })); };
 const isGraph = f => /[\\/]graphs[\\/][^\\/]+\.md$/i.test(f) && /^\S*#\s+Graph:/m.test(fs.readFileSync(f, 'utf8').slice(0, 2000));
-const lintFile = f => (path.basename(f) === 'SKILL.md' ? lintSkill : isGraph(f) ? lintGraph : lintBrief)(fs.readFileSync(f, 'utf8'), f);
+const isAgent = f => path.basename(path.dirname(f)) === 'agents' && /\.md$/i.test(f);
+const lintFile = f => (path.basename(f) === 'SKILL.md' ? lintSkill : isAgent(f) ? lintAgent : isGraph(f) ? lintGraph : lintBrief)(fs.readFileSync(f, 'utf8'), f);
 
 function defaultPaths(dir) {
   const out = [];
@@ -91,6 +117,12 @@ function defaultPaths(dir) {
       const f = path.join(skills, n, 'SKILL.md');
       if (fs.existsSync(f)) out.push(f);
     }
+  }
+  const agents = path.join(dir, 'agents');
+  // Only JSPARK Forge's own helper files: a project's agents/ folder follows its own rules (model: inherit, any wording).
+  const pj = (() => { try { return JSON.parse(fs.readFileSync(path.join(dir, '.claude-plugin', 'plugin.json'), 'utf8')); } catch { return null; } })();
+  if (pj && pj.name === 'jspark-forge' && fs.existsSync(agents)) {
+    for (const n of fs.readdirSync(agents).sort()) if (n.endsWith('.md')) out.push(path.join(agents, n));
   }
   const briefs = path.join(require('./paths').forgeDir(dir), 'briefs');
   if (fs.existsSync(briefs)) {
@@ -121,4 +153,4 @@ function run(dir, args) {
   return out.join('\n') + '\n';
 }
 
-module.exports = { lintSkill, lintBrief, run, defaultPaths };
+module.exports = { lintSkill, lintBrief, lintAgent, run, defaultPaths };

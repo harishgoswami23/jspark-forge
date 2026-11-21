@@ -11,6 +11,7 @@ The three checks come ready to copy from JSPARK Forge's templates/ui/ (research 
 - lighthouserc.json: Lighthouse CI scores (accessibility 0.95, best practices 0.9, layout shift 0.1; performance warns).
 Once: npm i -D @playwright/test @axe-core/playwright @lhci/cli, then npx playwright install.
 After approve-look, record the reference screenshots once: npx playwright test tests/ui --update-snapshots.
+Builders commit their step's work on the current branch (no merge, no push): the review step needs those commits.
 -->
 
 ## direction (agent)
@@ -29,6 +30,7 @@ After approve-look, record the reference screenshots once: npx playwright test t
 - brief: .jspark-forge/briefs/ui-build.md
 - gives: ui_commit
 
+<!-- Set this to the project's own test command (pnpm test, yarn test, pytest, go test ./..., …) before you trust the graph. -->
 ## screens (gate)
 - after: build
 - run: npx playwright test tests/ui

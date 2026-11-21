@@ -9,7 +9,7 @@ const paths = require('./paths');
 
 
 const CAP_BYTES = 2 * 1024 * 1024;
-const KEEP_AFTER_CAP = new Set(['SAVE', 'BLOCK', 'CONFIRM', 'COMMIT']);
+const KEEP_AFTER_CAP = new Set(['SAVE', 'BLOCK', 'CONFIRM', 'COMMIT', 'FORGE-ERROR']);
 const ID_WIDTH = 19; // "[a1b2c3d4/9f8e7d6c]"
 const LINE_RE = /^(\d\d:\d\d:\d\d) \[([^\]]*)\]\s+(\S+)\s*(.*)$/;
 
@@ -23,8 +23,16 @@ function idField(session, agent) {
   return `[${agent ? `${s}/${String(agent).slice(0, 8)}` : s}]`;
 }
 
+// v0.5.1 (crash recovery): the complete lines of a log file's text. Every line is written with its newline, so a last
+// piece with no newline was cut off by a crash and is dropped; the NUL bytes a power cut leaves are removed.
+function completeLines(text) {
+  const parts = String(text || '').split('\n');
+  parts.pop(); // after the last newline: nothing, or a cut line
+  return parts.map(p => p.replace(/\0+/g, '').replace(/\r$/, ''));
+}
+
 function formatLine({ time, session, agent, kind, detail }, secrets = []) {
-  const clean = redact(String(detail || ''), secrets).replace(/\s+/g, ' ').trim().slice(0, 300);
+  const clean = require('./redact').redactHead(String(detail || ''), secrets).replace(/\s+/g, ' ').trim().slice(0, 300);
   return `${clock(time)} ${idField(session, agent).padEnd(ID_WIDTH)} ${String(kind).padEnd(5)} ${clean}`.trimEnd();
 }
 
@@ -38,6 +46,12 @@ function append(projectDir, entry, opts = {}) {
   const line = formatLine(entry, opts.secrets) + '\n';
   let size = 0;
   try { size = fs.statSync(file).size; } catch {}
+  if (size > 0) { // a line cut off by a crash must not swallow this one: start on a new line
+    try {
+      const fd = fs.openSync(file, 'r');
+      try { const b = Buffer.alloc(1); fs.readSync(fd, b, 0, 1, size - 1); if (b[0] !== 10) { fs.appendFileSync(file, '\n'); size += 1; } } finally { fs.closeSync(fd); }
+    } catch { /* fail open */ }
+  }
   if (size + Buffer.byteLength(line) > cap && !KEEP_AFTER_CAP.has(entry.kind)) {
     if (!fs.existsSync(marker)) {
       fs.appendFileSync(file, `${clock(entry.time)} ${idField(entry.session, entry.agent).padEnd(ID_WIDTH)} LOG CAPPED\n`);
@@ -93,6 +107,23 @@ function rotate(projectDir, now = new Date(), { keepDays = 7, keepSummaries = 60
   }
 }
 
+// v0.5.1: FORGE-ERROR lines (a hook failed inside) in today's and yesterday's log files, oldest first.
+// -> { n, latest: { detail, file, when: Date } | null } (when: the file's date plus the line's time). Reads two small files; never throws.
+function hookErrors(projectDir, now = new Date()) {
+  let n = 0, latest = null;
+  const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  for (const day of [yesterday, now]) {
+    const file = path.join(logDir(projectDir), `${dayStamp(day)}.log`);
+    let text = '';
+    try { text = fs.readFileSync(file, 'utf8'); } catch { continue; }
+    for (const raw of completeLines(text)) {
+      const m = raw.match(LINE_RE);
+      if (m && m[3] === 'FORGE-ERROR') { n++; latest = { detail: m[4], file, when: new Date(`${dayStamp(day)}T${m[1]}`) }; }
+    }
+  }
+  return { n, latest };
+}
+
 const TEMPLATE = /\.(example|sample|template|dist)$/i;
 
 function envSecrets(projectDir) {
@@ -113,4 +144,4 @@ function envSecrets(projectDir) {
   return out;
 }
 
-module.exports = { formatLine, append, rotate, envSecrets, dayStamp, LINE_RE };
+module.exports = { completeLines, formatLine, append, rotate, envSecrets, dayStamp, hookErrors, LINE_RE };

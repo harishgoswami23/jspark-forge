@@ -29,6 +29,7 @@ function opts(args) {
     else if (args[i] === '--verify') o.verify = args[++i];
     else if (args[i] === '--retire') o.retire = args[++i];
     else if (args[i] === '--by') o.by = args[++i];
+    else if (args[i] === '--promote') o.promote = args[++i] || '';
   }
   return o;
 }
@@ -41,6 +42,21 @@ function shareFile(dir) {
     const eol = /\r\n/.test(t) ? '\r\n' : '\n'; // in the file's own line ending (review, low)
     if (!/^!decisions\.md\s*$/m.test(t)) fs.writeFileSync(g, `${t.replace(/\s*$/, eol)}!decisions.md${eol}`);
   } catch { /* no .gitignore: nothing hides the file */ }
+}
+
+// Rule promotion (spec 352): the exact line to add under "## Never" in .jspark-forge/rules.md so that a decision
+// becomes a hard block. It is only printed: a rule is the user's to add, so rules.md is never edited here. The text to
+// match is the decision's first file or folder (a trailing glob dropped); without files it is a placeholder to fill in.
+function promote(text, id) {
+  if (!ID.test(String(id))) return 'Not changed: an id must look like D-012.\n';
+  const e = D.parse(text).entries.find(x => x.id === id);
+  if (!e) return `There is no ${id} in decisions.md.\n`;
+  const touch = (e.touches || []).map(t => String(t).replace(/\\/g, '/').replace(/\*+\/?$/, '').replace(/[`]/g, '')).find(t => t.trim() && !/[*?]/.test(t));
+  const match = touch ? touch.trim() : '<the command or text to block>';
+  const why = `${id} ${one(e.title, 120).replace(/`/g, '')}`;
+  return `To make ${id} a hard block, add this line under "## Never" in .jspark-forge/rules.md (JSPARK Forge does not edit rules.md: a rule is yours to add):\n` +
+    `- \`${match}\` : ${why}\n` +
+    `The text in backticks is matched as written, any case, against a command${touch ? '' : ' (replace the placeholder with what such a command would contain)'}; use "re:" for a regular expression.\n`;
 }
 
 // -> the text to print. sid: the conversation (pending offers it settles are dropped).
@@ -59,6 +75,7 @@ function run(dir, args, sid) {
   const f = fileOf(dir);
   let text = '';
   try { text = fs.readFileSync(f, 'utf8'); } catch { /* first entry */ }
+  if (o.promote !== undefined) return promote(text, o.promote); // prints a rules.md line; changes no file
   const st = readState(dir);
   const done = msg => {
     st.lastEvent = { text: msg, shown: false, at: Date.now() };
@@ -122,9 +139,10 @@ function run(dir, args, sid) {
   const added = D.parse(out.text).entries.find(e => e.id === id);
   if (added) st.known = Object.assign({}, st.known, { [id]: hashOf(added) }); // recorded here: not "arrived with git"
   let msg = `Recorded ${id}: ${title}${touches.length ? ` (touches ${touches.join(', ')})` : ' (no Touches: it is never shown just in time)'}.`;
-  if (D.words(entry) > LONG_WORDS && !st.longWarned) {
+  const wc = D.words(entry); // the title and the why, never the touches
+  if (wc > LONG_WORDS && !st.longWarned) {
     st.longWarned = true;
-    msg += ` Long entries go stale and cost tokens on every matching edit; for detail, consider a reference entry pointing to a doc.`;
+    msg += ` This entry's title and why are ${wc} words (over ${LONG_WORDS}). Long entries go stale and cost tokens on every matching edit; for detail, consider a reference entry pointing to a doc.`;
   }
   return done(msg);
 }
