@@ -945,8 +945,16 @@ function cliGraph(args) {
     takeover: () => graphRun.takeover(dir, name, sid),
     done: () => graphRun.done(dir, name, a3, fromAt >= 0 ? args[fromAt + 1] : '', sid), fail: () => graphRun.fail(dir, name, a3, rest.join(' '), sid),
     rerun: () => graphRun.rerun(dir, name, a3, sid), stop: () => graphRun.stop(dir, name, sid), status: () => graphRun.status(dir, name),
+    // v0.5.2: a gate that outlasts one tool call. Its commands never skip the block list: what a hook would hold or ask
+    // about is not run here.
+    gate: () => graphRun.gate(dir, name, a3, sid, { blocked: cmd => {
+      try {
+        const hits = check({ tool_name: 'Bash', tool_input: { command: cmd }, cwd: dir, session_id: sid }, blockCtx(dir, loadRules(dir)), { all: true });
+        return hits.length ? String(hits[0].reason || hits[0].id || 'held by the block list') : null;
+      } catch { return 'the block list could not check it'; }
+    } }),
   }[sub];
-  if (!out) { process.stdout.write('Usage: forge.js graph check|start|next|takeover|done|fail|rerun|stop|status <name> …\n'); return; }
+  if (!out) { process.stdout.write('Usage: forge.js graph check|start|next|takeover|done|fail|rerun|stop|status|gate <name> …\n'); return; }
   try { process.stdout.write(out()); } catch (e) {
     if (!e || !e.busy) throw e;
     process.stdout.write(`Build graph ${String(name).replace(/[^a-z0-9-]/g, '')} is busy (another JSPARK Forge update holds it); nothing changed. Try again in a moment.\n`);

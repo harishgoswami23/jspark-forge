@@ -337,13 +337,16 @@ it; JSPARK Forge keeps the record, so a crash, a usage limit or a new session pi
 - **Your test command:** a template's check says `npm test` only as a placeholder. Set it to your project's own test
   command before you trust the graph; `/jspark-forge:build` has Claude do this from your project's files.
 - **Builders commit** their step's work on the current branch (no merge, no push): the review step needs those commits.
+- **A check that takes longer than 10 minutes** (a long end-to-end suite): one tool call waits 10 minutes at most, so
+  Claude runs `forge.js graph gate <name> <step>` in the background instead. JSPARK Forge then runs the check's own
+  commands itself, with no time limit, and records their real exit codes.
 
 What JSPARK Forge checks, what it guards, and what it can only ask for:
 - **Checked:** the graph is valid before it starts and is fixed for the run; a step's outputs are exactly the declared
   ones and are real (a path exists, a commit resolves); a step that needs you completes only on your own typed
   `DONE <step>`.
 - **Backed by evidence:** a helper of the right kind ran for the step; a check passed on its command's real exit code,
-  run in this session and project, not in the background.
+  run in this session and project, not in the background (or run by JSPARK Forge's own check runner, above).
 - **Guarded:** Claude is blocked from editing the run's record or imitating your `DONE` / `TRUST GRAPH` from the shell;
   a command that only looks like it might asks you first. Removing a step that needs you, or a check, from the graph
   needs your `TRUST GRAPH` again. This is pattern matching on what a command does: it stops mistakes and shortcuts, not a program written to a file

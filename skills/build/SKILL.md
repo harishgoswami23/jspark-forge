@@ -23,7 +23,11 @@ Run a build graph step by step. JSPARK Forge keeps the record and checks it; you
      side (dispatch them in one message). Write each helper's declared fields as JSON to the report file it names with the
      Write tool (never through the shell), then run the `graph done` command it prints as a command of its own. If a step fails, run `graph fail` with the reason.
    - **gate step:** run each command with the Bash tool exactly as written, one per call. JSPARK Forge records the
-     exit codes; if one fails, the run stops: show the user the command and its output.
+     exit codes; if one fails, the run stops: show the user the command and its output. If a command can take longer
+     than 9 minutes (a long end-to-end suite), do not run it directly: one tool call waits 10 minutes at most, and a
+     command moved to the background is not recorded. Run
+     `node "${CLAUDE_PLUGIN_ROOT}/scripts/forge.js" graph gate <name> <step>` with the Bash tool in the background
+     instead: it runs the gate's commands itself and records their exit codes. When it ends, run `graph next` again.
    - **human step:** show the user the instruction and stop. Only the user's own message `DONE <step>` completes it.
    - **interrupted / stopped / finished:** show the user and wait.
 4. Never add steps, skip a human step, edit `.jspark-forge/state/graph-*` files, or report outputs a helper did not
