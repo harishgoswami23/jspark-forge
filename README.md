@@ -196,7 +196,7 @@ If the machine itself dies (a power cut, a crash, a killed window):
   words. Claude checks before carrying on.
 
 It waits 90 seconds of silence (10 minutes when all that is left is a command in flight, such as a long test run)
-before it says so. It never changes another window's files, and it stays quiet after a session that ended normally
+before it says so; a session you open again under its own id is checked after 15 seconds. It never changes another window's files, and it stays quiet after a session that ended normally
 and in a folder that is not a git repo.
 
 **What a crash can still lose:** the reply Claude was writing, output a program had not yet written to disk, and the
