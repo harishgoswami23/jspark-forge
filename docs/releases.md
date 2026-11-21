@@ -25,6 +25,7 @@ that date; **[spike]** depends on a spike. Spike results override review decisio
 | v0.5.1 | The gaps a line-by-line check of the spec found, closed: short answers by default, hook errors shown, helpers get the rules, page copies and temp-file warning, sign-in note | not estimated |
 | v0.5.2 | A build graph check that takes longer than 10 minutes (`graph gate`) | ~2 hours |
 | v0.6.0 | Token care: `/jspark-forge:usage`, a note when the conversation gets long, helper habits | ~3 hours |
+| v0.6.1 | Tidy-up, no new features: the last missing test, the spec coverage list brought up to date | ~½ hour |
 | Later, only if asked | Security review prompts (incl. council mode), `/capacity`, dashboard (incl. git view), `/jspark-forge:review`, migration mode, customer edition, secrets by name, limit handover (spec 5.6–5.8a, 5.12, 5.13) | not estimated |
 | **Total to v0.3** | | ~4–4½ weeks of build after v0.1.1, plus ~2 weeks of feedback, **soft** (v0.4 ~1½–2 weeks more, only if asked) |
 
@@ -429,6 +430,16 @@ failed node.
 **What.** `/jspark-forge:usage` (where a session's tokens went and what would save most); a note to the user each time a conversation passes another 150k tokens (`fresh-session`); four habits told to every helper and one line to the main session (`usage-care`, owner's plan A). Trimming JSPARK Forge's own notes was measured as not worth doing.
 
 **Not built, offered:** tokens per build graph step (plan B).
+
+---
+
+## v0.6.1: Tidy-up
+
+**Status: ready, waiting for the owner's yes to release.** Details: [`release-notes/v0.6.1.md`](release-notes/v0.6.1.md).
+
+**What.** No new features and no change in behaviour. A test for the migration-mapping text of the decide skill (the
+last test the spec coverage check asked for); `spec-coverage.md` brought up to date. With this, every numbered release
+in section 7 of the spec is out; what follows is the outside launch (spec section 7, "First user").
 
 ---
 

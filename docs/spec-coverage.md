@@ -55,13 +55,17 @@ title and search, not line by line (`blocklist`, `shell`, `graph`, `graph-run`, 
   commit; the TRUST GRAPH text no longer reads as an instruction to run commands; the long-entry hint says how long the
   entry is.
 
+## Closed in v0.6.1 (2026-11-21)
+
+- Item 1, the wording: the spec (principle 9) now says the list has no account ("a hook cannot read the account") and
+  that the copy is made after the publish. Nothing is left of item 1.
+- Item 15: the migration-mapping text of the decide skill is tested. All four tests are done.
+- "Spec is out of date" (below): every line was brought into the spec in v0.5.1; the list is kept for the record.
+
 ## Not built or partly built, most important first
 
-Items 2, 3, 5, 6, 7, 8, 9 and 10 are closed (above). What is left, with the reason:
+Items 1, 2, 3, 5, 6, 7, 8, 9, 10 and 15 are closed (above). What is left, with the reason:
 
-1. **Principle 9, local-first (spec line 66).** Left: the "account" field of the list. A hook cannot read the account,
-   so it is recorded as impossible, not built; the spec should say so or drop the field. Also: the copy is made after
-   the publish, not before. Acceptable; the spec should say "kept at publish".
 4. **"Waiting on you" (lines 218-234).** Built (above) except the timed reminder and the once-a-day summary, which the
    spec defers. A question captured from the question tool still has no "blocks" until Claude sets it; that is by
    design (the tool gives no data for it).
@@ -79,9 +83,8 @@ Items 2, 3, 5, 6, 7, 8, 9 and 10 are closed (above). What is left, with the reas
     "last read". All three are recorded deviations (design-v0.3 section 3, design-v0.1.1 section 3). Not built: the
     owner's and the spec's to settle.
 14. **Demo GIF (line 847):** still a placeholder in the README. Not built: the owner's.
-15. **Tests for built things:** the migration-mapping skill text is still untested (the other three are done).
 
-## Spec is out of date
+## Spec is out of date (as found on 2026-11-20; closed in v0.5.1)
 
 The product follows a later, owner-approved design in each case, except where marked.
 
