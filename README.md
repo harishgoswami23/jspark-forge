@@ -20,10 +20,9 @@ without being a coder and without losing your place. Built for Claude Code, by J
 > each release). Claude Code shares plan usage (5-hour and weekly limits) only with plans that report it. On any plan, JSPARK Forge still saves before the context limit and after every
 > step, and `/jspark-forge:handoff` saves on demand.
 
-<!-- demo GIF: kill a session mid-task, reopen, "here's where we were, continue?"
-     How to record it: docs/demo-gif-script.md. When assets/demo-resume.gif exists, replace this comment with:
-     <p align="center"><img alt="A Claude Code window is closed mid-task; a new session shows where the work stood and carries on" src="assets/demo-resume.gif" width="820"></p>
--->
+<p align="center"><img alt="A Claude Code window is closed mid-task; a new session shows where the work stood and carries on" src="assets/demo-resume.gif" width="820"></p>
+<p align="center"><em>An illustration of the flow, with the words JSPARK Forge prints. Not a screen recording.</em></p>
+<!-- The GIF is made by docs/launch/make_demo_gif.py. To replace it with a real screen recording: docs/demo-gif-script.md. -->
 
 ---
 
@@ -289,7 +288,13 @@ program wrongly (a false positive): allow it, or switch the code map off.
   git projects are left alone.
 - **Switches** under `## Settings` in `rules.md`: `- notes: off` stops the "add a note" reminder before commits;
   `- statusline-segment: off` hides JSPARK Forge's part of the status line; `- short-answers: off` switches off the
-  short-by-default rule; `- fresh-session: off` stops the "start a new session" note; `- ui-skills: off`, `- code-map: off` and `- playwright: off` are described above.
+  short-by-default rule; `- stay-reachable: off` switches off the stay-reachable rule (below); `- fresh-session: off` stops the "start a new session" note; `- ui-skills: off`, `- code-map: off` and `- playwright: off` are described above.
+- **Asking a question while Claude works.** A message you send mid-task reaches Claude only when its current
+  command ends, so a 10-minute test run can make you wait 10 minutes. JSPARK Forge tells Claude at every session start
+  to run long commands in the background and to answer your mid-task question first. It is a rule, not a hook: nothing
+  can interrupt a command that is already running. Claude Code's own tools help too: `/btw <question>` answers a
+  quick question at once (it sees the conversation, not the code), and Ctrl+Enter makes a waiting message land now
+  (a running command moves to the background).
 - **Status line.** Claude Code shows context and plan usage only to the status line, and JSPARK Forge needs those
   figures for the 80 % / 95 % saves. If you have no status line, JSPARK Forge adds its own and tells you how to undo
   it. If you have your own, it is never touched: run `/jspark-forge:init` once if you want JSPARK Forge to wrap it (it
@@ -365,6 +370,28 @@ it; JSPARK Forge keeps the record, so a crash, a usage limit or a new session pi
 - **A check that takes longer than 10 minutes** (a long end-to-end suite): one tool call waits 10 minutes at most, so
   Claude runs `forge.js graph gate <name> <step>` in the background instead. JSPARK Forge then runs the check's own
   commands itself, with no time limit, and records their real exit codes.
+- **Better checks (v0.7).** A check step can say more:
+
+  ```
+  ## e2e (gate)
+  - before: free memory 4 GB
+  - before: port 5432 open
+  - before: container app-db running
+  - run: npx playwright test
+  - retry: npx playwright test --last-failed
+  ```
+
+  - **`before:`** what must be true before the check starts (free memory, a port open or free, a Docker container
+    running). If it is not, the check is not started and nothing fails: you are told what is missing, instead of
+    finding out 20 minutes in.
+  - **`retry:`** your test tool's own command for "run only what failed". If the full run fails, only what failed
+    runs again; if that passes, the full command must pass once more. A retry alone never completes a check.
+  - **Results without reading logs.** Each run is recorded: how many tests passed, failed and were skipped, and the
+    names of the failing ones (node:test, TAP, jest, vitest, pytest, Playwright, mocha, go test). `graph status` lists
+    the runs side by side and, while a run is going, says how far it has got ("31 of 63 tests done, 0 failed").
+  - **Flaky is said out loud.** A test that failed and then passed with no change to the code is named as flaky
+    every time. It is not counted as fixed.
+  - **Cost as you go.** Every step ends with the time and tokens used so far.
 
 What JSPARK Forge checks, what it guards, and what it can only ask for:
 - **Checked:** the graph is valid before it starts and is fixed for the run; a step's outputs are exactly the declared

@@ -238,3 +238,7 @@ be done at the end of our roadmap"; "at least do some research for best in class
 ### Rev 19: v0.6.2, six small fixes from real use (2026-11-21)
 **What:** a first message that says "continue" is the go-ahead (no second "Continue?"); the handoff lists the newest 8 touched files and a count; a gate nobody is running is "not yet passed", not "running"; gate messages read "Step <id> (gate)"; notes are dated and say to re-check a caution; one line says who decides what when superpowers is installed too.
 **Why [owner]:** feedback from a Claude session that used JSPARK Forge in another of the owner's projects (7 out of 10).
+
+### Rev 20: v0.7.0, better gates (2026-11-22)
+**What:** a gate step of a build graph can say what must be true before it starts ("before:" lines: free memory, a port, a container) and how to run again only what failed ("retry:"); every run is recorded with counts and failing test names; a test that failed and then passed with no change to the code is named flaky, never fixed; "graph status" shows progress; every "graph next" ends with the time and tokens so far. The graph-wide memory line cut in v0.4 stays cut; the per-gate "before:" line takes its place.
+**Why [owner]:** in the owner's other project the hours went into the full end-to-end run (feedback of 2026-11-21).

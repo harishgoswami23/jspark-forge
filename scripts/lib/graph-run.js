@@ -12,6 +12,8 @@ const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 const paths = require('./paths');
 const G = require('./graph');
+const P = require('./preflight'); // v0.7: what must be true before a gate starts
+const R = require('./gate-results'); // v0.7: counts and failing test names read from a test runner's output
 
 const NAME = /^[a-z][a-z0-9-]{0,39}$/;
 const STEP = G.ID;
@@ -76,17 +78,23 @@ function load(dir, n) {
   try { text = fs.readFileSync(graphFile(dir, n), 'utf8'); } catch { return { error: `No graph .jspark-forge/graphs/${n}.md.` }; }
   const g = G.parse(text);
   const errs = G.validate(g, n);
-  const runs = g.steps.filter(s => s.kind === 'gate').flatMap(s => s.run);
+  // v0.7: a gate's "retry:" line is a command too, so it is shown and trusted with the "run:" lines. A gate without
+  // one keeps its old entry, so a graph trusted before v0.7 is not asked about again.
+  const runs = g.steps.filter(s => s.kind === 'gate').flatMap(s => s.run.concat(retryOf(s) ? [retryOf(s)] : []));
   // What TRUST GRAPH covers (re-review M6): the gate commands and which steps are gates and human steps, so dropping
   // a gate or a human step is a change the user is asked about.
-  const guard = { gates: g.steps.filter(s => s.kind === 'gate').map(s => [s.id, s.run]), human: g.steps.filter(s => s.kind === 'human').map(s => s.id) };
+  const guard = { gates: g.steps.filter(s => s.kind === 'gate').map(s => (retryOf(s) ? [s.id, s.run, retryOf(s)] : [s.id, s.run])), human: g.steps.filter(s => s.kind === 'human').map(s => s.id) };
   return { text, g, errs, hash: sha(text), runs, guard, runHash: sha(JSON.stringify(guard)) };
 }
+const retryOf = s => (s.retries && s.retries[0] && s.retries[0].value) || '';
 // The part of the graph a run depends on, copied into the run state at start.
+// v0.7: a gate's "before:" lines (already read into their fixed forms) and its "retry:" command.
 function snapshot(g) {
   return { maxParallel: g.maxParallel, steps: g.steps.map(s => ({ id: s.id, kind: s.kind, helper: s.helper || '', brief: s.brief || '',
     needs: s.needs.slice(), gives: s.gives.slice(), after: s.after.slice(), steps: s.steps.slice(), run: s.run.slice(), say: s.say || '',
-    estimate: s.estimate || '' })) };
+    estimate: s.estimate || '',
+    before: s.kind === 'gate' ? (s.before || []).map(b => P.parse(b.value)).filter(p => !p.error) : [],
+    retry: s.kind === 'gate' ? retryOf(s) : '' })) };
 }
 // Trust (design-v0.4 2, review M1): { asked: { name: hash of what `start` showed }, trusted: { name: hash } }.
 // TRUST GRAPH <name> trusts only what was shown. A graph without commands needs no trust the first time, and its
@@ -160,10 +168,156 @@ function settle(g, s) { // a parallel step is done when all its steps are
 }
 const seen = (s, sid) => { if (s.owner === sid) s.lastSeen = Date.now(); };
 
+// ---------- v0.7: better gates (design-v0.7) ----------
+// A gate's round: the full command(s); with a "retry:" line a failing full run is followed by the retry of what
+// failed, and then by the full command once more. Only a passing full run completes a gate.
+const PHASE_NOTE = { retry: 'the full command failed; this runs only what failed', confirm: 'the retry passed; the full command must pass once more' };
+const LOG_KEEP = 5;
+const LOG_READ_MAX = 20 * 1000 * 1000;
+const logFile = (dir, n, id, k) => path.join(paths.forgeDir(dir), 'state', `gatelog-${n}-${id}-${k}.log`);
+const nextRunNo = st => ((st.runs || []).length ? st.runs[st.runs.length - 1].n + 1 : 1);
+// The end of a log (a long run's log can be large; the summary and the failing names are at the end).
+function readLog(f) {
+  try {
+    const size = fs.statSync(f).size;
+    const len = Math.min(size, LOG_READ_MAX);
+    const fd = fs.openSync(f, 'r');
+    try { const b = Buffer.alloc(len); fs.readSync(fd, b, 0, len, size - len); return b.toString('utf8'); } finally { fs.closeSync(fd); }
+  } catch { return ''; }
+}
+function pruneLogs(dir, n, id, newest) {
+  for (let k = newest - LOG_KEEP; k > 0 && k > newest - LOG_KEEP - 20; k--) { try { fs.unlinkSync(logFile(dir, n, id, k)); } catch { /* none */ } }
+}
+
+// What must be true before a gate starts (its "before:" lines), for every gate that could be handed out now.
+// -> { <step>: [what is missing, in plain words] }. Run before the record is locked: a port or a Docker check takes time.
+function preflightFor(dir, n, probes) {
+  const out = {};
+  try {
+    const s = readJson(stateFile(dir, n));
+    if (!s || !s.graph || s.stopped || s.finished) return out;
+    settle(s.graph, s); // on this copy only: a parallel step whose steps are all done counts as done, as next() will see it (review of v0.7)
+    const deps = G.deps(s.graph);
+    for (const x of s.graph.steps) {
+      if (x.kind !== 'gate' || !(x.before || []).length) continue;
+      const st = s.steps[x.id];
+      if (!st || st.state !== 'waiting' || !(deps.get(x.id) || []).every(d => s.steps[d] && s.steps[d].state === 'done')) continue;
+      out[x.id] = P.failures(P.check(x.before, probes));
+    }
+  } catch { /* the record could not be read: next() says so itself */ }
+  return out;
+}
+
+// The state of the code, as far as git can see it: the commit, the uncommitted changes to tracked files, and every
+// untracked file that git does not ignore, with its size and the time it was last written (a fix made in a new file
+// that was never added must not look like "no change": review of v0.7). JSPARK Forge's own folder is left out: its
+// record and logs change at every run and are not the project's code. Files git ignores are not seen.
+// null when git cannot say, or when there are too many untracked files to look at. Two equal values: no change.
+const UNTRACKED_MAX = 5000;
+function codeState(dir) {
+  try {
+    const o = { cwd: dir, timeout: 5000, windowsHide: true, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 };
+    const h = spawnSync('git', ['--no-optional-locks', 'rev-parse', 'HEAD'], o);
+    const d = spawnSync('git', ['--no-optional-locks', 'diff', 'HEAD'], o);
+    const u = spawnSync('git', ['--no-optional-locks', 'ls-files', '--others', '--exclude-standard', '-z'], o);
+    if (h.status !== 0 || d.status !== 0 || u.status !== 0) return null;
+    const own = `${path.relative(dir, paths.forgeDir(dir)).replace(/\\/g, '/')}/`;
+    const names = u.stdout.split('\0').filter(f => f && !f.startsWith('.jspark-forge/') && !(own !== '/' && !own.startsWith('..') && f.startsWith(own)));
+    if (names.length > UNTRACKED_MAX) return null;
+    const files = names.sort().map(f => { try { const s = fs.statSync(path.join(dir, f)); return `${f}:${s.size}:${Math.round(s.mtimeMs)}`; } catch { return `${f}:gone`; } });
+    return sha(`${h.stdout.trim()}\n${d.stdout}\n${files.join('\n')}`);
+  } catch { return null; }
+}
+// What a test runner's output says, read outside the record's lock (a large log takes time).
+function readResults(text) { try { return text ? R.summarize(text) : null; } catch { return null; } }
+
+const namesText = (names, max = 5) => `${names.slice(0, max).join('; ')}${names.length > max ? ` (+${names.length - max} more)` : ''}`;
+const runCounts = run => { try { return run && run.format ? R.oneLine({ passed: run.passed, failed: run.failed, skipped: run.skipped, notRun: run.notRun || 0, runnerFlaky: 0 }) : ''; } catch { return ''; } };
+const flakyText = st => (!st ? '' : (st.flaky && st.flaky.length ? namesText(st.flaky, 10)
+  : (st.flakyUnnamed ? 'the command failed and then passed unchanged (the test names could not be read)' : '')));
+
+// One run of one gate command, added to the step's record (the last 10 are kept).
+// extra: { ms, sum (readResults of the command's output, made before the lock was taken), code (codeState),
+// log (the log file, as shown to the user) }. Nothing slow happens here: the record is locked.
+function runRecord(st, cmd, exit, extra = {}) {
+  const sum = extra.sum || null; // none: an output nobody could read; the exit code stands
+  const run = { n: nextRunNo(st), cmd, kind: st.phase === 'retry' ? 'retry' : 'full', at: Date.now(), exit };
+  if (Number.isFinite(extra.ms)) run.ms = Math.round(extra.ms);
+  if (extra.code) run.code = extra.code;
+  if (extra.log) run.log = extra.log;
+  if (sum) Object.assign(run, { format: sum.format, passed: sum.passed, failed: sum.failed, skipped: sum.skipped, notRun: sum.notRun || 0,
+    names: (sum.failedNames || []).slice(0, 50).map(x => clean(x, 160)) });
+  st.runs = (st.runs || []).concat([run]).slice(-10);
+  return run;
+}
+
+// A full run just passed. The tests that failed in the full runs before it, back to the last one that passed, are
+// flaky when the code did not change in between; when it changed they may have been fixed, so nothing is said.
+function noteFlaky(st, run) {
+  if (run.kind !== 'full' || !run.code) return;
+  const runs = st.runs || [];
+  const names = [];
+  let any = false, unnamed = false;
+  for (let i = runs.length - 2; i >= 0; i--) {
+    const r = runs[i];
+    if (r.kind !== 'full' || r.cmd !== run.cmd) continue;
+    if (typeof r.exit !== 'number') continue; // no exit code (the tool call timed out or was cut): not a test failure (review of v0.7)
+    if (r.exit === 0 || !r.code || r.code !== run.code) break;
+    any = true;
+    if (r.names && r.names.length) names.push(...r.names); else unnamed = true;
+  }
+  if (!any) return;
+  st.flaky = [...new Set((st.flaky || []).concat(names))].slice(0, 50);
+  if (unnamed && !st.flaky.length) st.flakyUnnamed = true;
+}
+
+// One gate command ended with this exit code: record the run and move the gate on.
+// -> { msg, cont }: cont true = the gate needs another command (msg may be null); otherwise the gate is done or failed.
+function settleGate(n, id, x, st, cmd, exit, extra) {
+  const run = runRecord(st, cmd, exit, extra);
+  const counts = runCounts(run);
+  const what = `"${clean(cmd, 120)}"`;
+  const tail = `${counts ? ` ${counts}.` : ''}${run.names && run.names.length ? ` Failed: ${namesText(run.names)}.` : ''}${run.log ? ` Full output: ${run.log}` : ''}`;
+  if (exit !== 0) {
+    if (x.retry && st.phase === 'full' && !st.retried) {
+      st.phase = 'retry'; st.retried = true; st.pending = [x.retry]; st.passed = [];
+      return { cont: true, msg: `Step ${id} (gate): ${what} exited ${exit}.${tail}\nNot failed yet: only what failed runs again now (${clean(x.retry, 120)}); then the full command must pass once more.` };
+    }
+    const where = st.phase === 'retry' ? ' (the retry of what failed)' : (st.phase === 'confirm' ? ' (the full run after the retry)' : '');
+    st.state = 'failed'; st.reason = `${what} exited ${exit}${where}`;
+    return { msg: `Step ${id} (gate) failed: ${st.reason}.${tail} Show the user the command and its output; the run is stopped.` };
+  }
+  if (st.phase === 'retry') {
+    st.phase = 'confirm'; st.pending = x.run.slice(); st.passed = [];
+    return { cont: true, msg: `Step ${id} (gate): the retry passed.${counts ? ` ${counts}.` : ''} A retry alone never completes a gate: the full command runs once more now.` };
+  }
+  st.passed = [...new Set((st.passed || []).concat([cmd]))];
+  noteFlaky(st, run);
+  if (!st.pending.every(c => st.passed.includes(c))) return { cont: true, msg: null };
+  st.state = 'done'; st.doneAt = Date.now(); delete st.runner; delete st.phase;
+  st.minutes = Math.round((st.doneAt - (st.handedAt || st.doneAt)) / 6000) / 10;
+  const fl = flakyText(st);
+  return { msg: `Step ${id} (gate) passed.${counts ? ` ${counts}.` : ''}${fl ? ` Flaky (failed, then passed with no change to the code; a flaky test is not a fixed test), tell the user: ${fl}.` : ''} Now run: node "${FORGE_JS}" graph next ${n}` };
+}
+
+// Time and tokens so far, printed by every graph next: an expensive step shows while there is still a choice.
+const kTok = t => (t >= 1000 ? `${Math.round(t / 1000)}k` : String(t));
+function costLine(g, s) {
+  const ids = g.steps.filter(x => x.kind !== 'parallel').map(x => x.id);
+  const done = ids.filter(i => s.steps[i] && s.steps[i].state === 'done' && s.steps[i].doneAt);
+  if (!done.length) return '';
+  const fig = (m, t) => `${Math.round(m * 10) / 10} min${t ? `, ${kTok(t)} tokens` : ''}`;
+  const min = done.reduce((a, i) => a + (s.steps[i].minutes || 0), 0);
+  const tok = done.reduce((a, i) => a + (s.steps[i].tokens || 0), 0);
+  const last = done.slice().sort((a, b) => s.steps[b].doneAt - s.steps[a].doneAt)[0];
+  return `So far: ${done.length} of ${ids.length} steps done, ${fig(min, tok)} (last: ${last}, ${fig(s.steps[last].minutes || 0, s.steps[last].tokens || 0)}). Tokens are counted for helper steps only.`;
+}
+
 // opts.takeover: `graph takeover <name>`, the user's choice to move a live run to this session.
 function next(dir, n, sid, opts = {}) {
   const L = load(dir, n);
   if (L.error) return `${L.error}\n`;
+  const pre = preflightFor(dir, n, opts.probes); // before the record is locked: these checks can take seconds
   return update(dir, n, s => {
     if (!s) return `Build graph ${n} has not started: node "${FORGE_JS}" graph start ${n}\n`;
     if (s.stopped) return `Build graph ${n} is stopped (${s.stopped}).\n`;
@@ -188,7 +342,13 @@ function next(dir, n, sid, opts = {}) {
     settle(g, s);
     const failed = Object.entries(s.steps).find(([, v]) => v.state === 'failed');
     if (failed) { out.push(`Stopped: ${failed[0]} failed (${clean(failed[1].reason || 'no reason given', 200)}). Show this to the user.`); return `${out.join('\n')}\n`; }
-    if (g.steps.every(x => s.steps[x.id].state === 'done')) { s.finished = Date.now(); setActive(dir, null); return `${out.concat([`Build graph ${n} finished.`]).join('\n')}\n`; }
+    if (g.steps.every(x => s.steps[x.id].state === 'done')) {
+      s.finished = Date.now(); setActive(dir, null);
+      const fl = g.steps.filter(x => flakyText(s.steps[x.id])).map(x => `${x.id}: ${flakyText(s.steps[x.id])}`);
+      if (fl.length) out.push(`Flaky in this run (failed, then passed with no change to the code; a flaky test is not a fixed test). Tell the user: ${fl.join(' | ')}`);
+      const c = costLine(g, s);
+      return `${out.concat([`Build graph ${n} finished.`], c ? [c] : []).join('\n')}\n`;
+    }
     const deps = G.deps(g);
     const byId = new Map(g.steps.map(x => [x.id, x]));
     const ready = G.order(g).map(id => byId.get(id))
@@ -216,12 +376,28 @@ function next(dir, n, sid, opts = {}) {
           ` Then write those fields as JSON with the Write tool to .jspark-forge/state/report-${x.id}.json and run, as a command of its own: node "${FORGE_JS}" graph done ${n} ${x.id} --from .jspark-forge/state/report-${x.id}.json` +
           ` (if the step fails: node "${FORGE_JS}" graph fail ${n} ${x.id} "<reason>").`);
       } else if (x.kind === 'gate') {
+        // v0.7: what the gate needs before it starts. Not met: it is not handed out, and nothing fails.
+        // A gate with "before:" lines is never handed out unchecked: if it became ready only now (another command
+        // finished a step in between), it is checked at the next graph next (review of v0.7).
+        if ((x.before || []).length && !(x.id in pre)) {
+          out.push(`Step ${x.id} (gate) is ready; what it needs before it starts is checked first. Run graph next again.`);
+          continue;
+        }
+        const miss = pre[x.id] || [];
+        if (miss.length) {
+          out.push(`Step ${x.id} (gate) is not started. Before it can run: ${miss.join('; ')}. Tell the user; when that is fixed, run graph next again.`);
+          continue;
+        }
         // Printed exactly as stored and matched exactly (review M2); graph check refuses lines that would print otherwise.
+        // v0.7: each hand-out is a new round (full, then at most one retry of what failed, then full again); the runs
+        // already recorded and the flaky names are kept.
         st.state = 'running'; st.handedAt = Date.now(); st.pending = x.run.slice(); st.passed = []; delete st.runner;
+        st.phase = 'full'; st.retried = false;
         out.push(`Step ${x.id} (gate): Run each command with the Bash tool exactly as written, one per call, from the project folder, not in the background:\n` +
           `${x.run.map(r => `  ${r}`).join('\n')}\nJSPARK Forge records each exit code; a failing one stops the run.\n` +
           `If a command can take longer than 9 minutes (one tool call waits 10 at most, and a command moved to the background is not recorded), run this instead, with the Bash tool, in the background: node "${FORGE_JS}" graph gate ${n} ${x.id}\n` +
-          `It runs the same commands and records their exit codes itself. When it ends, run graph next again.`);
+          `It runs the same commands and records their exit codes itself, keeps each run's output in a log file and reports the counts and the failing tests. When it ends, run graph next again.` +
+          `${x.retry ? `\nIf the command fails, the gate is not failed yet: only what failed runs again (${x.retry}), and then the full command must pass once more. graph gate does all three by itself.` : ''}`);
       } else if (x.kind === 'human') {
         st.state = 'running'; st.handedAt = Date.now();
         out.push(`Step ${x.id} (human): Show the user: ${clean(x.say, 300)} Then stop and wait; only the user's own message DONE ${x.id} completes it.`);
@@ -235,9 +411,11 @@ function next(dir, n, sid, opts = {}) {
         const v = s.steps[x.id];
         if (x.kind !== 'gate' || v.state !== 'running' || runnerLive(v.runner)) continue;
         const left = (v.pending || []).filter(c => !(v.passed || []).includes(c));
-        if (left.length) out.push(`Step ${x.id} (gate) still needs: ${left.map(c => clean(c, 120)).join('; ')}. Run them with the Bash tool, or all of them (any length of time) in the background with: node "${FORGE_JS}" graph gate ${n} ${x.id}`);
+        if (left.length) out.push(`Step ${x.id} (gate) still needs: ${left.map(c => clean(c, 120)).join('; ')}${PHASE_NOTE[v.phase] ? ` (${PHASE_NOTE[v.phase]})` : ''}. Run them with the Bash tool, or all of them (any length of time) in the background with: node "${FORGE_JS}" graph gate ${n} ${x.id}`);
       }
     }
+    const c = costLine(g, s); // v0.7: time and tokens so far, at every step, not only at the end
+    if (c) out.push(c);
     return `${out.join('\n')}\n`;
   });
 }
@@ -352,6 +530,8 @@ function stateWord(kind, v) {
   if (!v || v.state !== 'running') return v ? v.state : 'unknown';
   if (kind === 'human') return 'waiting for the user';
   if (kind !== 'gate' || runnerLive(v.runner)) return 'running';
+  if (v.phase === 'retry') return 'not yet passed (the full command failed; the retry of what failed is next, none running)';
+  if (v.phase === 'confirm') return 'not yet passed (the retry passed; the full command must pass once more, none running)';
   const all = Array.isArray(v.pending) ? v.pending : [];
   const ok = all.filter(c => (v.passed || []).includes(c)).length;
   return `not yet passed (${ok} of ${all.length} commands passed, none running)`;
@@ -372,8 +552,26 @@ function status(dir, n) {
   if (!sum) return `Build graph ${n} has not started.\n`;
   const s = readJson(stateFile(dir, n));
   const kinds = new Map(s.graph.steps.map(x => [x.id, x.kind]));
-  const lines = Object.entries(s.steps).map(([k, v]) => `- ${k}: ${stateWord(kinds.get(k), v)}${v.reason ? ` (${v.reason})` : ''}${v.state === 'running' && runnerLive(v.runner) ? ` (its commands are being run by graph gate since ${clockOf(v.runner.at)})` : ''}${v.tokens ? `, ${v.tokens} tokens` : ''}${v.minutes ? `, ${v.minutes} min` : ''}`);
-  return `${sum.text}\n${lines.join('\n')}\n`;
+  // v0.7: a gate that graph gate is running shows how far it has got (read from the run's log); every gate lists its
+  // runs, so two runs can be compared without opening a log; flaky tests are always named.
+  const live = (k, v) => {
+    if (!(v.state === 'running' && runnerLive(v.runner))) return '';
+    let far = '';
+    try { const p = R.progress(readLog(logFile(dir, n, k, nextRunNo(v)))); if (p) far = `; ${R.progressLine(p)}`; } catch { /* no log yet */ }
+    return ` (its commands are being run by graph gate since ${clockOf(v.runner.at)}${far})`;
+  };
+  const runLine = r => `    run ${r.n}, ${r.kind === 'retry' ? 'only what failed' : 'full'}, ${clockOf(r.at)}${Number.isFinite(r.ms) ? `, ${Math.round(r.ms / 6000) / 10} min` : ''}: exit ${r.exit}` +
+    `${runCounts(r) ? `; ${runCounts(r)}` : ''}${r.names && r.names.length ? `; failed: ${namesText(r.names)}` : ''}`;
+  const lines = [];
+  for (const [k, v] of Object.entries(s.steps)) {
+    lines.push(`- ${k}: ${stateWord(kinds.get(k), v)}${v.reason ? ` (${v.reason})` : ''}${live(k, v)}${v.tokens ? `, ${v.tokens} tokens` : ''}${v.minutes ? `, ${v.minutes} min` : ''}`);
+    for (const r of (v.runs || []).slice(-5)) lines.push(runLine(r));
+    if (flakyText(v)) lines.push(`    flaky (failed, then passed with no change to the code; not fixed): ${flakyText(v)}`);
+    const lastLog = (v.runs || []).map(r => r.log).filter(Boolean).pop();
+    if (lastLog) lines.push(`    output of the last run: ${lastLog}`);
+  }
+  const c = costLine(s.graph, s);
+  return `${sum.text}\n${lines.join('\n')}\n${c ? `${c}\n` : ''}`;
 }
 // The running graph, for session start and the handoff (null when none).
 function current(dir) {
@@ -428,18 +626,19 @@ function onCommand(dir, input, ok) {
   const counts = !ti.run_in_background && !r.backgroundTaskId && !r.interrupted && sameDir(input.cwd, dir);
   const isGate = st => st.state === 'running' && Array.isArray(st.pending) && st.pending.includes(cmd);
   if (!(counts && Object.values(s0.steps || {}).some(isGate))) { touch(dir, n, input.session_id); return; }
+  // v0.7: the run is recorded like one made by graph gate, from the output the tool reports (it may be cut short; the
+  // exit code is the truth). Read before the record is locked: git can take a moment.
+  const text = ok ? [r.stdout, r.stderr].filter(x => typeof x === 'string').join('\n') : String(input.error || '');
+  const sum = readResults(text);
+  const code = codeState(dir);
   update(dir, n, s => {
-    if (!s || s.owner !== input.session_id) return;
+    if (!s || s.owner !== input.session_id || !s.graph) return;
     seen(s, input.session_id);
-    for (const st of Object.values(s.steps)) {
+    for (const [id, st] of Object.entries(s.steps)) {
       if (!isGate(st)) continue;
-      if (!ok) {
-        const code = (String(input.error || '').match(/exit code (\d+)/i) || [])[1] || '?';
-        st.state = 'failed'; st.reason = `"${clean(cmd, 120)}" exited ${code}`;
-        return;
-      }
-      st.passed = [...new Set((st.passed || []).concat([cmd]))];
-      if (st.pending.every(c => st.passed.includes(c))) { st.state = 'done'; st.doneAt = Date.now(); }
+      const x = s.graph.steps.find(k => k.id === id) || { run: st.pending.slice(), retry: '' };
+      const exit = ok ? 0 : (Number((String(input.error || '').match(/exit code (\d+)/i) || [])[1]) || '?');
+      settleGate(n, id, x, st, cmd, exit, { sum, code });
       return;
     }
   });
@@ -469,9 +668,16 @@ function gateShell(env = process.env) {
   if (path.isAbsolute(set) && /[\\/]bash\.exe$/i.test(set)) tries.push(set);
   return tries.find(isFile) || null;
 }
-function runShell(dir, cmd) {
-  return spawnSync(gateShell(), ['-c', cmd], { cwd: dir, stdio: 'inherit', windowsHide: true });
+// v0.7: the command's output goes to a log file, not the screen: the runner reads it for the counts and the failing
+// tests, graph status reads it for progress, and Claude gets a summary instead of the whole output.
+function runShell(dir, cmd, log) {
+  let fd = null;
+  try { fs.mkdirSync(path.dirname(log), { recursive: true }); fd = fs.openSync(log, 'w'); } catch { /* no log: the output is shown instead */ }
+  try { return spawnSync(gateShell(), ['-c', cmd], { cwd: dir, stdio: fd === null ? 'inherit' : ['ignore', fd, fd], windowsHide: true }); }
+  finally { if (fd !== null) { try { fs.closeSync(fd); } catch { /* closed */ } } }
 }
+const TAIL_LINES = 25;
+const tailOf = text => { const l = String(text || '').replace(/\r/g, '').split('\n'); while (l.length && !l[l.length - 1].trim()) l.pop(); return l.slice(-TAIL_LINES).join('\n'); };
 // The record can be busy for a moment (another hook holds it): after a long command, wait up to a minute for it.
 function updatePatiently(dir, n, fn, waitMs = 60000) {
   const until = Date.now() + waitMs;
@@ -489,6 +695,17 @@ function gate(dir, n, id, sid, opts = {}) {
   const mine = { pid: process.pid, at: Date.now() };
   if (!opts.run && !gateShell()) return 'Git Bash was not found on this machine, so the gate runner cannot run the commands the way Claude\'s Bash tool does. Nothing was run. Run the gate\'s commands with the Bash tool instead.\n';
   let runStarted = 0, handed = 0; // this run and this hand-out of the step: a result is recorded only into the same ones
+  // v0.7: what the gate needs before it starts is checked again here (time has passed since it was handed out), before
+  // the record is locked. Not met: nothing is run and nothing fails.
+  try {
+    const s0 = readJson(stateFile(dir, n));
+    const x0 = s0 && s0.graph && STEP.test(String(id || '')) && s0.graph.steps.find(k => k.id === id);
+    const fresh = x0 && s0.steps[id] && !(s0.steps[id].runs || []).some(r => r.at >= (s0.steps[id].handedAt || 0));
+    if (x0 && x0.kind === 'gate' && fresh && (x0.before || []).length) {
+      const miss = P.failures(P.check(x0.before, opts.probes));
+      if (miss.length) return `Step ${id} (gate) was not run. Before it can run: ${miss.join('; ')}. Tell the user; when that is fixed, run the same graph gate command again.\n`;
+    }
+  } catch { /* the record could not be read: said below */ }
   const refused = update(dir, n, s => {
     if (!s) return `Build graph ${n} has not started.\n`;
     if (!s.graph) return OLD_RECORD(n);
@@ -517,27 +734,39 @@ function gate(dir, n, id, sid, opts = {}) {
       if (cmd === undefined) return `Step ${id} (gate) passed. Now run: node "${FORGE_JS}" graph next ${n}\n`;
       const why = opts.blocked ? opts.blocked(cmd) : null;
       if (why) return `Not run: "${clean(cmd, 120)}" (${clean(why, 200)}). The gate runner never runs what the block list would hold: run that command with the Bash tool instead.\n`;
-      write(`JSPARK Forge: step ${id} (gate): running: ${cmd}\n`);
-      const r = (opts.run || (c => runShell(dir, c)))(cmd);
+      const runNo = nextRunNo(st);
+      const log = logFile(dir, n, id, runNo);
+      const logShown = paths.display(dir, log);
+      write(`JSPARK Forge: step ${id} (gate): running: ${cmd}\nIts output goes to ${logShown} (how far it has got: node "${FORGE_JS}" graph status ${n})\n`);
+      // An older log with this number is removed first: if the new one cannot be written, the old one's counts and
+      // names must not be read as this run's (review of v0.7).
+      try { fs.unlinkSync(log); } catch { /* none */ }
+      const t0 = Date.now();
+      const r = (opts.run || (c => runShell(dir, c, log)))(cmd, log);
       if (r.error || r.signal || typeof r.status !== 'number') {
         return `Step ${id} (gate): "${clean(cmd, 120)}" did not finish (${clean(r.error ? r.error.message : `stopped by ${r.signal}`, 120)}); nothing was recorded for it. Run the same graph gate command again.\n`;
       }
+      // Read before the record is locked: the log can be large, and git can take a moment.
+      const text = readLog(log);
+      const extra = { ms: Date.now() - t0, sum: readResults(text), code: codeState(dir), log: text ? logShown : '' };
+      pruneLogs(dir, n, id, runNo);
       let verdict;
       try {
         verdict = updatePatiently(dir, n, x => {
         const t = x && x.steps[id];
-        if (!x || !same(x, t) || !t.pending.includes(cmd)) return `${id} changed while its command ran (the run was stopped, started again or moved); the result was not recorded.\n`;
+        if (!x || !same(x, t) || !t.pending.includes(cmd)) return { msg: `${id} changed while its command ran (the run was stopped, started again or moved); the result was not recorded.` };
         seen(x, sid);
-        if (r.status !== 0) { t.state = 'failed'; t.reason = `"${clean(cmd, 120)}" exited ${r.status}`; return `Step ${id} (gate) failed: ${t.reason}. Show the user the command and its output; the run is stopped.\n`; }
-        t.passed = [...new Set((t.passed || []).concat([cmd]))];
-        if (t.pending.every(c => t.passed.includes(c))) { t.state = 'done'; t.doneAt = Date.now(); delete t.runner; return `Step ${id} (gate) passed. Now run: node "${FORGE_JS}" graph next ${n}\n`; }
-        return null;
+        const step = x.graph.steps.find(k => k.id === id) || { run: t.pending.slice(), retry: '' };
+        return settleGate(n, id, step, t, cmd, r.status, extra);
         });
       } catch (e) {
         if (!e || !e.busy) throw e;
         return `Step ${id} (gate): "${clean(cmd, 120)}" finished with exit code ${r.status}, but the run's record stayed busy for a minute, so it was NOT recorded. Tell the user; run the same graph gate command again.\n`;
       }
-      if (verdict) return verdict;
+      // What Claude sees instead of the whole output: the end of it on a failure, one line on a pass.
+      if (r.status !== 0 && text) write(`--- last lines of the output ---\n${tailOf(text)}\n--- end ---\n`);
+      if (verdict.cont) { if (verdict.msg) write(`${verdict.msg}\n`); continue; }
+      return `${verdict.msg}\n`;
     }
   } finally { release(); }
 }
