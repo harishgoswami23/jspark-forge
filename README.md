@@ -431,7 +431,7 @@ What JSPARK Forge checks, what it guards, and what it can only ask for:
 | `/jspark-forge:upgrade` | Update JSPARK Forge (asks first); run the doctor after the restart |
 | `/jspark-forge:launch` | Create the launch list (launch date, 5 blank slots), or show and update it |
 | `/jspark-forge:scope` | Weigh a new idea against the launch list: facts first, then now / after launch / smaller / drop |
-| `/jspark-forge:build` | Run or continue a build graph step by step (`DONE <step>` and `TRUST GRAPH <name>` are yours to type) |
+| `/jspark-forge:build` | Run or continue a build graph step by step (`DONE <step>`, `TRUST GRAPH <name>` and `APPROVE AHEAD <graph> <step>` are yours to type); more than one graph can be open |
 | `/jspark-forge:init` | Optional. Wrap your own status line (asks first); `--undo-statusline` restores it exactly; `--guest` / `--mine` for someone else's repo or your own |
 
 ## Uninstall
@@ -467,7 +467,7 @@ built is listed in [spec-coverage.md](docs/spec-coverage.md).
 | Hook (time limit) | What it does | What it writes | Can it block? |
 |---|---|---|---|
 | SessionStart (10 s; a Node check first, 5 s) | Switches JSPARK Forge on in a git project; shows where you were and waits; the crash check after a cut-off session; questions waiting on you; the grounding rule; the short-by-default rule; decision index; code map freshness; launch list; a running build graph; pages with no local copy; one-time tips; at most once a day each: a hook error was logged, documents left in a temporary folder, a repo with no commits yet | the handoff state, the action log, `state/` files | No |
-| UserPromptSubmit (10 s) | Switches JSPARK Forge on if session start missed it; saves the handoff on each message from you; your `CONFIRM <name>`, `TRUST GRAPH <name>`, `DONE <step>`; clears a question you answered; offers to record a decision; the launch-scope nudge | handoff, confirm tokens, session state, graph trust and state | No |
+| UserPromptSubmit (10 s) | Switches JSPARK Forge on if session start missed it; saves the handoff on each message from you; your `CONFIRM <name>`, `TRUST GRAPH <name>`, `DONE <step>`, `APPROVE AHEAD <graph> <step>`, `CANCEL APPROVAL <graph> <step>`; clears a question you answered; offers to record a decision; the launch-scope nudge | handoff, confirm tokens, session state, graph trust and state | No |
 | PreToolUse (3 s; shell, edits, the question tool, MCP tools) | The block list (asks or denies); files a question you are asked; the decisions about a file just before Claude edits it; the notes reminder before a commit; notes an allowed command, file write or helper as in flight | waiting list, "already shown" ids, in-flight records | **Yes**: deny or ask |
 | PostToolUse (10 s) | Saves after file changes and commits, and once a minute while Claude works; clears the in-flight record; keeps a local copy of a published page; warns about a document written to a temporary folder; offers to record a decision; stale-decision flags; code map freshness on map answers; build graph evidence (gate results, helper tokens); "recorded" notices | handoff, task and session state, map and graph state, `artifacts/` and `artifacts.md` | No |
 | PostToolUseFailure (10 s) | Logs the failure; clears the in-flight record; a failed gate command stops a build graph | log, graph state | No |
