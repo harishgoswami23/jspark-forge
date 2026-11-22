@@ -60,7 +60,7 @@ test('600-word cap: drops recent actions, then trims files to 5, then notes to 6
   const t = handoff.render(m);
   assert.ok(words(t) <= 600, `${words(t)} words`);
   assert.ok(!/Recent actions/.test(t), 'recent actions dropped first');
-  assert.match(t, /\*\*Files touched in this task:\*\* (?:[^,\n]+, ){4}[^,\n]+ \(\+15 more\)$/m);
+  assert.match(t, /\*\*Files touched in this task:\*\* 20 files; newest: (?:[^,;\n]+, ){2}[^,;\n]+; the rest are in the log \([^)]+\)$/m);
   const notes = t.match(/\*\*Claude's notes \(14:28; [^)]*\):\*\* (.*)$/m)[1];
   assert.ok(words(notes) <= 61, 'notes trimmed to 60 words');
   for (const f of ['Task', 'Step', 'Done', 'Next action', 'Still running at cutoff', 'Waiting on you', 'Your last request']) {

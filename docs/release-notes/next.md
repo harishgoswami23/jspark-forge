@@ -66,3 +66,5 @@ JSPARK Forge still never decides a human step. You decide; it records that you d
   helper step that was handed out is "handed to a helper".
 - **A step is named once.** A step called `gate` of kind gate (as in the templates) reads "Step gate failed", not
   "Step gate (gate) failed". Other steps keep their kind: "Step checks (gate)".
+- **The hand-over no longer lists every file.** Up to 8 touched files are named. A longer list is a count, the
+  newest 5, and where the rest is: "50 files; newest: …; the rest are in the log (.jspark-forge/log/<day>.log)".

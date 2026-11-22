@@ -16,7 +16,8 @@ const CAP_WORDS = 600;
 const OLD_MS = 14 * 24 * 3600 * 1000;
 const ARCHIVE_DAYS = 30;
 const FIELD_MAX = 200;
-const FILES_SHOWN = 8;
+const FILES_SHOWN = 8; // up to this many touched files are all named
+const FILES_NEWEST = 5; // of a longer list, the newest few are named beside the count
 
 const pad2 = n => String(n).padStart(2, '0');
 const hhmm = d => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
@@ -121,8 +122,12 @@ function render(m, opts = {}) {
   if (m.files && m.files.length) {
     // v0.6.2: the newest few and a count (the list is newest first); the rest is in the log. A long task listed 50
     // names at every session start.
+    // 2026-11-22 (owner): a long list is a count, the newest few, and where the rest is (the log names every file).
     const max = level >= 2 ? 5 : FILES_SHOWN;
-    const shown = m.files.length > max ? `${m.files.slice(0, max).join(', ')} (+${m.files.length - max} more)` : m.files.join(', ');
+    const few = level >= 2 ? 3 : FILES_NEWEST;
+    const shown = m.files.length > max
+      ? `${m.files.length} files; newest: ${m.files.slice(0, few).join(', ')}; the rest are in the log (${m.logFile})`
+      : m.files.join(', ');
     L.push(`**Files touched in this task:** ${shown}`);
   }
   if (level < 4 && m.others && m.others.length) {

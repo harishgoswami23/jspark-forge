@@ -41,11 +41,11 @@ test('the resume skill has the same exception, and a question is not a go-ahead'
 });
 
 // ---- 2 ----
-test('a long list of touched files shows the newest 8 and a count', () => {
+test('a long list of touched files shows a count, the newest 5 and where the log is', () => {
   const files = Array.from({ length: 50 }, (_, i) => `src/f${i}.js`);
   const t = handoff.render(model({ files }));
   const line = t.match(/\*\*Files touched in this task:\*\* (.*)$/m)[1];
-  assert.equal(line, `${files.slice(0, 8).join(', ')} (+42 more)`);
+  assert.match(line, /^50 files; newest: src\/f0\.js, src\/f1\.js, src\/f2\.js, src\/f3\.js, src\/f4\.js; the rest are in the log \(\.jspark-forge\/log\/[^)]+\.log\)$/);
   assert.match(t, /\*\*More detail:\*\* \.jspark-forge\/log\//, 'the log is still named for the rest');
 });
 
