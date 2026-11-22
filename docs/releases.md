@@ -28,6 +28,7 @@ that date; **[spike]** depends on a spike. Spike results override review decisio
 | v0.6.1 | Tidy-up, no new features: the last missing test, the spec coverage list brought up to date | ~½ hour |
 | v0.6.2 | Six small fixes from real use in another project: no second "Continue?", a shorter handoff, honest gate status, notes with a date | ~1 hour |
 | v0.7.0 | Better gates for build graphs: checks before a long run starts, results without reading logs, retry only what failed, flaky named, progress and cost as it goes | ~3 hours |
+| v0.8.0 | Build graphs that keep going while you are away: approve a human step ahead of time, a trust message that is never lost in silence, a second graph while the first waits for you; six smaller fixes | ~3 hours |
 | Later, only if asked | Security review prompts (incl. council mode), `/capacity`, dashboard (incl. git view), `/jspark-forge:review`, migration mode, customer edition, secrets by name, limit handover (spec 5.6–5.8a, 5.12, 5.13) | not estimated |
 | **Total to v0.3** | | ~4–4½ weeks of build after v0.1.1, plus ~2 weeks of feedback, **soft** (v0.4 ~1½–2 weeks more, only if asked) |
 
@@ -546,3 +547,29 @@ Test for any new item (spec principle 12): hooks, not verdicts.
 **Acceptance criteria / success measure** per spec section 5 when scheduled.
 
 **Depends on spikes** none defined yet.
+
+---
+
+## v0.8.0: Build graphs that keep going while you are away
+
+**Status: released 2026-11-22.** Details: [`release-notes/v0.8.0.md`](release-notes/v0.8.0.md); spec 5.10.
+
+**Why [owner, 2026-11-22].** Three things went wrong while running JSPARK Forge 0.6.0 on another project: a build
+stopped for hours at a plan approval because nobody was there; `TRUST GRAPH` sent before `graph start` had asked
+was lost without a word; and a trial graph could not run while the main build waited for the owner.
+
+**What.**
+1. `APPROVE AHEAD <graph> <step>`: the person's own typed decision on a human step, given before the run reaches
+   it; recorded as given early, with the step's instruction. `CANCEL APPROVAL <graph> <step>` withdraws it. A step
+   marked `- ahead: no` (every release step in the templates) never takes one. Any change to the graph's steps, or
+   stopping the run, cancels it. JSPARK Forge still never decides a human step.
+2. `TRUST GRAPH <name>` is always answered: sent early, a valid graph is trusted as it is and what was trusted is
+   shown; a missing or broken graph gets one line; a near miss gets the exact text to send.
+3. More than one graph can be open. A graph waiting at a human step holds nothing. Helper steps and gates of two
+   graphs never overlap, unless both carry `- lock: <name>` with different names. `graph status` with no name lists
+   every open graph; `DONE <graph> <step>` when the same step waits in two graphs.
+4. Smaller: status words kept apart (running, waiting to be run, interrupted); a step named like its kind is named
+   once; a long list of touched files is a count and the log; "Record the decision?" is asked once and Claude can mark
+   "no decision here"; caution lines in notes are shown as things to re-check; a clearer refusal from the gate runner.
+
+**Not checked.** The tests that drive a real Claude Code session (`tests/integration/`) were not run.
