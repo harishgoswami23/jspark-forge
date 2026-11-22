@@ -28,3 +28,16 @@ You can give your decision on a human step before the build gets to it, so the b
 - `DONE <step>` sent too early now tells you about `APPROVE AHEAD`.
 
 JSPARK Forge still never decides a human step. You decide; it records that you decided early.
+
+## Fixed: a trust message is never lost in silence
+
+`TRUST GRAPH <name>` used to do nothing, and say nothing, when it was sent before `graph start` had asked for it.
+
+- Sent early, for a graph that exists and is valid: the graph is trusted as it is now, and you are shown the
+  commands, checks and human steps you just trusted.
+- A graph that does not exist or is not valid: one line says so.
+- Close but not exact (a missing letter, a full stop, extra words): nothing is trusted, and you are told the exact
+  text to send.
+- Spaces before or after the message are fine.
+- Unchanged: if the commands changed after `graph start` showed them, the trust is refused and you are asked to look
+  again.

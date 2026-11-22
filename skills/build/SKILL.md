@@ -17,7 +17,9 @@ Run a build graph step by step. JSPARK Forge keeps the record and checks it; you
    `node "${CLAUDE_PLUGIN_ROOT}/scripts/forge.js" graph check <name>` and fix what it reports.
 2. Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/forge.js" graph start <name>` (or `graph status <name>` to see a run in
    progress). If it asks for `TRUST GRAPH <name>`, show the user the commands it lists and stop: only the user types
-   that.
+   that. The user may also send it before you run `graph start`: JSPARK Forge then trusts the graph as it is and
+   shows them what they trusted. Every `TRUST GRAPH` message gets an answer; if the user says theirs got none, run
+   `/jspark-forge:doctor`.
 3. Loop: run `node "${CLAUDE_PLUGIN_ROOT}/scripts/forge.js" graph next <name>` and do exactly what it prints:
    - **agent step:** use the Agent tool with the subagent_type and the description it gives (keep the
      `[graph <name>/<step>]` marker); pass the brief and the inputs. Several agent steps printed together run side by

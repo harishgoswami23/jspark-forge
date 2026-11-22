@@ -910,6 +910,55 @@ function gate(dir, n, id, sid, opts = {}) {
   } finally { release(); }
 }
 
+// ---------- TRUST GRAPH <name>, the person's own whole message ----------
+// Never dropped in silence (owner 2026-11-22: sent four times before `graph start` had asked, it was ignored each time
+// and looked like a fault). A valid graph is trusted as it is now, whether or not `start` has shown it, and the answer
+// lists what was trusted; a graph that is missing or not valid gets one line; a message that is close but not exact
+// trusts nothing and is told the exact text. Commands that changed after `start` showed them are still refused (M1).
+const graphNames = dir => { try { return fs.readdirSync(path.join(paths.repoForgeDir(dir), 'graphs')).filter(f => f.endsWith('.md')).map(f => f.slice(0, -3)).filter(x => NAME.test(x)).sort(); } catch { return []; } };
+function editDistance(a, b) {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i].concat(Array(b.length).fill(0)));
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return d[a.length][b.length];
+}
+function trustGraph(dir, n) {
+  const L = load(dir, n);
+  if (L.error) return `JSPARK Forge: nothing was trusted: ${L.error}`;
+  if (L.errs.length) return `JSPARK Forge: nothing was trusted: build graph ${n} is not valid (node "${FORGE_JS}" graph check ${n} says what is wrong).`;
+  const t0 = trustOf(dir);
+  const asked = t0.asked[n];
+  if (asked && L.runHash !== asked) return `JSPARK Forge: build graph ${n}'s commands changed since they were shown, so nothing was trusted. Run node "${FORGE_JS}" graph start ${n} again to see them.`;
+  const names = list => list.join(', ') || 'none';
+  const cmds = L.runs.length ? `the commands it runs by itself at its check steps: ${L.runs.join('; ')}` : 'it runs no commands';
+  const rest = `gates: ${names(L.guard.gates.map(x => x[0]))}; human steps: ${names(L.guard.human)}${L.guard.noAhead ? `; never approved ahead: ${L.guard.noAhead.join(', ')}` : ''}`;
+  if (!asked && t0.trusted[n] === L.runHash) return `JSPARK Forge: build graph ${n} is already trusted as it is now (${cmds}; ${rest}). Nothing changed.`;
+  withLock(trustFile(dir), () => { const tr = trustOf(dir); tr.trusted[n] = L.runHash; delete tr.asked[n]; writeJson(trustFile(dir), tr); });
+  const tail = 'They run only when Claude runs the graph; asked again if its commands, gates or human steps change.';
+  if (asked) return `JSPARK Forge: you trusted build graph ${n}'s commands: ${L.runs.join('; ') || 'none (it runs no commands)'}. ${tail}`;
+  return `JSPARK Forge: you trusted build graph ${n} as it is now. JSPARK Forge had not asked yet, so this is what you just trusted: ${cmds}; ${rest}. ${tail}`;
+}
+// -> the answer, or undefined when the message is not about trusting a graph (an ordinary prompt).
+function trustPrompt(dir, p) {
+  const exact = p.match(/^trust[ \t]+graph[ \t]+([a-z][a-z0-9-]{0,39})$/i);
+  if (exact) return trustGraph(dir, exact[1].toLowerCase());
+  // Close but not exact: a short one-line message that has the words with something extra, or the words misspelt.
+  if (p.length > 80 || /[\r\n]/.test(p)) return undefined;
+  const words = p.split(/\s+/).filter(Boolean);
+  if (!words.length || words.length > 6) return undefined;
+  const letters = w => w.toLowerCase().replace(/[^a-z]/g, '');
+  const has = p.match(/\btrust[ \t]+(?:the[ \t]+)?graph\b(.*)$/i);
+  let rest = null;
+  if (has) rest = has[1];
+  else if (letters(words[0]).length >= 8 && editDistance(letters(words[0]), 'trustgraph') <= 2) rest = words.slice(1).join(' ');
+  else if (words.length >= 2 && editDistance(`${letters(words[0])} ${letters(words[1])}`, 'trust graph') <= 2) rest = words.slice(2).join(' ');
+  if (rest === null) return undefined;
+  const here = graphNames(dir);
+  const named = (rest.toLowerCase().match(/[a-z][a-z0-9-]*/g) || []).map(w => w.replace(/-+$/, '')).filter(w => here.includes(w));
+  const n = named.length === 1 ? named[0] : '<name>';
+  return `JSPARK Forge: that is close to TRUST GRAPH but not exact, so nothing was trusted.${n === '<name>' ? ` Graphs here: ${here.join(', ') || 'none'}.` : ''} Send exactly this as your whole message: TRUST GRAPH ${n}`;
+}
+
 // The user's own whole message: TRUST GRAPH <name> after `start` showed its commands, or, while a run is active,
 // DONE <step> (or "done" when exactly one human step waits), from any attended session. -> a message for the user
 // (the prompt is a control message, not stored as the last request), or null (an ordinary prompt).
@@ -924,17 +973,8 @@ function onPrompt(dir, prompt, sid) {
   if (ap) return approveAhead(dir, ap[1].toLowerCase(), ap[2].toLowerCase());
   const ca = p.match(/^cancel[ \t]+approval[ \t]+([a-z][a-z0-9-]{0,39})[ \t]+([a-z][a-z0-9-]{0,39})$/i);
   if (ca) return cancelAhead(dir, ca[1].toLowerCase(), ca[2].toLowerCase());
-  const t = p.match(/^trust graph ([a-z][a-z0-9-]{0,39})$/i);
-  if (t) {
-    const n = t[1].toLowerCase();
-    const asked = trustOf(dir).asked[n];
-    if (!asked) return null; // nothing was shown for it: an ordinary prompt
-    const L = load(dir, n);
-    if (L.error || L.errs.length) return `JSPARK Forge: build graph ${n} cannot be trusted: ${L.error || `it has errors (node "${FORGE_JS}" graph check ${n})`}.`;
-    if (L.runHash !== asked) return `JSPARK Forge: build graph ${n}'s commands changed since they were shown, so nothing was trusted. Run node "${FORGE_JS}" graph start ${n} again to see them.`;
-    withLock(trustFile(dir), () => { const tr = trustOf(dir); tr.trusted[n] = L.runHash; delete tr.asked[n]; writeJson(trustFile(dir), tr); });
-    return `JSPARK Forge: you trusted build graph ${n}'s commands: ${L.runs.join('; ') || 'none'}. They run only when Claude runs the graph; asked again if they change.`;
-  }
+  const tg = trustPrompt(dir, p);
+  if (tg !== undefined) return tg;
   const n = runningGraph(dir);
   const d = p.match(/^done(?:\s+([a-z][a-z0-9-]{0,39}))?$/i);
   if (!n) return null;

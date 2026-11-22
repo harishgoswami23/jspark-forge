@@ -232,10 +232,13 @@ test('trust is for the commands that were shown: changed after the ask, TRUST is
   assert.match(cli(dir, ['start', 'g']), /Started/);
 });
 
-test('TRUST rules: the whole message, attended only, and only after start showed the commands (review M5)', () => {
+// Changed on 2026-11-22 (owner): TRUST GRAPH sent before start asked used to be an ordinary prompt, dropped without a
+// word. It is now answered and trusts the graph as it is (tests/graph-trust-early.test.js).
+test('TRUST rules: the whole message, attended only (review M5); sent before start asked, it is answered', () => {
+  const early = project({ g: '# Graph: g\n## c (gate)\n- run: npm test\n' });
+  assert.match(hook(early, 'UserPromptSubmit', { prompt: 'TRUST GRAPH g' }).systemMessage, /you trusted build graph g[\s\S]*npm test/);
+  assert.match(cli(early, ['start', 'g']), /Started/);
   const dir = project({ g: '# Graph: g\n## c (gate)\n- run: npm test\n' });
-  assert.equal(hook(dir, 'UserPromptSubmit', { prompt: 'TRUST GRAPH g' }), null, 'nothing was shown yet: an ordinary prompt');
-  assert.equal(lastPrompt(dir), 'TRUST GRAPH g');
   assert.match(cli(dir, ['start', 'g']), /TRUST GRAPH g/);
   hook(dir, 'UserPromptSubmit', { prompt: 'ok TRUST GRAPH g' });
   hook(dir, 'UserPromptSubmit', { prompt: 'TRUST GRAPH g' }, SID, { CLAUDE_CODE_SESSION_ATTENDED: '0' });

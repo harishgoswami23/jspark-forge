@@ -763,7 +763,11 @@ that the graph offers, never add nodes or edges while running.
 - [updated 2026-11-20: as built in v0.4] A graph whose gates run commands needs the user's typed
   `TRUST GRAPH <name>` first, and again when those commands, a gate or a human step change (or a human step's
   `- ahead: no` mark); a human step completes only on the user's own typed `DONE <step>`, or on their own typed
-  `APPROVE AHEAD <graph> <step>` given before the run reached it. The run's record is guarded by the `forge-state` block (5.2). What is
+  `APPROVE AHEAD <graph> <step>` given before the run reached it. **`TRUST GRAPH <name>` is never dropped in silence
+  [owner 2026-11-22]:** sent before `graph start` has asked, a graph that exists and is valid is trusted as it is
+  now and the answer lists what was just trusted (commands, gates, human steps); a graph that is missing or not valid
+  gets one line; a message that is close but not exact trusts nothing and is told the exact text to send. Spaces
+  around the message are accepted. Commands that changed after `graph start` showed them are still refused. The run's record is guarded by the `forge-state` block (5.2). What is
   enforced, evidenced, guarded or only instructed: design-v0.4 section 1.
 - A node is marked done on its first hand-back; a late or repeated report from the same helper is logged, not re-run.
 
