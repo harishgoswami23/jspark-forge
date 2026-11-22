@@ -71,3 +71,7 @@ JSPARK Forge still never decides a human step. You decide; it records that you d
 - **"Record the decision?" is asked once.** The offer after a commit was repeated at the next message. It is now
   shown once. For a commit that settled nothing (a fix, a rename, tests), Claude marks "no decision here" by itself
   and does not ask you.
+- **An old caution is shown as something to re-check.** Claude's notes can hold a line such as
+  `Caution: do not start Docker during the speed tests | measured: 3 tests failed with Docker up | check again before acting`.
+  The next session shows such lines under "Re-check before acting", with the measurement and when it was written,
+  and says they are not instructions.

@@ -196,6 +196,11 @@ branch, Claude's own notes. Enough to resume the work, not a map of the system. 
   `/jspark-forge:resume` command is not a go-ahead.
 - **Notes are dated [owner 2026-11-21: v0.6.2]:** the handoff shows the notes' date when it is not today's and says to
   re-check any caution or limit before acting on it; the notes reminder asks for what was measured behind a caution.
+  A note line can hold a caution with its measurement and a mark [owner 2026-11-22]:
+  `Caution: <what> | measured: <what was measured, and when> | check again before acting`. Such lines (any line that
+  starts with `Caution:` or `Limit:`, or carries the mark) are taken out of the notes text and shown under
+  "Re-check before acting", with the measurement and the time they were written, as things to test again, not as
+  instructions.
 - Short-term only: when a task is closed, the handoff is archived (and from v0.2 its lasting lessons move into
   decision memory).
 
