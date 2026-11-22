@@ -991,26 +991,48 @@ function editDistance(a, b) {
   for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
   return d[a.length][b.length];
 }
-function trustGraph(dir, n) {
+// -> { ok, text } when the graph is (or already was) trusted, { ok: false, why } when it cannot be. `dry` writes nothing.
+function trustOne(dir, n, dry) {
   const L = load(dir, n);
-  if (L.error) return `JSPARK Forge: nothing was trusted: ${L.error}`;
-  if (L.errs.length) return `JSPARK Forge: nothing was trusted: build graph ${n} is not valid (node "${FORGE_JS}" graph check ${n} says what is wrong).`;
+  if (L.error) return { ok: false, why: L.error };
+  if (L.errs.length) return { ok: false, why: `build graph ${n} is not valid (node "${FORGE_JS}" graph check ${n} says what is wrong).` };
   const t0 = trustOf(dir);
   const asked = t0.asked[n];
-  if (asked && L.runHash !== asked) return `JSPARK Forge: build graph ${n}'s commands changed since they were shown, so nothing was trusted. Run node "${FORGE_JS}" graph start ${n} again to see them.`;
+  if (asked && L.runHash !== asked) return { ok: false, why: `build graph ${n}'s commands changed since they were shown. Run node "${FORGE_JS}" graph start ${n} again to see them.` };
   const names = list => list.join(', ') || 'none';
   const cmds = L.runs.length ? `the commands it runs by itself at its check steps: ${L.runs.join('; ')}` : 'it runs no commands';
   const rest = `gates: ${names(L.guard.gates.map(x => x[0]))}; human steps: ${names(L.guard.human)}${L.guard.noAhead ? `; never approved ahead: ${L.guard.noAhead.join(', ')}` : ''}${L.guard.lock ? `; lock: ${L.guard.lock}` : ''}`;
-  if (!asked && t0.trusted[n] === L.runHash) return `JSPARK Forge: build graph ${n} is already trusted as it is now (${cmds}; ${rest}). Nothing changed.`;
-  withLock(trustFile(dir), () => { const tr = trustOf(dir); tr.trusted[n] = L.runHash; delete tr.asked[n]; writeJson(trustFile(dir), tr); });
+  if (!asked && t0.trusted[n] === L.runHash) return { ok: true, text: `build graph ${n} is already trusted as it is now (${cmds}; ${rest}). Nothing changed.` };
+  if (!dry) withLock(trustFile(dir), () => { const tr = trustOf(dir); tr.trusted[n] = L.runHash; delete tr.asked[n]; writeJson(trustFile(dir), tr); });
   const tail = 'They run only when Claude runs the graph; asked again if its commands, gates or human steps change.';
-  if (asked) return `JSPARK Forge: you trusted build graph ${n}'s commands: ${L.runs.join('; ') || 'none (it runs no commands)'}. ${tail}`;
-  return `JSPARK Forge: you trusted build graph ${n} as it is now. JSPARK Forge had not asked yet, so this is what you just trusted: ${cmds}; ${rest}. ${tail}`;
+  if (asked) return { ok: true, text: `you trusted build graph ${n}'s commands: ${L.runs.join('; ') || 'none (it runs no commands)'}. ${tail}` };
+  return { ok: true, text: `you trusted build graph ${n} as it is now. JSPARK Forge had not asked yet, so this is what you just trusted: ${cmds}; ${rest}. ${tail}` };
+}
+function trustGraph(dir, n) {
+  const r = trustOne(dir, n);
+  return `JSPARK Forge: ${r.ok ? r.text : `nothing was trusted: ${r.why}`}`;
+}
+// TRUST GRAPH a b c (owner 2026-11-22): every graph is named by the person, so each is trusted exactly as one alone
+// would be. All or nothing: if one cannot be trusted, none is, so a slip in a name never trusts half of a list.
+function trustSeveral(dir, names) {
+  const bad = names.map(n => [n, trustOne(dir, n, true)]).filter(([, r]) => !r.ok);
+  if (bad.length) {
+    const good = names.filter(n => !bad.some(([b]) => b === n));
+    return `JSPARK Forge: nothing was trusted, because ${bad.length} of the ${names.length} graphs named cannot be trusted:\n` +
+      bad.map(([n, r]) => `- ${n}: ${r.why}`).join('\n') +
+      (good.length ? `\nSend exactly this as your whole message: TRUST GRAPH ${good.join(' ')}` : '');
+  }
+  const done = names.map(n => [n, trustOne(dir, n)]);
+  const lines = done.map(([n, r]) => `- ${n}: ${r.ok ? r.text : `not trusted: ${r.why}`}`).join('\n');
+  return `JSPARK Forge: you trusted ${names.length} build graphs, each as it is now:\n${lines}`;
 }
 // -> the answer, or undefined when the message is not about trusting a graph (an ordinary prompt).
 function trustPrompt(dir, p) {
-  const exact = p.match(/^trust[ \t]+graph[ \t]+([a-z][a-z0-9-]{0,39})$/i);
-  if (exact) return trustGraph(dir, exact[1].toLowerCase());
+  const exact = p.match(/^trust[ \t]+graph((?:[ \t]+[a-z][a-z0-9-]{0,39}){1,12})$/i);
+  if (exact) {
+    const names = [...new Set(exact[1].toLowerCase().split(/[ \t]+/).filter(Boolean))];
+    return names.length === 1 ? trustGraph(dir, names[0]) : trustSeveral(dir, names);
+  }
   // Close but not exact: a short one-line message that has the words with something extra, or the words misspelt.
   if (p.length > 80 || /[\r\n]/.test(p)) return undefined;
   const words = p.split(/\s+/).filter(Boolean);
@@ -1024,7 +1046,7 @@ function trustPrompt(dir, p) {
   if (rest === null) return undefined;
   const here = graphNames(dir);
   const named = (rest.toLowerCase().match(/[a-z][a-z0-9-]*/g) || []).map(w => w.replace(/-+$/, '')).filter(w => here.includes(w));
-  const n = named.length === 1 ? named[0] : '<name>';
+  const n = named.length ? [...new Set(named)].join(' ') : '<name>';
   return `JSPARK Forge: that is close to TRUST GRAPH but not exact, so nothing was trusted.${n === '<name>' ? ` Graphs here: ${here.join(', ') || 'none'}.` : ''} Send exactly this as your whole message: TRUST GRAPH ${n}`;
 }
 

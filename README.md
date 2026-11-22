@@ -407,7 +407,8 @@ What JSPARK Forge checks, what it guards, and what it can only ask for:
 - **Asked for:** the order of steps and the limit on helpers running at once; JSPARK Forge hands out work that way but
   cannot stop Claude doing something else.
 - A graph whose checks run commands needs you to type `TRUST GRAPH <name>` first, as your whole message, and again
-  when its commands, checks or steps that need you change. The message lists the commands and says the graph runs them
+  when its commands, checks or steps that need you change. To trust several at once, name them all:
+  `TRUST GRAPH stage-1 stage-2 stage-3` (if one of them cannot be trusted, none is). The message lists the commands and says the graph runs them
   by itself at its check steps: you do not type them. `npm test` runs whatever your project's scripts say. You can
   send it before the graph is started: it is trusted as it is, and you are shown what you just trusted. A message
   that is close but not exact is answered with the exact text to send; it is never ignored.
