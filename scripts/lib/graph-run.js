@@ -84,7 +84,14 @@ function load(dir, n) {
   // What TRUST GRAPH covers (re-review M6): the gate commands and which steps are gates and human steps, so dropping
   // a gate or a human step is a change the user is asked about.
   const guard = { gates: g.steps.filter(s => s.kind === 'gate').map(s => (retryOf(s) ? [s.id, s.run, retryOf(s)] : [s.id, s.run])), human: g.steps.filter(s => s.kind === 'human').map(s => s.id) };
-  return { text, g, errs, hash: sha(text), runs, guard, runHash: sha(JSON.stringify(guard)) };
+  // A human step marked "- ahead: no" can never be approved ahead; taking the mark away is a change the user is asked
+  // about. A graph without the mark keeps its old entry, so it is not asked about again.
+  const noAhead = g.steps.filter(s => s.kind === 'human' && s.ahead === 'no').map(s => s.id);
+  if (noAhead.length) guard.noAhead = noAhead;
+  // An approval given ahead holds only while every step is as it was: any change to the steps cancels it.
+  let stepsHash = '';
+  if (!errs.length) { try { stepsHash = sha(JSON.stringify(snapshot(g))); } catch { /* cannot be approved ahead */ } }
+  return { text, g, errs, hash: sha(text), runs, guard, runHash: sha(JSON.stringify(guard)), stepsHash };
 }
 const retryOf = s => (s.retries && s.retries[0] && s.retries[0].value) || '';
 // The part of the graph a run depends on, copied into the run state at start.
@@ -92,7 +99,7 @@ const retryOf = s => (s.retries && s.retries[0] && s.retries[0].value) || '';
 function snapshot(g) {
   return { maxParallel: g.maxParallel, steps: g.steps.map(s => ({ id: s.id, kind: s.kind, helper: s.helper || '', brief: s.brief || '',
     needs: s.needs.slice(), gives: s.gives.slice(), after: s.after.slice(), steps: s.steps.slice(), run: s.run.slice(), say: s.say || '',
-    estimate: s.estimate || '',
+    estimate: s.estimate || '', ahead: s.kind === 'human' && s.ahead === 'no' ? 'no' : '',
     before: s.kind === 'gate' ? (s.before || []).map(b => P.parse(b.value)).filter(p => !p.error) : [],
     retry: s.kind === 'gate' ? retryOf(s) : '' })) };
 }
@@ -100,7 +107,8 @@ function snapshot(g) {
 // TRUST GRAPH <name> trusts only what was shown. A graph without commands needs no trust the first time, and its
 // first start records its hash; from then on (and for any graph once trusted) a different hash asks again, even with
 // no gate left (re-review M6).
-const trustOf = dir => { const t = readJson(trustFile(dir)) || {}; return { asked: t.asked || {}, trusted: t.trusted || {} }; };
+// ahead: { name: { step: { at, say, steps } } }: approvals the person gave before the graph was started (below).
+const trustOf = dir => { const t = readJson(trustFile(dir)) || {}; return { asked: t.asked || {}, trusted: t.trusted || {}, ahead: t.ahead || {} }; };
 const trusted = (dir, n, L) => { const t = trustOf(dir).trusted[n]; return t === undefined ? !L.runs.length : t === L.runHash; };
 // Another session that was active in the last 30 minutes owns the run: a command from here changes nothing.
 function notOwner(s, n, sid) {
@@ -127,12 +135,17 @@ function start(dir, n, sid) {
   if (L.error) return `${L.error}\n`;
   try { require('./setup').shareGraphs(dir); } catch { /* fail open */ } // graphs are committed (owner 2026-11-20); only once the graph has loaded
   if (L.errs.length) return `Build graph ${n} cannot start:\n${check(dir, n)}`;
+  const lost = dropChangedAhead(dir, n, L); // approvals given ahead for a graph that has changed since
+  return `${startRun(dir, n, sid, L)}${lost.length ? `${AHEAD_LOST(lost, 'the graph\'s steps changed since it was given')}\n` : ''}`;
+}
+function startRun(dir, n, sid, L) {
   if (!trusted(dir, n, L)) {
     const before = trustOf(dir).trusted[n] !== undefined;
     withLock(trustFile(dir), () => { const t = trustOf(dir); t.asked[n] = L.runHash; writeJson(trustFile(dir), t); });
     const names = list => list.join(', ') || 'none';
     return `${L.runs.length ? `Build graph ${n} will run these commands by itself at its check steps (you do not type them):\n${L.runs.map(r => `- ${r}`).join('\n')}\n` : `Build graph ${n} runs no commands.\n`}` +
       `${before ? `Its gates or human steps changed since it was last trusted; now gates: ${names(L.guard.gates.map(x => x[0]))}; human steps: ${names(L.guard.human)}.\n` : ''}` +
+      `${L.guard.noAhead ? `Never approved ahead: ${L.guard.noAhead.join(', ')}.\n` : ''}` +
       `To allow it, send exactly this as your whole message: TRUST GRAPH ${n}\nAsked again whenever its commands, gates or human steps change.\n`;
   }
   const a = active(dir);
@@ -144,12 +157,112 @@ function start(dir, n, sid) {
   const steps = {};
   for (const s of L.g.steps) steps[s.id] = { state: 'waiting', retries: 0 };
   const now = Date.now();
-  withLock(stateFile(dir, n), () => writeJson(stateFile(dir, n), { name: n, hash: L.hash, owner: sid, lastSeen: now, startedAt: now,
-    graph: snapshot(L.g), steps, evidence: [] }));
+  // Approvals the person gave before the start go with the run (the graph is as it was when they were given).
+  const ahead = takeAhead(dir, n, L);
+  const rec = { name: n, hash: L.hash, owner: sid, lastSeen: now, startedAt: now, graph: snapshot(L.g), steps, evidence: [] };
+  if (Object.keys(ahead).length) rec.ahead = ahead;
+  withLock(stateFile(dir, n), () => writeJson(stateFile(dir, n), rec));
   setActive(dir, { name: n });
   const est = L.g.steps.filter(s => s.estimate).map(s => `${s.id}: ${clean(s.estimate, 60)}`);
-  return `Started build graph ${n} (${L.g.steps.length} steps).${est.length ? ` Estimates (estimate): ${est.join('; ')}.` : ''}\nNext: node "${FORGE_JS}" graph next ${n}\n`;
+  const carried = Object.keys(ahead).map(k => `${k} (${stamp(ahead[k].at)})`);
+  return `Started build graph ${n} (${L.g.steps.length} steps).${est.length ? ` Estimates (estimate): ${est.join('; ')}.` : ''}\nNext: node "${FORGE_JS}" graph next ${n}\n` +
+    `${carried.length ? `Approved ahead by the person, completed by itself when the run gets there: ${carried.join(', ')}.\n` : ''}`;
 }
+
+// ---------- approvals given ahead (owner 2026-11-22) ----------
+// The person may give their decision on a human step before the run reaches it: their own whole message
+// APPROVE AHEAD <graph> <step> (onPrompt, below; no command and no helper can give it). It is kept with the time and
+// the step's "say:" text as it was; the run completes the step by itself when it gets there and records that it was
+// approved ahead. A step marked "- ahead: no" never takes one. Any change to the graph's steps cancels it: during a run
+// the changed file stops the run (as before), before a run the hash of the steps is compared at the start.
+// Kept in the run's record while a run is open; given before the start, beside the trust record until the start.
+const stamp = at => { const d = new Date(at); const p = v => String(v).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
+const AHEAD_NOTE = at => `approved ahead by the person at ${stamp(at)}`;
+const AHEAD_LOST = (ids, why) => `The approval given ahead for ${ids.join(', ')} was cancelled: ${why}. Tell the user; the step${ids.length === 1 ? '' : 's'} will wait for them.`;
+const openRun = s => !!s && !!s.graph && !s.stopped && !s.finished;
+function dropChangedAhead(dir, n, L) {
+  if (!Object.keys(trustOf(dir).ahead[n] || {}).length) return [];
+  return withLock(trustFile(dir), () => {
+    const t = trustOf(dir);
+    const mine = t.ahead[n] || {};
+    const gone = Object.keys(mine).filter(k => !L.stepsHash || mine[k].steps !== L.stepsHash);
+    if (!gone.length) return [];
+    for (const k of gone) delete mine[k];
+    if (Object.keys(mine).length) t.ahead[n] = mine; else delete t.ahead[n];
+    writeJson(trustFile(dir), t);
+    return gone;
+  });
+}
+function takeAhead(dir, n, L) {
+  if (!Object.keys(trustOf(dir).ahead[n] || {}).length) return {};
+  return withLock(trustFile(dir), () => {
+    const t = trustOf(dir);
+    const mine = t.ahead[n] || {};
+    delete t.ahead[n];
+    writeJson(trustFile(dir), t);
+    const out = {};
+    for (const [k, a] of Object.entries(mine)) {
+      const x = L.g.steps.find(s => s.id === k);
+      if (x && x.kind === 'human' && x.ahead !== 'no' && a.steps === L.stepsHash && a.say === x.say) out[k] = { at: a.at, say: a.say };
+    }
+    return out;
+  });
+}
+// Why a step cannot be approved ahead (null when it can). x: the step; st: its state in an open run, if any.
+function aheadRefusal(n, id, x, st) {
+  if (!x) return `build graph ${n} has no step "${id}"`;
+  if (x.kind !== 'human') return `${id} is not a human step (it is ${x.kind}), so there is no decision of yours to give`;
+  if (st && st.state === 'done') return `${id} is already done`;
+  if (st && st.state === 'running') return `${id} is waiting for you now. To complete it, send as your whole message: DONE ${id}`;
+  if (x.ahead === 'no') return `${id} needs you at the time: the graph marks it "- ahead: no", so it can never be approved ahead`;
+  return null;
+}
+function approveAhead(dir, n, id) {
+  const no = why => `JSPARK Forge: nothing was approved: ${why}${/[.!?]$/.test(why) ? '' : '.'}`;
+  const L = load(dir, n);
+  if (L.error) return no(L.error);
+  if (L.errs.length) return no(`build graph ${n} is not valid (node "${FORGE_JS}" graph check ${n})`);
+  if (!trusted(dir, n, L)) return no(`build graph ${n} is not trusted yet. First run node "${FORGE_JS}" graph start ${n} to see its commands, and send TRUST GRAPH ${n}`);
+  const ok = (at, text) => `JSPARK Forge: approved ahead: ${id} of build graph ${n}, recorded at ${stamp(at)}. What you approved without having read it at the time: "${clean(text, 300)}" ` +
+    `When the run reaches ${id}, it is completed by itself and recorded as approved ahead. To withdraw: CANCEL APPROVAL ${n} ${id}. It is cancelled if the graph's steps change.`;
+  if (openRun(readJson(stateFile(dir, n)))) {
+    return update(dir, n, s => {
+      if (!openRun(s)) return no(`build graph ${n} ended just now`);
+      if (s.hash !== L.hash) return no('the graph file changed since the run started (the run stops at its next step)');
+      const x = s.graph.steps.find(k => k.id === id);
+      const why = aheadRefusal(n, id, x, x && s.steps[id]);
+      if (why) return no(why);
+      s.ahead = s.ahead || {};
+      s.ahead[id] = { at: Date.now(), say: x.say };
+      return ok(s.ahead[id].at, x.say);
+    });
+  }
+  const x = L.g.steps.find(k => k.id === id);
+  const why = aheadRefusal(n, id, x, null);
+  if (why) return no(why);
+  const at = Date.now();
+  withLock(trustFile(dir), () => { const t = trustOf(dir); t.ahead[n] = Object.assign({}, t.ahead[n], { [id]: { at, say: x.say, steps: L.stepsHash } }); writeJson(trustFile(dir), t); });
+  return ok(at, x.say);
+}
+function cancelAhead(dir, n, id) {
+  let had = false;
+  if (readJson(stateFile(dir, n))) {
+    had = update(dir, n, s => {
+      if (!s || !s.ahead || !s.ahead[id]) return false;
+      delete s.ahead[id];
+      if (!Object.keys(s.ahead).length) delete s.ahead;
+      return true;
+    });
+  }
+  if ((trustOf(dir).ahead[n] || {})[id]) {
+    withLock(trustFile(dir), () => { const t = trustOf(dir); if (t.ahead[n]) { delete t.ahead[n][id]; if (!Object.keys(t.ahead[n]).length) delete t.ahead[n]; writeJson(trustFile(dir), t); } });
+    had = true;
+  }
+  return had ? `JSPARK Forge: the approval given ahead for ${id} of build graph ${n} is withdrawn; the step will wait for you.`
+    : `JSPARK Forge: there is no approval given ahead for ${id} of build graph ${n}; nothing changed.`;
+}
+// Approvals waiting for a run that has not started, for graph status.
+const pendingAheadLines = (dir, n) => Object.entries(trustOf(dir).ahead[n] || {}).map(([k, a]) => `- ${k}: ${AHEAD_NOTE(a.at)} (it goes with the run when the graph starts)`);
 
 // Plan usage only (not context): at 95 % no new helper step is handed out; unknown counts as under the limit.
 function planPct(dir, sid) {
@@ -323,7 +436,11 @@ function next(dir, n, sid, opts = {}) {
     if (s.stopped) return `Build graph ${n} is stopped (${s.stopped}).\n`;
     if (s.finished) return `Build graph ${n} is finished.\n`;
     if (!s.graph) return OLD_RECORD(n);
-    if (s.hash !== L.hash) { s.stopped = 'the graph file changed during the run'; setActive(dir, null); return `The graph file changed since the run started, so the run is stopped. Start it again: node "${FORGE_JS}" graph start ${n}\n`; }
+    if (s.hash !== L.hash) {
+      s.stopped = 'the graph file changed during the run'; setActive(dir, null);
+      const lost = Object.keys(s.ahead || {}); delete s.ahead;
+      return `The graph file changed since the run started, so the run is stopped. Start it again: node "${FORGE_JS}" graph start ${n}\n${lost.length ? `${AHEAD_LOST(lost, 'the graph changed')}\n` : ''}`;
+    }
     const g = s.graph;
     const out = [];
     if (s.owner !== sid) {
@@ -342,6 +459,24 @@ function next(dir, n, sid, opts = {}) {
     settle(g, s);
     const failed = Object.entries(s.steps).find(([, v]) => v.state === 'failed');
     if (failed) { out.push(`Stopped: ${failed[0]} failed (${clean(failed[1].reason || 'no reason given', 200)}). Show this to the user.`); return `${out.join('\n')}\n`; }
+    // A human step the person approved ahead: the run has reached it, so it is completed here, by their decision, and
+    // the record and the output say that it was given ahead. Repeated, since one may free the next.
+    const deps = G.deps(g);
+    for (let again = true; again;) {
+      again = false;
+      for (const x of g.steps) {
+        const a = s.ahead && s.ahead[x.id];
+        const hx = s.steps[x.id];
+        if (!a || x.kind !== 'human' || hx.state !== 'waiting' || !(deps.get(x.id) || []).every(d => s.steps[d].state === 'done')) continue;
+        delete s.ahead[x.id];
+        if (x.ahead === 'no' || a.say !== x.say) { out.push(AHEAD_LOST([x.id], 'the step is not what was approved')); continue; }
+        hx.state = 'done'; hx.handedAt = hx.doneAt = Date.now(); hx.ahead = { at: a.at, say: a.say }; hx.note = AHEAD_NOTE(a.at);
+        out.push(`Step ${x.id} (human) is done: ${hx.note}, before the run got here, so nobody read it at this point. Its instruction: "${clean(x.say, 300)}" Tell the user that it was approved ahead, with the instruction; then go on.`);
+        again = true;
+      }
+      settle(g, s);
+    }
+    if (s.ahead && !Object.keys(s.ahead).length) delete s.ahead;
     if (g.steps.every(x => s.steps[x.id].state === 'done')) {
       s.finished = Date.now(); setActive(dir, null);
       const fl = g.steps.filter(x => flakyText(s.steps[x.id])).map(x => `${x.id}: ${flakyText(s.steps[x.id])}`);
@@ -349,7 +484,6 @@ function next(dir, n, sid, opts = {}) {
       const c = costLine(g, s);
       return `${out.concat([`Build graph ${n} finished.`], c ? [c] : []).join('\n')}\n`;
     }
-    const deps = G.deps(g);
     const byId = new Map(g.steps.map(x => [x.id, x]));
     const ready = G.order(g).map(id => byId.get(id))
       .filter(x => x.kind !== 'parallel' && s.steps[x.id].state === 'waiting' && (deps.get(x.id) || []).every(d => s.steps[d].state === 'done'));
@@ -515,12 +649,14 @@ function stop(dir, n, sid) {
   const r = update(dir, n, s => {
     if (!s) return null;
     if (!s.stopped && !s.finished) { const other = notOwner(s, n, sid); if (other) return other; }
-    seen(s, sid); s.stopped = 'stopped by request'; return true;
+    seen(s, sid); s.stopped = 'stopped by request';
+    const lost = Object.keys(s.ahead || {}); delete s.ahead; // an approval given ahead belongs to this run
+    return { lost };
   });
   if (typeof r === 'string') return r;
   const a = active(dir);
   if (a && a.name === n) setActive(dir, null);
-  return r ? `Build graph ${n} stopped (its record is kept).\n` : `Build graph ${n} has not started.\n`;
+  return r ? `Build graph ${n} stopped (its record is kept).\n${r.lost.length ? `${AHEAD_LOST(r.lost, 'the run was stopped')}\n` : ''}` : `Build graph ${n} has not started.\n`;
 }
 
 // v0.6.2: what a step's state is called when shown. A gate is "running" in the record from the moment it is handed
@@ -549,8 +685,11 @@ function summary(dir, n) {
 function status(dir, n) {
   if (!NAME.test(String(n || ''))) return BAD_NAME;
   const sum = summary(dir, n);
-  if (!sum) return `Build graph ${n} has not started.\n`;
+  const pend = pendingAheadLines(dir, n);
+  if (!sum) return `Build graph ${n} has not started.\n${pend.length ? `${pend.join('\n')}\n` : ''}`;
   const s = readJson(stateFile(dir, n));
+  // Approved ahead: a step still to come says so, and a step completed that way keeps saying so.
+  const aheadOf = (k, v) => (v.note ? ` (${v.note})` : (s.ahead && s.ahead[k] && v.state === 'waiting' ? ` (${AHEAD_NOTE(s.ahead[k].at)}; it completes by itself when the run gets there)` : ''));
   const kinds = new Map(s.graph.steps.map(x => [x.id, x.kind]));
   // v0.7: a gate that graph gate is running shows how far it has got (read from the run's log); every gate lists its
   // runs, so two runs can be compared without opening a log; flaky tests are always named.
@@ -564,14 +703,14 @@ function status(dir, n) {
     `${runCounts(r) ? `; ${runCounts(r)}` : ''}${r.names && r.names.length ? `; failed: ${namesText(r.names)}` : ''}`;
   const lines = [];
   for (const [k, v] of Object.entries(s.steps)) {
-    lines.push(`- ${k}: ${stateWord(kinds.get(k), v)}${v.reason ? ` (${v.reason})` : ''}${live(k, v)}${v.tokens ? `, ${v.tokens} tokens` : ''}${v.minutes ? `, ${v.minutes} min` : ''}`);
+    lines.push(`- ${k}: ${stateWord(kinds.get(k), v)}${aheadOf(k, v)}${v.reason ? ` (${v.reason})` : ''}${live(k, v)}${v.tokens ? `, ${v.tokens} tokens` : ''}${v.minutes ? `, ${v.minutes} min` : ''}`);
     for (const r of (v.runs || []).slice(-5)) lines.push(runLine(r));
     if (flakyText(v)) lines.push(`    flaky (failed, then passed with no change to the code; not fixed): ${flakyText(v)}`);
     const lastLog = (v.runs || []).map(r => r.log).filter(Boolean).pop();
     if (lastLog) lines.push(`    output of the last run: ${lastLog}`);
   }
   const c = costLine(s.graph, s);
-  return `${sum.text}\n${lines.join('\n')}\n${c ? `${c}\n` : ''}`;
+  return `${sum.text}\n${lines.concat(pend).join('\n')}\n${c ? `${c}\n` : ''}`;
 }
 // The running graph, for session start and the handoff (null when none).
 function current(dir) {
@@ -776,7 +915,15 @@ function gate(dir, n, id, sid, opts = {}) {
 // (the prompt is a control message, not stored as the last request), or null (an ordinary prompt).
 function onPrompt(dir, prompt, sid) {
   if (!paths.isOwn(dir) || process.env.CLAUDE_CODE_SESSION_ATTENDED !== '1') return null;
+  // Text the harness wraps (a helper's report, a notice, command output) is never the person typing, wherever in the
+  // message it sits: such a message is never a control message (the same test CONFIRM uses).
+  if (require('./confirm').WRAPPED.test(String(prompt || ''))) return null;
   const p = String(prompt || '').trim();
+  // The person's decision on a human step, given before the run reaches it, and its withdrawal. Always answered.
+  const ap = p.match(/^approve[ \t]+ahead[ \t]+([a-z][a-z0-9-]{0,39})[ \t]+([a-z][a-z0-9-]{0,39})$/i);
+  if (ap) return approveAhead(dir, ap[1].toLowerCase(), ap[2].toLowerCase());
+  const ca = p.match(/^cancel[ \t]+approval[ \t]+([a-z][a-z0-9-]{0,39})[ \t]+([a-z][a-z0-9-]{0,39})$/i);
+  if (ca) return cancelAhead(dir, ca[1].toLowerCase(), ca[2].toLowerCase());
   const t = p.match(/^trust graph ([a-z][a-z0-9-]{0,39})$/i);
   if (t) {
     const n = t[1].toLowerCase();
@@ -803,7 +950,11 @@ function onPrompt(dir, prompt, sid) {
     if (d[1]) {
       id = d[1].toLowerCase();
       if (!humans.includes(id)) return null;
-      if (!waiting.includes(id)) return `JSPARK Forge: ${id} is not waiting for you now, so nothing changed.`;
+      if (!waiting.includes(id)) {
+        const x = s.graph.steps.find(k => k.id === id);
+        const can = s.steps[id].state === 'waiting' && x.ahead !== 'no' && !(s.ahead && s.ahead[id]);
+        return `JSPARK Forge: ${id} is not waiting for you now, so nothing changed.${can ? ` To give your decision before the run reaches it, send as your whole message: APPROVE AHEAD ${n} ${id}` : ''}`;
+      }
     } else {
       if (waiting.length !== 1) return null;
       id = waiting[0];

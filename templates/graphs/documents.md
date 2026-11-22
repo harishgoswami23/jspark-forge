@@ -26,4 +26,5 @@
 
 ## publish (human)
 - after: final
+- ahead: no
 - say: Read the final document and publish it, then reply DONE publish.

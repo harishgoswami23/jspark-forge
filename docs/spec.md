@@ -730,7 +730,16 @@ that the graph offers, never add nodes or edges while running.
   the helper carries the model tier (light for mechanical steps, strongest for design and review; 5.15). Minutes
   per node are measured; tokens are shown only when Claude Code reports them, else "not reported"; estimates come
   only from the graph's own `estimate:` lines, marked "estimate".
-- `human` nodes are first-class. JSPARK Forge never performs them, never skips them, never asks a helper to.
+- `human` nodes are first-class. JSPARK Forge never decides them: it never performs them, never skips them, never
+  asks a helper to. **A person may give their decision early [owner 2026-11-22].** Their own whole message
+  `APPROVE AHEAD <graph> <step>` (typed by them in an attended session, like `DONE <step>`; no command, helper,
+  quotation or file can give it) is accepted when the graph is valid and trusted and the step is a human step the
+  run has not reached. It is stored with the time and the step's `say:` text as it was. When the run reaches the
+  step, JSPARK Forge completes it, records "approved ahead by the person at <time>", and prints the instruction and
+  that it was approved ahead, so the record shows what was approved without having been read at the time. A step
+  marked `- ahead: no` (every release step in the templates) can never be approved ahead; the mark is covered by
+  `TRUST GRAPH`. Any change to the graph's steps cancels the approval, and so does stopping the run; the person is
+  told. `CANCEL APPROVAL <graph> <step>` withdraws it. `graph status <name>` shows what is approved ahead.
 - State lives in `.jspark-forge/state/graph-<name>.json` (as built; the plan said `forge/graph-state.json`) (`done`, `running`, `next`, outputs per node, "as of"). `/jspark-forge:resume`
   shows the graph with the current node highlighted and waits (5.1 show-and-wait).
 - A gate that was handed out and that nobody is running is shown as "not yet passed", with how many of its commands
@@ -752,8 +761,9 @@ that the graph offers, never add nodes or edges while running.
   the 95 % band; unknown usage counts as under the limit). There is no memory cap [updated 2026-11-20: as built in
   v0.4]. JSPARK Forge never hands out more than the cap; it cannot see helpers Claude starts by itself.
 - [updated 2026-11-20: as built in v0.4] A graph whose gates run commands needs the user's typed
-  `TRUST GRAPH <name>` first, and again when those commands, a gate or a human step change; a human step completes
-  only on the user's own typed `DONE <step>`. The run's record is guarded by the `forge-state` block (5.2). What is
+  `TRUST GRAPH <name>` first, and again when those commands, a gate or a human step change (or a human step's
+  `- ahead: no` mark); a human step completes only on the user's own typed `DONE <step>`, or on their own typed
+  `APPROVE AHEAD <graph> <step>` given before the run reached it. The run's record is guarded by the `forge-state` block (5.2). What is
   enforced, evidenced, guarded or only instructed: design-v0.4 section 1.
 - A node is marked done on its first hand-back; a late or repeated report from the same helper is logged, not re-run.
 
@@ -767,7 +777,8 @@ that ships.
 except "retry a failed node once, then stop and show". Graphs are files in the repo, so they are versioned and reviewed
 like code.
 
-**Tests.** State survives a killed session (resume lands on the running node); a `human` node blocks until a reply; a
+**Tests.** State survives a killed session (resume lands on the running node); a `human` node blocks until a reply,
+or completes from an approval the person typed ahead and never from a quotation, a helper's report or a command; a
 gate with a failing command stops the run and names the command; never more steps handed out than the cap; every
 template validates and one (the spike template) runs end to end against real Claude Code [updated 2026-11-20: as
 built in v0.4]; a graph that references an undeclared field fails before the run starts.

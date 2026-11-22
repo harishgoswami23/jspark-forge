@@ -4,7 +4,8 @@ description: Use when the user runs /jspark-forge:build or asks to run, continue
 ---
 Run a build graph step by step. JSPARK Forge keeps the record and checks it; you do the work it hands out.
 
-1. If the user named no graph, list `.jspark-forge/graphs/*.md`. To start from a template, copy one of
+1. (In a graph file, a human step that must always have the person there at the time, such as a release, carries the
+   line `- ahead: no`; the templates mark their release steps this way. Do not remove it.) If the user named no graph, list `.jspark-forge/graphs/*.md`. To start from a template, copy one of
    `${CLAUDE_PLUGIN_ROOT}/templates/graphs/` (software, documents, spike, ui, or planned when the spec and plan are already written) to `.jspark-forge/graphs/<name>.md` with the
    Write tool, never over an existing file, change its first line to `# Graph: <name>` (the title must match the file
    name), and help the user fill in its briefs. After copying a template: (a) set every `run:` line to the project's
@@ -38,6 +39,12 @@ Run a build graph step by step. JSPARK Forge keeps the record and checks it; you
      `graph status <name>` (it says "31 of 63 tests done, 0 failed"); do not read the log for that. When a message
      names flaky tests, tell the user their names: a flaky test is not a fixed test.
    - **human step:** show the user the instruction and stop. Only the user's own message `DONE <step>` completes it.
+     The user may give their decision before the run reaches a step, by typing `APPROVE AHEAD <name> <step>` as their
+     whole message (and withdraw it with `CANCEL APPROVAL <name> <step>`). You never type, suggest sending on their
+     behalf, or imitate either: when the user asks how to leave a build running, tell them the message and which
+     steps it applies to. A step marked `- ahead: no` (a release) always waits for them. When `graph next` prints
+     that a step "is done: approved ahead by the person at <time>", tell the user so, with the instruction it prints,
+     and go on. If a command prints that an approval given ahead was cancelled, tell the user.
    - **interrupted / stopped / finished:** show the user and wait.
 4. Never add steps, skip a human step, edit `.jspark-forge/state/graph-*` files, or report outputs a helper did not
    give. After the run, show what each step returned and the time and tokens per step from `graph status <name>`.

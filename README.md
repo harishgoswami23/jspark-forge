@@ -396,7 +396,8 @@ it; JSPARK Forge keeps the record, so a crash, a usage limit or a new session pi
 What JSPARK Forge checks, what it guards, and what it can only ask for:
 - **Checked:** the graph is valid before it starts and is fixed for the run; a step's outputs are exactly the declared
   ones and are real (a path exists, a commit resolves); a step that needs you completes only on your own typed
-  `DONE <step>`.
+  `DONE <step>`, or on your own typed `APPROVE AHEAD <graph> <step>` given before the build got there (not for a
+  step marked `- ahead: no`, such as a release; withdraw with `CANCEL APPROVAL <graph> <step>`).
 - **Backed by evidence:** a helper of the right kind ran for the step; a check passed on its command's real exit code,
   run in this session and project, not in the background (or run by JSPARK Forge's own check runner, above).
 - **Guarded:** Claude is blocked from editing the run's record or imitating your `DONE` / `TRUST GRAPH` from the shell;

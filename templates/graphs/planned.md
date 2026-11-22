@@ -34,4 +34,5 @@
 
 ## release (human)
 - after: review
+- ahead: no
 - say: Read the review, merge the branch into main and tag the release, then reply DONE release.

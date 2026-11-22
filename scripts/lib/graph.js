@@ -38,6 +38,7 @@ function parse(text) {
     if (key === 'before') { cur.before.push({ value: val, line: n }); return; } // v0.7: what must be true before a gate starts
     if (key === 'retry') { cur.retries.push({ value: val, line: n }); return; } // v0.7: the command that runs only what failed
     if (LIST_KEYS.has(key)) { cur[key] = cur[key].concat(list(val)); return; }
+    if (key === 'ahead') { cur.ahead = val.toLowerCase(); return; } // a human step that may (yes) or may never (no) be approved ahead
     cur[key] = val;
   });
   if (g.maxParallelRaw === null) g.maxParallel = 1;
@@ -74,6 +75,11 @@ function validate(g, fileName) {
       }
     }
     if (s.kind === 'human' && !s.say) err(s.line, `human step needs "say:" (one plain instruction)`);
+    // "ahead: no" marks a human step that needs the person at the time (a release): it can never be approved ahead.
+    if (s.fieldLines.ahead) {
+      if (s.kind !== 'human') err(s.fieldLines.ahead, `"ahead:" belongs to a human step ("${s.id}" is ${s.kind})`);
+      else if (s.ahead !== 'yes' && s.ahead !== 'no') err(s.fieldLines.ahead, `human step "${s.id}": "ahead:" must be yes or no`);
+    }
     // v0.7 (design-v0.7 1): "before:" and "retry:" belong to gates. A "before:" line is one of a few fixed forms, never
     // a command; "retry:" is a command like "run:", and needs a gate with one "run:" line so "what failed" has one meaning.
     if (s.kind !== 'gate') {
