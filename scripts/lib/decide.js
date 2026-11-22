@@ -81,7 +81,7 @@ function run(dir, args, sid) {
     st.lastEvent = { text: msg, shown: false, at: Date.now() };
     writeState(dir, st);
     const sess = state.readSession(dir, sid);
-    const settled = new Set([].concat(j.skip || [], (String(j.source || '').match(/\b[0-9a-f]{7,40}\b/g) || [])));
+    const settled = new Set([].concat(j.skip || [], j.none || [], (String(j.source || '').match(/\b[0-9a-f]{7,40}\b/g) || [])));
     if (settled.size && Array.isArray(sess.offers)) {
       sess.offers = sess.offers.filter(x => ![...settled].some(s => String(x.sha).startsWith(s) || s.startsWith(String(x.sha))));
       state.writeSession(dir, sid, sess);
@@ -114,6 +114,8 @@ function run(dir, args, sid) {
 
   // Add.
   if (j.skip && !j.title) return done(`Not recorded (skipped ${[].concat(j.skip).join(', ')}).`);
+  // Claude's own call, without the user (owner 2026-11-22): the commit settled no choice, so there is nothing to offer.
+  if (j.none && !j.title) return done(`No decision in ${[].concat(j.none).map(x => one(x, 40)).join(', ')}: nothing recorded, and nothing to ask the user.`);
   const title = one(j.title, 200);
   if (!title) return 'Not recorded: a decision needs a one-line title.\n';
   const kind = String(j.kind || 'decision').toLowerCase();

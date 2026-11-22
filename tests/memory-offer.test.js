@@ -1,7 +1,7 @@
 'use strict';
 // v0.2 decision memory, offering to record (design-v0.2 1.4) and stale flags (1.5): after a commit that may have
 // settled a choice, the main conversation is asked to offer "Record the decision?" at the end of its work; never
-// in helpers, never unattended, never at 95 % usage; filtered mechanically; delivered at most twice.
+// in helpers, never unattended, never at 95 % usage; filtered mechanically; shown once (twice until 2026-11-22).
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -45,12 +45,29 @@ test('a commit that may have settled a choice: the offer arrives once in this tu
   assert.equal(ctxOf(hook(dir, 'PostToolUse', { tool_name: 'Edit', tool_input: { file_path: path.join(dir, 'a.ts') } })), '', 'once per turn');
 });
 
-test('delivered again at the next message, then dropped (at most twice)', () => {
+// Changed on 2026-11-22 (owner): the offer came back at the next message, and Claude asked again each time.
+test('an offer is shown once: it does not come back at the next message', () => {
   const dir = project();
   commit(dir, { 'src/a.ts': '1' }, 'Use signed cookies for sessions');
-  assert.match(ctxOf(committed(dir)), /signed cookies/);
-  assert.match(ctxOf(hook(dir, 'UserPromptSubmit', { prompt: 'now add the export button to the report page' })), /signed cookies/);
-  assert.ok(!/signed cookies/.test(ctxOf(hook(dir, 'UserPromptSubmit', { prompt: 'and then write the tests for the export' }))), 'dropped after two');
+  const first = ctxOf(committed(dir));
+  assert.match(first, /signed cookies/);
+  assert.match(first, /Offer once/, 'and Claude is told not to ask again');
+  assert.ok(!/signed cookies/.test(ctxOf(hook(dir, 'UserPromptSubmit', { prompt: 'now add the export button to the report page' }))), 'not repeated');
+  assert.ok(!/signed cookies/.test(ctxOf(hook(dir, 'UserPromptSubmit', { prompt: 'and then write the tests for the export' }))));
+});
+
+test('Claude can mark a commit as "no decision here" without asking the user', () => {
+  const dir = project();
+  commit(dir, { 'src/a.ts': '1' }, 'Fix the off-by-one in paging');
+  const sha = execFileSync('git', ['rev-parse', '--short=7', 'HEAD'], { cwd: dir, encoding: 'utf8' }).trim();
+  const offer = ctxOf(committed(dir));
+  assert.match(offer, /settled no choice[\s\S]*do not ask the user[\s\S]*"none": \["/);
+  fs.writeFileSync(path.join(dir, '.jspark-forge', 'state', 'decide.json'), JSON.stringify({ none: [sha] }));
+  const out = spawnSync(process.execPath, [FORGE, 'decide', '--from', '.jspark-forge/state/decide.json'], { cwd: dir, encoding: 'utf8',
+    env: Object.assign({}, process.env, { CLAUDE_PROJECT_DIR: dir, CLAUDE_CODE_SESSION_ID: 'off-1' }) }).stdout;
+  assert.match(out, new RegExp(`No decision in ${sha}: nothing recorded, and nothing to ask the user`));
+  assert.ok(!fs.existsSync(path.join(dir, '.jspark-forge', 'decisions.md')), 'nothing was written to decisions.md');
+  assert.equal((require('../scripts/lib/state').readSession(dir, 'off-1').offers || []).length, 0, 'the offer is settled');
 });
 
 test('filtered mechanically: docs-only, lockfiles, chore/docs/bump/merge subjects get no offer', () => {

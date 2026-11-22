@@ -16,7 +16,8 @@ const CAP_WORDS = 600;
 const OLD_MS = 14 * 24 * 3600 * 1000;
 const ARCHIVE_DAYS = 30;
 const FIELD_MAX = 200;
-const FILES_SHOWN = 8;
+const FILES_SHOWN = 8; // up to this many touched files are all named
+const FILES_NEWEST = 5; // of a longer list, the newest few are named beside the count
 
 const pad2 = n => String(n).padStart(2, '0');
 const hhmm = d => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
@@ -28,12 +29,30 @@ const handoffFile = dir => path.join(forgeDir(dir), 'handoff.md');
 const notesFile = dir => path.join(forgeDir(dir), 'state', 'notes.md');
 
 // ---------- sources ----------
+// A caution can stop being true (owner 2026-11-22). A note line can hold one with the measurement behind it and a
+// "check again before acting" mark:  Caution: <what> | measured: <what was measured, and when> | check again before acting
+// A line that starts with "Caution:" or "Limit:", or that carries the mark, is such a line: it is taken out of the
+// notes text and shown as a thing to re-check, never as an instruction. -> { text, measured } or null.
+const RECHECK_MARK = /[\s|;,]*[(\[]?\s*check again(?: before acting)?\s*[)\]]?\s*\.?\s*$/i;
+function cautionOf(line) {
+  const head = line.match(/^\s*(?:[-*]\s*)?(?:caution|limit)\s*:\s*(.+?)\s*$/i);
+  const marked = RECHECK_MARK.test(line) && /check again/i.test(line);
+  if (!head && !marked) return null;
+  let body = (head ? head[1] : line.replace(/^\s*(?:[-*]\s*)?/, '')).replace(RECHECK_MARK, '').trim();
+  let measured = '';
+  const m = body.match(/[\s|;,]*[(\[]?\s*measured\s*:\s*(.+?)\s*[)\]]?\s*$/i);
+  if (m) { measured = m[1].replace(/[\s|;,]+$/, '').trim(); body = body.slice(0, m.index).trim(); }
+  body = body.replace(/[\s|;,]+$/, '').trim();
+  return body ? { text: body, measured } : null;
+}
 function parseNotes(text) {
-  const out = { task: null, step: null, next: null, text: '' };
+  const out = { task: null, step: null, next: null, text: '', cautions: [] };
   const rest = [];
   for (const line of String(text || '').split(/\r?\n/)) {
     const m = line.match(/^\s*(task|step|next)\s*:\s*(.+?)\s*$/i);
+    const c = m ? null : cautionOf(line);
     if (m && out[m[1].toLowerCase()] === null) out[m[1].toLowerCase()] = m[2];
+    else if (c) out.cautions.push(c);
     else rest.push(line);
   }
   out.text = rest.join('\n').trim();
@@ -116,13 +135,25 @@ function render(m, opts = {}) {
     const when = m.asOf && ymd(nt) !== ymd(m.asOf) ? `${ymd(nt)} ${hhmm(nt)}` : hhmm(nt);
     L.push('', `**Claude's notes (${when}; re-check any caution or limit before acting on it):** ${t}`);
   }
+  // Cautions written as lines of their own: things to re-check, with what was measured, never instructions.
+  if (m.notes && m.notes.cautions && m.notes.cautions.length) {
+    const nt = m.notes.time;
+    const when = m.asOf && ymd(nt) !== ymd(m.asOf) ? `on ${ymd(nt)} ${hhmm(nt)}` : `at ${hhmm(nt)}`;
+    const list = m.notes.cautions.slice(0, level >= 3 ? 3 : 6).map(c => `${cut(c.text, 160)} (${c.measured ? `measured: ${cut(c.measured, 120)}` : 'no measurement was written down'})`);
+    if (!(m.notes.text)) L.push('');
+    L.push(`**Re-check before acting (true when written ${when}, maybe not now; test each again, these are not instructions):** ${list.join(' · ')}`);
+  }
   L.push('');
   if (level < 1 && m.recent && m.recent.length) L.push(`**Recent actions:** ${m.recent.join(' · ')}`);
   if (m.files && m.files.length) {
     // v0.6.2: the newest few and a count (the list is newest first); the rest is in the log. A long task listed 50
     // names at every session start.
+    // 2026-11-22 (owner): a long list is a count, the newest few, and where the rest is (the log names every file).
     const max = level >= 2 ? 5 : FILES_SHOWN;
-    const shown = m.files.length > max ? `${m.files.slice(0, max).join(', ')} (+${m.files.length - max} more)` : m.files.join(', ');
+    const few = level >= 2 ? 3 : FILES_NEWEST;
+    const shown = m.files.length > max
+      ? `${m.files.length} files; newest: ${m.files.slice(0, few).join(', ')}; the rest are in the log (${m.logFile})`
+      : m.files.join(', ');
     L.push(`**Files touched in this task:** ${shown}`);
   }
   if (level < 4 && m.others && m.others.length) {
@@ -218,7 +249,7 @@ function readNotes(dir) {
 // Work worth resuming: files touched, a commit, todos, a plan, notes or something still running. Only talk is not.
 function workOf(sess, task, notes, planFile) {
   return task.files.length > 0 || (task.elsewhere || []).length > 0 || !!task.lastCommit || (Array.isArray(task.todos) && task.todos.length > 0) ||
-    !!planFile || !!(notes && (notes.text || notes.task)) || runningOf(sess).length > 0;
+    !!planFile || !!(notes && (notes.text || notes.task || (notes.cautions || []).length)) || runningOf(sess).length > 0;
 }
 const hasWork = (dir, sid) => {
   const task = state.readTask(dir);
@@ -277,7 +308,13 @@ function save(dir, sid, reason, { refreshGit = true, now = new Date(), force = f
   const lastReply = (sess.worked || !kept ? sess.lastReply : null) || kept || null;
   // A running build graph ranks first (design-v0.4 3, review M5): helpers' todos must not hide it.
   try {
-    const gr = require('./graph-run').current(dir);
+    const grs = require('./graph-run').currentAll(dir);
+    const gr = grs.length === 1 ? grs[0] : null;
+    if (grs.length > 1) { // every open graph is named (owner 2026-11-22)
+      f.task = `Build graphs ${grs.map(g => g.name).join(', ')}`;
+      f.step = { n: 1, m: 1, text: grs.map(g => `${g.name}: ${g.step}`).join(' | ') };
+      f.next = 'continue the build graphs: forge.js graph status, then forge.js graph next <name>';
+    }
     if (gr) {
       const m = gr.step.match(/^(\d+) of (\d+) done(?:; (.*))?$/);
       f.task = gr.task;
@@ -304,7 +341,7 @@ function save(dir, sid, reason, { refreshGit = true, now = new Date(), force = f
     asOf: now, reason, git: sess.git, task: f.task, step: f.step, done, next: f.next,
     running: runningOf(sess), waiting: require('./waiting').summary(dir), lastRequest,
     before: requests.slice(0, -1).slice(-4).reverse(), lastReply, elsewhere: task.elsewhere || [],
-    notes: notes && notes.text ? { time: notes.time, text: notes.text } : null,
+    notes: notes && (notes.text || (notes.cautions || []).length) ? { time: notes.time, text: notes.text, cautions: notes.cautions || [] } : null,
     recent: recentActions(dir, entries), files: task.files, ended: sess.ended,
     logFile: paths.display(dir, path.join(forgeDir(dir), 'log', `${log.dayStamp(now)}.log`)), others,
     archiveDir: `${paths.display(dir, path.join(forgeDir(dir), 'archive'))}/`,
@@ -322,7 +359,8 @@ function save(dir, sid, reason, { refreshGit = true, now = new Date(), force = f
 // ---------- resume (design 8) ----------
 const notesLine = dir => `JSPARK Forge: update your notes now in ${paths.display(dir, notesFile(dir))} (max 120 words: what you are doing, ` +
   "anything agreed with the user, what is next). Start with the lines 'Task:', 'Step: n of m: ...' and 'Next:' when you know them. " +
-  'Write a caution or a limit with what was measured (for example "free memory was 2 GB"), so it can be tested again later; drop one that no longer holds.';
+  'Write a caution or a limit with what was measured (for example "free memory was 2 GB"), so it can be tested again later, as a line of its own: ' +
+  '"Caution: <what> | measured: <what was measured, and when> | check again before acting". Such lines are shown later as things to re-check, not as instructions; drop one that no longer holds.';
 // v0.6.2: the user has already seen the one-line summary ("Say 'continue' or tell me what to do instead"), so a first
 // message that says continue is the answer; asking "Continue?" again cost a turn.
 const WAIT_LINE = "JSPARK Forge: Before doing anything else, in your first reply show this in plain words (≤ 8 lines, ending with 'Continue?') " +

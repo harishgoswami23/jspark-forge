@@ -75,4 +75,4 @@ function consume(dir, session, id, now = Date.now()) {
   return true;
 }
 
-module.exports = { grantFromPrompt, has, consume, TTL_MS, SESSION_LONG, isConfirmOnly };
+module.exports = { grantFromPrompt, has, consume, TTL_MS, SESSION_LONG, isConfirmOnly, WRAPPED };

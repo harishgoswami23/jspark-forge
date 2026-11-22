@@ -1399,6 +1399,11 @@ const GATE_RUN = /\b(?:node|bun|deno)(?:\.exe)?\b[^\n;|&]*forge\.js["']?\s+["']?
 const GATE_RUN_WHOLE = /^node\s+("[^"$`]*forge\.js"|[^\s"'$`;|&<>()]*forge\.js)\s+graph\s+gate\s+[a-z][a-z0-9-]{0,39}\s+[A-Za-z][\w-]{0,63}$/;
 const GATE_RUN_PLAIN = 'the gate runner (forge.js graph gate) records a build graph\'s check, so it runs only as the whole command, ' +
   'exactly as graph next prints it, from the main session: no variable or cd in front, nothing after it, never from a helper';
+// What Claude is told (owner 2026-11-22): what to do, not the route for a step report.
+const GATE_RUN_SAY = 'JSPARK Forge blocked: the gate runner (forge.js graph gate) records a build graph\'s check, so nothing may come ' +
+  'before or after it on the command line (no cd, no variable, no && and no pipe). Run it from the project folder as a command of its own.';
+const GATE_RUN_SAY_HELPER = 'JSPARK Forge blocked: the gate runner (forge.js graph gate) records a build graph\'s check, so it runs ' +
+  'from the main session, never from a helper. Report back; the main session runs it from the project folder as a command of its own.';
 
 // opts.all: return every hit (hard ones first) instead of the one to report.
 function check(input, ctx, opts = {}) {
@@ -1422,7 +1427,9 @@ function check(input, ctx, opts = {}) {
       const dialect = tool === 'PowerShell' ? 'ps' : 'bash';
       // v0.5.2 review H1: the gate runner records a build graph's check, so its call must be the whole command, with
       // nothing in front of or behind it (an environment prefix chose the shell or the session), and never a helper's.
-      if (GATE_RUN.test(raw) && (!GATE_RUN_WHOLE.test(raw.trim()) || input.agent_id)) hits.push(hit('forge-state', true, raw, GATE_RUN_PLAIN));
+      if (GATE_RUN.test(raw) && (!GATE_RUN_WHOLE.test(raw.trim()) || input.agent_id)) {
+        hits.push(Object.assign(hit('forge-state', true, raw, GATE_RUN_PLAIN), { reason: GATE_RUN_WHOLE.test(raw.trim()) ? GATE_RUN_SAY_HELPER : GATE_RUN_SAY }));
+      }
       hits = hits.concat(forgeHits(raw, cwd, ctx, dialect));
       ctx.budget = { calls: 0 };
       hits = hits.concat(shellHits(raw, cwd, ctx, 0, dialect));

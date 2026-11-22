@@ -16,7 +16,7 @@ const list = v => String(v || '').split(',').map(s => s.trim()).filter(Boolean);
 
 function parse(text) {
   const lines = String(text || '').replace(new RegExp(`^${String.fromCharCode(0xfeff)}`), '').split(/\r?\n/);
-  const g = { name: '', nameLine: 0, maxParallel: 1, maxParallelRaw: null, memLine: 0, steps: [] };
+  const g = { name: '', nameLine: 0, maxParallel: 1, maxParallelRaw: null, memLine: 0, lock: '', lockLine: 0, steps: [] };
   let cur = null;
   lines.forEach((line, i) => {
     const n = i + 1;
@@ -31,6 +31,9 @@ function parse(text) {
     if (!cur) {
       if (key === 'max_parallel') { g.maxParallelRaw = val; g.maxParallel = Number(val); g.maxParallelLine = n; }
       if (key === 'min_free_memory_mb') g.memLine = n; // cut from v0.4 (design section 6): reported by validate()
+      // "- lock: <name>": which other graphs this one must never run beside. Graphs with the same name wait for each
+      // other; a graph with no lock line runs alone (owner 2026-11-22).
+      if (key === 'lock' && !g.lockLine) { g.lock = val; g.lockLine = n; }
       return;
     }
     cur.fieldLines[key] = cur.fieldLines[key] || n;
@@ -38,6 +41,7 @@ function parse(text) {
     if (key === 'before') { cur.before.push({ value: val, line: n }); return; } // v0.7: what must be true before a gate starts
     if (key === 'retry') { cur.retries.push({ value: val, line: n }); return; } // v0.7: the command that runs only what failed
     if (LIST_KEYS.has(key)) { cur[key] = cur[key].concat(list(val)); return; }
+    if (key === 'ahead') { cur.ahead = val.toLowerCase(); return; } // a human step that may (yes) or may never (no) be approved ahead
     cur[key] = val;
   });
   if (g.maxParallelRaw === null) g.maxParallel = 1;
@@ -52,6 +56,7 @@ function validate(g, fileName) {
   if (!g.name) err(1, 'the first heading must be "# Graph: <name>"');
   else if (fileName && g.name !== fileName) err(g.nameLine, `the title must name the file: "# Graph: ${fileName}"`);
   if (g.maxParallelRaw !== null && !(Number.isInteger(g.maxParallel) && g.maxParallel >= 1 && g.maxParallel <= 8)) err(g.maxParallelLine, 'max_parallel must be a whole number from 1 to 8');
+  if (g.lockLine && !ID.test(g.lock)) err(g.lockLine, 'lock must be a short name: lower-case letters, digits and dashes, starting with a letter (for example "- lock: database")');
   if (g.memLine) err(g.memLine, '"min_free_memory_mb" is not supported in v0.4 (max_parallel and the plan-usage cap remain)');
   if (!g.steps.length) err(g.nameLine || 1, 'a graph needs at least one step ("## <id> (<kind>)")');
   const byId = new Map();
@@ -74,6 +79,11 @@ function validate(g, fileName) {
       }
     }
     if (s.kind === 'human' && !s.say) err(s.line, `human step needs "say:" (one plain instruction)`);
+    // "ahead: no" marks a human step that needs the person at the time (a release): it can never be approved ahead.
+    if (s.fieldLines.ahead) {
+      if (s.kind !== 'human') err(s.fieldLines.ahead, `"ahead:" belongs to a human step ("${s.id}" is ${s.kind})`);
+      else if (s.ahead !== 'yes' && s.ahead !== 'no') err(s.fieldLines.ahead, `human step "${s.id}": "ahead:" must be yes or no`);
+    }
     // v0.7 (design-v0.7 1): "before:" and "retry:" belong to gates. A "before:" line is one of a few fixed forms, never
     // a command; "retry:" is a command like "run:", and needs a gate with one "run:" line so "what failed" has one meaning.
     if (s.kind !== 'gate') {

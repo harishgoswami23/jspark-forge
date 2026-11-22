@@ -2,8 +2,8 @@
 // v0.6.2: six small fixes from real use in another project (owner, 2026-11-21).
 //  1. "continue" as the first message is the answer: no second "Continue?".
 //  2. The handoff lists the newest few touched files and a count, not all 50.
-//  3. A gate nobody is running is "not yet passed", not "running" (tests/graph-gate.test.js too).
-//  4. A step named like its kind reads "Step gate (gate)", not "Gate gate".
+//  3. A gate nobody is running is "waiting to be run" (first worded "not yet passed"), not "running" (tests/graph-gate.test.js too).
+//  4. A step named like its kind reads "Step gate" (first "Step gate (gate)"), not "Gate gate".
 //  5. Notes carry their date and say to re-check a caution before acting on it.
 //  6. One line says who decides what when superpowers is installed too.
 const test = require('node:test');
@@ -41,11 +41,11 @@ test('the resume skill has the same exception, and a question is not a go-ahead'
 });
 
 // ---- 2 ----
-test('a long list of touched files shows the newest 8 and a count', () => {
+test('a long list of touched files shows a count, the newest 5 and where the log is', () => {
   const files = Array.from({ length: 50 }, (_, i) => `src/f${i}.js`);
   const t = handoff.render(model({ files }));
   const line = t.match(/\*\*Files touched in this task:\*\* (.*)$/m)[1];
-  assert.equal(line, `${files.slice(0, 8).join(', ')} (+42 more)`);
+  assert.match(line, /^50 files; newest: src\/f0\.js, src\/f1\.js, src\/f2\.js, src\/f3\.js, src\/f4\.js; the rest are in the log \(\.jspark-forge\/log\/[^)]+\.log\)$/);
   assert.match(t, /\*\*More detail:\*\* \.jspark-forge\/log\//, 'the log is still named for the rest');
 });
 
@@ -100,29 +100,29 @@ function started(graph) {
   return dir;
 }
 
-test('a gate that was handed out and not run is "not yet passed" in status, never "running"', () => {
+test('a gate that was handed out and not run is "waiting to be run" in status, never "running"', () => {
   const dir = started(`# Graph: g\n## gate (gate)\n- run: ${OK}\n`);
   cli(dir, ['next', 'g']);
   const s = cli(dir, ['status', 'g']);
-  assert.match(s, /0 of 1 steps done; gate not yet passed \(0 of 1 commands passed, none running\)/);
-  assert.match(s, /^- gate: not yet passed \(0 of 1 commands passed, none running\)$/m);
+  assert.match(s, /0 of 1 steps done; gate waiting to be run \(0 of 1 commands passed\)/);
+  assert.match(s, /^- gate: waiting to be run \(0 of 1 commands passed\)$/m);
   assert.doesNotMatch(s, /running[^)]/, 'nothing is said to be running');
 });
 
-test('a step named "gate" reads "Step gate (gate)", not "Gate gate"', () => {
+test('a step named "gate" is named once: "Step gate", not "Gate gate" or "Step gate (gate)"', () => {
   const dir = started(`# Graph: g\n## gate (gate)\n- run: ${OK}\n`);
   cli(dir, ['next', 'g']);
   const again = cli(dir, ['next', 'g']);
-  assert.match(again, /Step gate \(gate\) still needs:/);
+  assert.match(again, /^Step gate still needs:/m);
   const out = cli(dir, ['gate', 'g', 'gate']);
-  assert.match(out, /Step gate \(gate\) passed\./);
+  assert.match(out, /^Step gate passed\./m);
   assert.doesNotMatch(again + out, /Gate gate/);
 });
 
 test('a failing gate says "Step <id> (gate) failed"', () => {
   const dir = started(`# Graph: g\n## gate (gate)\n- run: ${BAD}\n`);
   cli(dir, ['next', 'g']);
-  assert.match(cli(dir, ['gate', 'g', 'gate']), /Step gate \(gate\) failed: .*exited 3/);
+  assert.match(cli(dir, ['gate', 'g', 'gate']), /^Step gate failed: .*exited 3/m);
 });
 
 // ---- 6 ----

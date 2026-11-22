@@ -196,6 +196,11 @@ branch, Claude's own notes. Enough to resume the work, not a map of the system. 
   `/jspark-forge:resume` command is not a go-ahead.
 - **Notes are dated [owner 2026-11-21: v0.6.2]:** the handoff shows the notes' date when it is not today's and says to
   re-check any caution or limit before acting on it; the notes reminder asks for what was measured behind a caution.
+  A note line can hold a caution with its measurement and a mark [owner 2026-11-22]:
+  `Caution: <what> | measured: <what was measured, and when> | check again before acting`. Such lines (any line that
+  starts with `Caution:` or `Limit:`, or carries the mark) are taken out of the notes text and shown under
+  "Re-check before acting", with the measurement and the time they were written, as things to test again, not as
+  instructions.
 - Short-term only: when a task is closed, the handoff is archived (and from v0.2 its lasting lessons move into
   decision memory).
 
@@ -426,7 +431,9 @@ as context **just before** Claude edits one of those files. It does not describe
   whose subject starts with `chore`, `docs`, `style`, `bump`, `release`, `merge` or `revert`) and when a **plan is
   accepted** (plan-mode exit approved, or a new plan or design file from superpowers), Claude is asked to offer
   *"Record the decision?"* with a drafted line. It is recorded **only after the user says yes** or gives an edit; a
-  skip records nothing. Every recording is announced. No offer in unattended runs or at 95 % usage.
+  skip records nothing. Every recording is announced. No offer in unattended runs or at 95 % usage. An offer is
+  shown once and not repeated at later messages; for a commit that settled no choice (a fix, a rename, tests) Claude
+  marks "no decision here" by itself and asks nothing [owner 2026-11-22].
 - **Kinds:** decision ("prices are stored in cents"), standing rule ("never edit generated files"), lesson from a
   mistake ("a test run without the test flag wrote to real data").
 - **Used before changes:** PreToolUse on Edit/Write/NotebookEdit of a path listed in an entry's `touches:` returns
@@ -730,11 +737,24 @@ that the graph offers, never add nodes or edges while running.
   the helper carries the model tier (light for mechanical steps, strongest for design and review; 5.15). Minutes
   per node are measured; tokens are shown only when Claude Code reports them, else "not reported"; estimates come
   only from the graph's own `estimate:` lines, marked "estimate".
-- `human` nodes are first-class. JSPARK Forge never performs them, never skips them, never asks a helper to.
+- `human` nodes are first-class. JSPARK Forge never decides them: it never performs them, never skips them, never
+  asks a helper to. **A person may give their decision early [owner 2026-11-22].** Their own whole message
+  `APPROVE AHEAD <graph> <step>` (typed by them in an attended session, like `DONE <step>`; no command, helper,
+  quotation or file can give it) is accepted when the graph is valid and trusted and the step is a human step the
+  run has not reached. It is stored with the time and the step's `say:` text as it was. When the run reaches the
+  step, JSPARK Forge completes it, records "approved ahead by the person at <time>", and prints the instruction and
+  that it was approved ahead, so the record shows what was approved without having been read at the time. A step
+  marked `- ahead: no` (every release step in the templates) can never be approved ahead; the mark is covered by
+  `TRUST GRAPH`. Any change to the graph's steps cancels the approval, and so does stopping the run; the person is
+  told. `CANCEL APPROVAL <graph> <step>` withdraws it. `graph status <name>` shows what is approved ahead.
 - State lives in `.jspark-forge/state/graph-<name>.json` (as built; the plan said `forge/graph-state.json`) (`done`, `running`, `next`, outputs per node, "as of"). `/jspark-forge:resume`
   shows the graph with the current node highlighted and waits (5.1 show-and-wait).
-- A gate that was handed out and that nobody is running is shown as "not yet passed", with how many of its commands
-  passed; "running" is said only while `graph gate` runs them [owner 2026-11-21: v0.6.2].
+- Three words are kept apart in every status line [owner 2026-11-21: v0.6.2; 2026-11-22]. "running": a process
+  JSPARK Forge started is alive (`graph gate` is running the gate's commands). "waiting to be run": a gate that was
+  handed out and that nobody is running, with how many of its commands passed. "interrupted": a gate whose command
+  was stopped before it ended (by hand, by the tool's time limit, or the gate runner was killed); nothing is recorded
+  as failed and the command runs again. A gate is "failed" only on a real exit code. A helper step that was handed
+  out is "handed to a helper": JSPARK Forge cannot see whether the helper is alive.
 - **Better gates [owner 2026-11-22: v0.7; design-v0.7.md].** (a) `before:` lines on a gate (free memory, a port open
   or free, a container running; fixed forms, never commands) are checked before the gate is handed out and again
   when `graph gate` starts; not met: the gate is not started and nothing fails. This replaces the graph-wide memory
@@ -752,8 +772,13 @@ that the graph offers, never add nodes or edges while running.
   the 95 % band; unknown usage counts as under the limit). There is no memory cap [updated 2026-11-20: as built in
   v0.4]. JSPARK Forge never hands out more than the cap; it cannot see helpers Claude starts by itself.
 - [updated 2026-11-20: as built in v0.4] A graph whose gates run commands needs the user's typed
-  `TRUST GRAPH <name>` first, and again when those commands, a gate or a human step change; a human step completes
-  only on the user's own typed `DONE <step>`. The run's record is guarded by the `forge-state` block (5.2). What is
+  `TRUST GRAPH <name>` first, and again when those commands, a gate or a human step change (or a human step's
+  `- ahead: no` mark); a human step completes only on the user's own typed `DONE <step>`, or on their own typed
+  `APPROVE AHEAD <graph> <step>` given before the run reached it. **`TRUST GRAPH <name>` is never dropped in silence
+  [owner 2026-11-22]:** sent before `graph start` has asked, a graph that exists and is valid is trusted as it is
+  now and the answer lists what was just trusted (commands, gates, human steps); a graph that is missing or not valid
+  gets one line; a message that is close but not exact trusts nothing and is told the exact text to send. Spaces
+  around the message are accepted. Commands that changed after `graph start` showed them are still refused. The run's record is guarded by the `forge-state` block (5.2). What is
   enforced, evidenced, guarded or only instructed: design-v0.4 section 1.
 - A node is marked done on its first hand-back; a late or repeated report from the same helper is logged, not re-run.
 
@@ -763,11 +788,22 @@ the loop through the skill, dispatching helpers; the platform's own workflow fac
 user's opt-in each time; Q18) [updated 2026-11-20: as built in v0.4]. A `graph` view in the dashboard (5.8) when
 that ships.
 
-**Limits.** v0.4 runs one graph at a time per repo. No conditional edges beyond "gate passed / failed". No loops
+**More than one graph [owner 2026-11-22; v0.4 ran one graph at a time per repo].** Several graphs can be open. A
+graph that waits at a human step holds nothing: another graph can start and run. Helper steps and gates of two
+graphs never run at the same moment, unless both graphs carry a header line `- lock: <name>` and the names differ:
+graphs with the same lock name wait for each other, and a graph with no lock line runs alone (the test suites of one
+project often share a database, so their gates must not overlap). A step that must wait is not started and nothing
+fails; `graph next` names the graph and step it waits for. The lock line is fixed for the run and covered by
+`TRUST GRAPH`. `graph status` with no name lists every open graph and what each waits for; the session-start summary
+and the handoff name every open graph. `DONE <step>` completes the step when one open graph waits at it; when two
+do, JSPARK Forge asks for `DONE <graph> <step>` and completes nothing on a guess.
+
+**Limits.** No conditional edges beyond "gate passed / failed". No loops
 except "retry a failed node once, then stop and show". Graphs are files in the repo, so they are versioned and reviewed
 like code.
 
-**Tests.** State survives a killed session (resume lands on the running node); a `human` node blocks until a reply; a
+**Tests.** State survives a killed session (resume lands on the running node); a `human` node blocks until a reply,
+or completes from an approval the person typed ahead and never from a quotation, a helper's report or a command; a
 gate with a failing command stops the run and names the command; never more steps handed out than the cap; every
 template validates and one (the spike template) runs end to end against real Claude Code [updated 2026-11-20: as
 built in v0.4]; a graph that references an undeclared field fails before the run starts.

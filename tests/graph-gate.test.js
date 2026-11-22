@@ -122,10 +122,10 @@ test('a gate left running with nobody running it: graph next names what is left 
   hook(dir, 'PostToolUse', { tool_name: 'Bash', tool_input: { command: OK }, tool_response: { stdout: '' } });
   const out = cli(dir, ['next', 'g']);
   // v0.6.2: nothing is running, so it is not called running
-  assert.match(out, /waiting for checks not yet passed \(1 of 2 commands passed, none running\)/);
+  assert.match(out, /waiting for checks waiting to be run \(1 of 2 commands passed\)/);
   assert.doesNotMatch(out, /checks running/);
   assert.match(out, /Step checks \(gate\) still needs: node -e "require[\s\S]*graph gate g checks/);
-  assert.match(cli(dir, ['status', 'g']), /- checks: not yet passed \(1 of 2 commands passed, none running\)/);
+  assert.match(cli(dir, ['status', 'g']), /- checks: waiting to be run \(1 of 2 commands passed\)/);
   assert.doesNotMatch(out, /still needs: node -e "process\.exit\(0\)"/, 'the passed command is not listed');
 });
 
@@ -146,6 +146,26 @@ test('review H1: the runner call must be the whole command, from the main sessio
     assert.equal(preTool(dir, c), 'deny', c);
   }
   assert.equal(preTool(dir, RUNNER, { agent_id: 'a1', agent_type: 'jspark-forge:builder' }), 'deny', 'a helper');
+});
+
+// Owner 2026-11-22: the refusal named what is not allowed and then the route for a step report, which is another
+// case. It now says what to do.
+test('the refusal of a runner call with something in front of it says how to run it', () => {
+  const dir = started(gateOf(OK));
+  cli(dir, ['next', 'g']);
+  const reason = (command, extra = {}) => {
+    const r = hook(dir, 'PreToolUse', Object.assign({ tool_name: 'Bash', tool_input: { command } }, extra));
+    return JSON.parse(r.stdout).hookSpecificOutput.permissionDecisionReason;
+  };
+  for (const c of [`cd /tmp && ${RUNNER}`, `MSYSTEM= ${RUNNER}`, `${RUNNER} && echo ok`]) {
+    const why = reason(c);
+    assert.match(why, /nothing may come before or after it on the command line/, c);
+    assert.match(why, /Run it from the project folder as a command of its own.$/, c);
+    assert.doesNotMatch(why, /report file|graph done/, 'not the route for a step report');
+  }
+  const helper = reason(RUNNER, { agent_id: 'a1', agent_type: 'jspark-forge:builder' });
+  assert.match(helper, /never from a helper/);
+  assert.match(helper, /the main session runs it from the project folder as a command of its own.$/);
 });
 
 test('review H1/H2: the shell is a fixed absolute path, never taken from SHELL, MSYSTEM or the first bash on PATH', () => {

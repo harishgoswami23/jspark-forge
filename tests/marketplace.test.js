@@ -72,9 +72,9 @@ test('v0.5: the README no longer says JSPARK Forge never installs anything', () 
   assert.ok(!README.includes('never installs anything'));
 });
 
-test('versions are 0.7.0 in plugin.json and package.json', () => {
+test('versions are 0.8.0 in plugin.json and package.json', () => {
   const p = JSON.parse(fs.readFileSync(path.join(ROOT, '.claude-plugin', 'plugin.json'), 'utf8'));
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
-  assert.equal(p.version, '0.7.0');
-  assert.equal(pkg.version, '0.7.0');
+  assert.equal(p.version, '0.8.0');
+  assert.equal(pkg.version, '0.8.0');
 });

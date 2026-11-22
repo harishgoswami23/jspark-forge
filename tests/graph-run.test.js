@@ -232,10 +232,13 @@ test('trust is for the commands that were shown: changed after the ask, TRUST is
   assert.match(cli(dir, ['start', 'g']), /Started/);
 });
 
-test('TRUST rules: the whole message, attended only, and only after start showed the commands (review M5)', () => {
+// Changed on 2026-11-22 (owner): TRUST GRAPH sent before start asked used to be an ordinary prompt, dropped without a
+// word. It is now answered and trusts the graph as it is (tests/graph-trust-early.test.js).
+test('TRUST rules: the whole message, attended only (review M5); sent before start asked, it is answered', () => {
+  const early = project({ g: '# Graph: g\n## c (gate)\n- run: npm test\n' });
+  assert.match(hook(early, 'UserPromptSubmit', { prompt: 'TRUST GRAPH g' }).systemMessage, /you trusted build graph g[\s\S]*npm test/);
+  assert.match(cli(early, ['start', 'g']), /Started/);
   const dir = project({ g: '# Graph: g\n## c (gate)\n- run: npm test\n' });
-  assert.equal(hook(dir, 'UserPromptSubmit', { prompt: 'TRUST GRAPH g' }), null, 'nothing was shown yet: an ordinary prompt');
-  assert.equal(lastPrompt(dir), 'TRUST GRAPH g');
   assert.match(cli(dir, ['start', 'g']), /TRUST GRAPH g/);
   hook(dir, 'UserPromptSubmit', { prompt: 'ok TRUST GRAPH g' });
   hook(dir, 'UserPromptSubmit', { prompt: 'TRUST GRAPH g' }, SID, { CLAUDE_CODE_SESSION_ATTENDED: '0' });
@@ -359,12 +362,15 @@ test('retry a failed step once, then stop and show', () => {
   assert.equal(st(dir).steps.b.state, 'failed');
 });
 
-test('one run at a time; stop ends it; a changed graph file stops the run', () => {
+// Changed on 2026-11-22 (owner): a second graph may start while one is open; what must not overlap is their helper
+// steps and gates (tests/graph-multi.test.js).
+test('a graph cannot be started twice; another one can start beside it; stop ends a run; a changed graph file stops the run', () => {
   const dir = project({ g: SIMPLE, h: SIMPLE.replace('# Graph: g', '# Graph: h') });
   cli(dir, ['start', 'g']);
-  assert.match(cli(dir, ['start', 'h']), /already running: g/);
+  assert.match(cli(dir, ['start', 'g']), /already running/);
+  assert.match(cli(dir, ['start', 'h']), /Started[\s\S]*Also open: g/);
   assert.match(cli(dir, ['stop', 'g']), /stopped/i);
-  assert.match(cli(dir, ['start', 'h']), /Started/);
+  assert.match(cli(dir, ['start', 'g']), /Started/, 'a stopped graph can be started again');
   fs.appendFileSync(path.join(dir, '.jspark-forge', 'graphs', 'h.md'), '\n## extra (agent)\n- helper: checker\n');
   assert.match(cli(dir, ['next', 'h']), /graph file changed/i);
 });
@@ -472,7 +478,7 @@ test('session start and the handoff show the running graph', () => {
   const dir = project({ g: SIMPLE });
   cli(dir, ['start', 'g']); cli(dir, ['next', 'g']);
   const o = hook(dir, 'SessionStart', {});
-  assert.match(o.hookSpecificOutput.additionalContext, /Build graph g: .*measure running/);
+  assert.match(o.hookSpecificOutput.additionalContext, /Build graph g: .*measure handed to a helper/);
   spawnSync(process.execPath, [FORGE, 'save'], { cwd: dir, encoding: 'utf8', env: env(dir) });
   const h = fs.readFileSync(path.join(dir, '.jspark-forge', 'handoff.md'), 'utf8');
   assert.match(h, /\*\*Task:\*\* Build graph g/);
