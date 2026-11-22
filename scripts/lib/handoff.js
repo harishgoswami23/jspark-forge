@@ -277,7 +277,13 @@ function save(dir, sid, reason, { refreshGit = true, now = new Date(), force = f
   const lastReply = (sess.worked || !kept ? sess.lastReply : null) || kept || null;
   // A running build graph ranks first (design-v0.4 3, review M5): helpers' todos must not hide it.
   try {
-    const gr = require('./graph-run').current(dir);
+    const grs = require('./graph-run').currentAll(dir);
+    const gr = grs.length === 1 ? grs[0] : null;
+    if (grs.length > 1) { // every open graph is named (owner 2026-11-22)
+      f.task = `Build graphs ${grs.map(g => g.name).join(', ')}`;
+      f.step = { n: 1, m: 1, text: grs.map(g => `${g.name}: ${g.step}`).join(' | ') };
+      f.next = 'continue the build graphs: forge.js graph status, then forge.js graph next <name>';
+    }
     if (gr) {
       const m = gr.step.match(/^(\d+) of (\d+) done(?:; (.*))?$/);
       f.task = gr.task;

@@ -777,7 +777,17 @@ the loop through the skill, dispatching helpers; the platform's own workflow fac
 user's opt-in each time; Q18) [updated 2026-11-20: as built in v0.4]. A `graph` view in the dashboard (5.8) when
 that ships.
 
-**Limits.** v0.4 runs one graph at a time per repo. No conditional edges beyond "gate passed / failed". No loops
+**More than one graph [owner 2026-11-22; v0.4 ran one graph at a time per repo].** Several graphs can be open. A
+graph that waits at a human step holds nothing: another graph can start and run. Helper steps and gates of two
+graphs never run at the same moment, unless both graphs carry a header line `- lock: <name>` and the names differ:
+graphs with the same lock name wait for each other, and a graph with no lock line runs alone (the test suites of one
+project often share a database, so their gates must not overlap). A step that must wait is not started and nothing
+fails; `graph next` names the graph and step it waits for. The lock line is fixed for the run and covered by
+`TRUST GRAPH`. `graph status` with no name lists every open graph and what each waits for; the session-start summary
+and the handoff name every open graph. `DONE <step>` completes the step when one open graph waits at it; when two
+do, JSPARK Forge asks for `DONE <graph> <step>` and completes nothing on a guess.
+
+**Limits.** No conditional edges beyond "gate passed / failed". No loops
 except "retry a failed node once, then stop and show". Graphs are files in the repo, so they are versioned and reviewed
 like code.
 

@@ -362,12 +362,15 @@ test('retry a failed step once, then stop and show', () => {
   assert.equal(st(dir).steps.b.state, 'failed');
 });
 
-test('one run at a time; stop ends it; a changed graph file stops the run', () => {
+// Changed on 2026-11-22 (owner): a second graph may start while one is open; what must not overlap is their helper
+// steps and gates (tests/graph-multi.test.js).
+test('a graph cannot be started twice; another one can start beside it; stop ends a run; a changed graph file stops the run', () => {
   const dir = project({ g: SIMPLE, h: SIMPLE.replace('# Graph: g', '# Graph: h') });
   cli(dir, ['start', 'g']);
-  assert.match(cli(dir, ['start', 'h']), /already running: g/);
+  assert.match(cli(dir, ['start', 'g']), /already running/);
+  assert.match(cli(dir, ['start', 'h']), /Started[\s\S]*Also open: g/);
   assert.match(cli(dir, ['stop', 'g']), /stopped/i);
-  assert.match(cli(dir, ['start', 'h']), /Started/);
+  assert.match(cli(dir, ['start', 'g']), /Started/, 'a stopped graph can be started again');
   fs.appendFileSync(path.join(dir, '.jspark-forge', 'graphs', 'h.md'), '\n## extra (agent)\n- helper: checker\n');
   assert.match(cli(dir, ['next', 'h']), /graph file changed/i);
 });

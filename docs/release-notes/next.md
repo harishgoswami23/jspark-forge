@@ -41,3 +41,18 @@ JSPARK Forge still never decides a human step. You decide; it records that you d
 - Spaces before or after the message are fine.
 - Unchanged: if the commands changed after `graph start` showed them, the trust is refused and you are asked to look
   again.
+
+## New: a second graph can run while the first waits for you
+
+`graph start` used to refuse a new graph while another one was open, even when that one was only waiting for you.
+
+- A graph that is waiting at a human step no longer blocks another graph from starting or running.
+- Helper steps and checks of two graphs still never run at the same moment. A step that has to wait is "not
+  started", nothing fails, and you are told which graph and step it waits for.
+- To say two graphs are safe to run side by side, give each a header line with a different name, for example
+  `- lock: database` in one and `- lock: docs` in the other. Graphs with the same lock name wait for each other. A
+  graph with no lock line runs alone, as before. Adding or changing the line needs your `TRUST GRAPH` again.
+- `graph status` with no name lists every open graph and what each is waiting for.
+- The session-start summary and the handoff name every open graph.
+- `DONE <step>` works as before when one graph waits at that step. When two graphs wait at a step with the same
+  name, you are asked to send `DONE <graph> <step>`; nothing is completed on a guess.

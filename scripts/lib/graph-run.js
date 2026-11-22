@@ -88,6 +88,8 @@ function load(dir, n) {
   // about. A graph without the mark keeps its old entry, so it is not asked about again.
   const noAhead = g.steps.filter(s => s.kind === 'human' && s.ahead === 'no').map(s => s.id);
   if (noAhead.length) guard.noAhead = noAhead;
+  // "- lock: <name>" declares the graph safe to run beside graphs with another lock name: the person's call.
+  if (g.lock) guard.lock = g.lock;
   // An approval given ahead holds only while every step is as it was: any change to the steps cancels it.
   let stepsHash = '';
   if (!errs.length) { try { stepsHash = sha(JSON.stringify(snapshot(g))); } catch { /* cannot be approved ahead */ } }
@@ -97,7 +99,7 @@ const retryOf = s => (s.retries && s.retries[0] && s.retries[0].value) || '';
 // The part of the graph a run depends on, copied into the run state at start.
 // v0.7: a gate's "before:" lines (already read into their fixed forms) and its "retry:" command.
 function snapshot(g) {
-  return { maxParallel: g.maxParallel, steps: g.steps.map(s => ({ id: s.id, kind: s.kind, helper: s.helper || '', brief: s.brief || '',
+  return { maxParallel: g.maxParallel, lock: g.lock || '', steps: g.steps.map(s => ({ id: s.id, kind: s.kind, helper: s.helper || '', brief: s.brief || '',
     needs: s.needs.slice(), gives: s.gives.slice(), after: s.after.slice(), steps: s.steps.slice(), run: s.run.slice(), say: s.say || '',
     estimate: s.estimate || '', ahead: s.kind === 'human' && s.ahead === 'no' ? 'no' : '',
     before: s.kind === 'gate' ? (s.before || []).map(b => P.parse(b.value)).filter(p => !p.error) : [],
@@ -118,8 +120,36 @@ function notOwner(s, n, sid) {
   return `Build graph ${n} is being run by another session (active ${Math.round(idle / 60000)} min ago); continue it there. ` +
     `If that session has ended, take the run over: node "${FORGE_JS}" graph takeover ${n}\n`;
 }
-const active = dir => readJson(activeFile(dir));
-const setActive = (dir, v) => { if (v) writeJson(activeFile(dir), v); else { try { fs.unlinkSync(activeFile(dir)); } catch { /* none */ } } };
+// The open graphs (started, not stopped or finished): { names: [...] }. More than one can be open (owner 2026-11-22);
+// a version before that wrote { name }, which is still read.
+function openNames(dir) {
+  const a = readJson(activeFile(dir)) || {};
+  return [...new Set([].concat(Array.isArray(a.names) ? a.names : [], a.name ? [a.name] : []))].filter(x => NAME.test(String(x || '')));
+}
+function setOpen(dir, n, on) {
+  withLock(activeFile(dir), () => {
+    const names = openNames(dir).filter(x => x !== n).concat(on ? [n] : []);
+    if (names.length) writeJson(activeFile(dir), { names }); else { try { fs.unlinkSync(activeFile(dir)); } catch { /* none */ } }
+  });
+}
+const openRuns = dir => (paths.isOwn(dir) ? openNames(dir).filter(m => openRun(readJson(stateFile(dir, m)))) : []);
+// Two graphs never run helper steps or gates at the same moment, unless both carry a lock line and the names differ
+// (the test suites of one project often share a database). -> the other open graph that has such a step under way
+// and that this graph must wait for, or null. A graph that only waits at a human step holds nothing.
+// Called with the hand-out lock held, so two sessions cannot both find the way free.
+const runLockFile = dir => path.join(paths.forgeDir(dir), 'state', 'graph-handout');
+function busyOther(dir, n, lock) {
+  for (const m of openNames(dir)) {
+    if (m === n) continue;
+    const s = readJson(stateFile(dir, m));
+    if (!openRun(s)) continue;
+    const theirs = s.graph.lock || '';
+    if (lock && theirs && lock !== theirs) continue;
+    const x = s.graph.steps.find(k => (k.kind === 'agent' || k.kind === 'gate') && s.steps[k.id] && s.steps[k.id].state === 'running');
+    if (x) return { name: m, step: x.id, why: lock && theirs ? `both carry the lock "${lock}"` : 'a graph with no "- lock:" line runs alone' };
+  }
+  return null;
+}
 const OLD_RECORD = n => `Build graph ${n} was started by an older JSPARK Forge; stop it (node "${FORGE_JS}" graph stop ${n}) and start it again.\n`;
 
 function check(dir, n) {
@@ -146,11 +176,11 @@ function startRun(dir, n, sid, L) {
     return `${L.runs.length ? `Build graph ${n} will run these commands by itself at its check steps (you do not type them):\n${L.runs.map(r => `- ${r}`).join('\n')}\n` : `Build graph ${n} runs no commands.\n`}` +
       `${before ? `Its gates or human steps changed since it was last trusted; now gates: ${names(L.guard.gates.map(x => x[0]))}; human steps: ${names(L.guard.human)}.\n` : ''}` +
       `${L.guard.noAhead ? `Never approved ahead: ${L.guard.noAhead.join(', ')}.\n` : ''}` +
+      `${L.guard.lock ? `Lock: ${L.guard.lock} (its helper steps and gates may run beside graphs that carry another lock name).\n` : ''}` +
       `To allow it, send exactly this as your whole message: TRUST GRAPH ${n}\nAsked again whenever its commands, gates or human steps change.\n`;
   }
-  const a = active(dir);
-  if (a && a.name !== n) { const s = readJson(stateFile(dir, a.name)); if (s && !s.stopped && !s.finished) return `Another build graph is already running: ${a.name}. Stop it first: node "${FORGE_JS}" graph stop ${a.name}\n`; }
-  if (a && a.name === n) { const s = readJson(stateFile(dir, n)); if (s && !s.stopped && !s.finished) return `Build graph ${n} is already running; continue with: node "${FORGE_JS}" graph next ${n}\n`; }
+  // Another open graph does not stop this one from starting: its helper steps and gates wait their turn at graph next.
+  if (openNames(dir).includes(n)) { const s = readJson(stateFile(dir, n)); if (s && !s.stopped && !s.finished) return `Build graph ${n} is already running; continue with: node "${FORGE_JS}" graph next ${n}\n`; }
   if (trustOf(dir).trusted[n] === undefined) { // the first start of a graph without commands: what later edits are compared with
     withLock(trustFile(dir), () => { const t = trustOf(dir); if (t.trusted[n] === undefined) { t.trusted[n] = L.runHash; writeJson(trustFile(dir), t); } });
   }
@@ -162,10 +192,12 @@ function startRun(dir, n, sid, L) {
   const rec = { name: n, hash: L.hash, owner: sid, lastSeen: now, startedAt: now, graph: snapshot(L.g), steps, evidence: [] };
   if (Object.keys(ahead).length) rec.ahead = ahead;
   withLock(stateFile(dir, n), () => writeJson(stateFile(dir, n), rec));
-  setActive(dir, { name: n });
+  setOpen(dir, n, true);
+  const others = openRuns(dir).filter(m => m !== n);
   const est = L.g.steps.filter(s => s.estimate).map(s => `${s.id}: ${clean(s.estimate, 60)}`);
   const carried = Object.keys(ahead).map(k => `${k} (${stamp(ahead[k].at)})`);
   return `Started build graph ${n} (${L.g.steps.length} steps).${est.length ? ` Estimates (estimate): ${est.join('; ')}.` : ''}\nNext: node "${FORGE_JS}" graph next ${n}\n` +
+    `${others.length ? `Also open: ${others.join(', ')}. ${L.g.lock ? `This graph's helper steps and gates wait for graphs with the lock "${L.g.lock}" or with none` : 'This graph has no "- lock:" line, so its helper steps and gates wait for every other graph\'s'}; a graph that waits for the person holds nothing up.\n` : ''}` +
     `${carried.length ? `Approved ahead by the person, completed by itself when the run gets there: ${carried.join(', ')}.\n` : ''}`;
 }
 
@@ -431,13 +463,15 @@ function next(dir, n, sid, opts = {}) {
   const L = load(dir, n);
   if (L.error) return `${L.error}\n`;
   const pre = preflightFor(dir, n, opts.probes); // before the record is locked: these checks can take seconds
-  return update(dir, n, s => {
+  // One hand-out at a time for the whole project: what another graph is running is read and this graph's steps are
+  // marked as running under the same lock.
+  return withLock(runLockFile(dir), () => update(dir, n, s => {
     if (!s) return `Build graph ${n} has not started: node "${FORGE_JS}" graph start ${n}\n`;
     if (s.stopped) return `Build graph ${n} is stopped (${s.stopped}).\n`;
     if (s.finished) return `Build graph ${n} is finished.\n`;
     if (!s.graph) return OLD_RECORD(n);
     if (s.hash !== L.hash) {
-      s.stopped = 'the graph file changed during the run'; setActive(dir, null);
+      s.stopped = 'the graph file changed during the run'; setOpen(dir, n, false);
       const lost = Object.keys(s.ahead || {}); delete s.ahead;
       return `The graph file changed since the run started, so the run is stopped. Start it again: node "${FORGE_JS}" graph start ${n}\n${lost.length ? `${AHEAD_LOST(lost, 'the graph changed')}\n` : ''}`;
     }
@@ -478,7 +512,7 @@ function next(dir, n, sid, opts = {}) {
     }
     if (s.ahead && !Object.keys(s.ahead).length) delete s.ahead;
     if (g.steps.every(x => s.steps[x.id].state === 'done')) {
-      s.finished = Date.now(); setActive(dir, null);
+      s.finished = Date.now(); setOpen(dir, n, false);
       const fl = g.steps.filter(x => flakyText(s.steps[x.id])).map(x => `${x.id}: ${flakyText(s.steps[x.id])}`);
       if (fl.length) out.push(`Flaky in this run (failed, then passed with no change to the code; a flaky test is not a fixed test). Tell the user: ${fl.join(' | ')}`);
       const c = costLine(g, s);
@@ -492,8 +526,13 @@ function next(dir, n, sid, opts = {}) {
     let capSaid = false, unknownSaid = false;
     const outputs = {};
     for (const v of Object.values(s.steps)) Object.assign(outputs, v.outputs || {});
+    const held = ready.some(x => x.kind !== 'human') ? busyOther(dir, n, g.lock || '') : null;
     for (const x of ready) {
       const st = s.steps[x.id];
+      if (held && x.kind !== 'human') { // another graph's helper step or gate is under way: this one waits its turn
+        out.push(`Step ${x.id} (${x.kind}) is not started: build graph ${held.name} is running ${held.step}, and the two never run at the same moment (${held.why}). Nothing failed; run graph next again when that step is done.`);
+        continue;
+      }
       if (x.kind === 'agent') {
         if (pct !== null && pct >= 95) { // the cap holds back helpers only: human steps and gates go ahead
           if (!capSaid) out.push(`Plan usage is at ${pct} %: no new helper steps until it drops.`);
@@ -551,7 +590,7 @@ function next(dir, n, sid, opts = {}) {
     const c = costLine(g, s); // v0.7: time and tokens so far, at every step, not only at the end
     if (c) out.push(c);
     return `${out.join('\n')}\n`;
-  });
+  }));
 }
 const takeover = (dir, n, sid) => next(dir, n, sid, { takeover: true });
 
@@ -654,8 +693,7 @@ function stop(dir, n, sid) {
     return { lost };
   });
   if (typeof r === 'string') return r;
-  const a = active(dir);
-  if (a && a.name === n) setActive(dir, null);
+  setOpen(dir, n, false);
   return r ? `Build graph ${n} stopped (its record is kept).\n${r.lost.length ? `${AHEAD_LOST(r.lost, 'the run was stopped')}\n` : ''}` : `Build graph ${n} has not started.\n`;
 }
 
@@ -680,7 +718,7 @@ function summary(dir, n) {
   const ids = s.graph.steps.filter(x => x.kind !== 'parallel').map(x => x.id);
   const doneN = ids.filter(i => s.steps[i] && s.steps[i].state === 'done').length;
   const now = ids.filter(i => s.steps[i] && ['running', 'interrupted', 'failed'].includes(s.steps[i].state)).map(i => `${i} ${stateWord(kind.get(i), s.steps[i])}`);
-  return { task: `Build graph ${n}`, step: `${doneN} of ${ids.length} done${now.length ? `; ${now.join(', ')}` : ''}`, text: `Build graph ${n}: ${doneN} of ${ids.length} steps done${now.length ? `; ${now.join(', ')}` : ''}${s.stopped ? ` (stopped: ${s.stopped})` : ''}.` };
+  return { name: n, task: `Build graph ${n}`, step: `${doneN} of ${ids.length} done${now.length ? `; ${now.join(', ')}` : ''}`, text: `Build graph ${n}: ${doneN} of ${ids.length} steps done${now.length ? `; ${now.join(', ')}` : ''}${s.stopped ? ` (stopped: ${s.stopped})` : ''}.` };
 }
 function status(dir, n) {
   if (!NAME.test(String(n || ''))) return BAD_NAME;
@@ -712,11 +750,15 @@ function status(dir, n) {
   const c = costLine(s.graph, s);
   return `${sum.text}\n${lines.concat(pend).join('\n')}\n${c ? `${c}\n` : ''}`;
 }
-// The running graph, for session start and the handoff (null when none).
-function current(dir) {
-  if (!paths.isOwn(dir)) return null;
-  const a = active(dir);
-  return a && NAME.test(String(a.name || '')) ? summary(dir, a.name) : null;
+// Every open graph, for session start and the handoff; current() is the first of them (null when none).
+const currentAll = dir => openRuns(dir).map(m => summary(dir, m)).filter(Boolean);
+const current = dir => currentAll(dir)[0] || null;
+// `graph status` with no name: every open graph and what each is waiting for.
+function statusAll(dir) {
+  const all = currentAll(dir);
+  if (!all.length) return 'No build graph is open.\n';
+  const lines = all.map(g => { const s = readJson(stateFile(dir, g.name)); return `- ${g.text.replace(/^Build graph /, '').replace(/\.$/, '')}${s.graph.lock ? ` (lock: ${s.graph.lock})` : ''}`; });
+  return `${all.length === 1 ? '1 build graph is open' : `${all.length} build graphs are open`}:\n${lines.join('\n')}\nOne graph in detail: node "${FORGE_JS}" graph status <name>\n`;
 }
 
 // ---------- hooks ----------
@@ -726,21 +768,31 @@ function touch(dir, n, sid) {
   if (!s || s.owner !== sid || Date.now() - (s.lastSeen || 0) < SEEN_EVERY_MS) return;
   update(dir, n, x => seen(x, sid));
 }
-const runningGraph = dir => { const a = paths.isOwn(dir) && active(dir); return a && NAME.test(String(a.name || '')) ? a.name : null; };
-
+// One helper start is evidence for one step: it goes to the open graph, run by this session, that has a helper step
+// of this kind handed out and not yet covered by a start; with none such, to the first open graph, as before.
 function onSubagentStart(dir, input) {
-  const n = runningGraph(dir);
-  if (!n || !input.agent_type) return;
+  const names = openRuns(dir);
+  if (!names.length || !input.agent_type) return;
+  const type = String(input.agent_type);
+  const need = m => {
+    const s = readJson(stateFile(dir, m));
+    if (!openRun(s) || s.owner !== input.session_id) return 0;
+    const steps = s.graph.steps.filter(k => k.kind === 'agent' && `jspark-forge:${k.helper}` === type && s.steps[k.id].state === 'running');
+    if (!steps.length) return 0;
+    const since = Math.min(...steps.map(k => s.steps[k.id].handedAt || 0));
+    return steps.length - (s.evidence || []).filter(e => !e.used && e.type === type && e.session === s.owner && e.at >= since).length;
+  };
+  const n = names.find(m => need(m) > 0) || names[0];
   update(dir, n, s => {
     if (!s) return;
     seen(s, input.session_id);
-    s.evidence = (s.evidence || []).concat([{ type: String(input.agent_type), id: input.agent_id, session: input.session_id, at: Date.now() }]).slice(-50);
+    s.evidence = (s.evidence || []).concat([{ type, id: input.agent_id, session: input.session_id, at: Date.now() }]).slice(-50);
   });
 }
 function onAgentResult(dir, input) {
   const m = String((input.tool_input || {}).description || '').match(/\[graph ([a-z][a-z0-9-]{0,39})\/([a-z][a-z0-9-]{0,39})\]/);
-  const n = runningGraph(dir);
-  if (!m || !n || n !== m[1]) return;
+  if (!m || !openRuns(dir).includes(m[1])) return;
+  const n = m[1];
   const r = input.tool_response || {};
   update(dir, n, s => {
     const st = s && s.steps[m[2]];
@@ -755,16 +807,16 @@ const sameDir = (a, b) => !!a && !!b && paths.normPath(a) === paths.normPath(b);
 // helper), in the project folder, in the foreground and not interrupted (review H4).
 function onCommand(dir, input, ok) {
   if (input.agent_id) return;
-  const n = runningGraph(dir);
   const ti = input.tool_input || {};
   const r = input.tool_response || {};
   const cmd = String(ti.command || '').trim();
-  if (!n || !cmd) return;
-  const s0 = readJson(stateFile(dir, n));
-  if (!s0 || s0.owner !== input.session_id) return;
+  const mine = cmd ? openRuns(dir).filter(m => (readJson(stateFile(dir, m)) || {}).owner === input.session_id) : [];
+  if (!mine.length) return;
   const counts = !ti.run_in_background && !r.backgroundTaskId && !r.interrupted && sameDir(input.cwd, dir);
   const isGate = st => st.state === 'running' && Array.isArray(st.pending) && st.pending.includes(cmd);
-  if (!(counts && Object.values(s0.steps || {}).some(isGate))) { touch(dir, n, input.session_id); return; }
+  // The command belongs to the one open graph whose gate is waiting for it.
+  const n = counts ? mine.find(m => Object.values((readJson(stateFile(dir, m)) || {}).steps || {}).some(isGate)) : undefined;
+  if (!n) { for (const m of mine) touch(dir, m, input.session_id); return; }
   // v0.7: the run is recorded like one made by graph gate, from the output the tool reports (it may be cut short; the
   // exit code is the truth). Read before the record is locked: git can take a moment.
   const text = ok ? [r.stdout, r.stderr].filter(x => typeof x === 'string').join('\n') : String(input.error || '');
@@ -931,7 +983,7 @@ function trustGraph(dir, n) {
   if (asked && L.runHash !== asked) return `JSPARK Forge: build graph ${n}'s commands changed since they were shown, so nothing was trusted. Run node "${FORGE_JS}" graph start ${n} again to see them.`;
   const names = list => list.join(', ') || 'none';
   const cmds = L.runs.length ? `the commands it runs by itself at its check steps: ${L.runs.join('; ')}` : 'it runs no commands';
-  const rest = `gates: ${names(L.guard.gates.map(x => x[0]))}; human steps: ${names(L.guard.human)}${L.guard.noAhead ? `; never approved ahead: ${L.guard.noAhead.join(', ')}` : ''}`;
+  const rest = `gates: ${names(L.guard.gates.map(x => x[0]))}; human steps: ${names(L.guard.human)}${L.guard.noAhead ? `; never approved ahead: ${L.guard.noAhead.join(', ')}` : ''}${L.guard.lock ? `; lock: ${L.guard.lock}` : ''}`;
   if (!asked && t0.trusted[n] === L.runHash) return `JSPARK Forge: build graph ${n} is already trusted as it is now (${cmds}; ${rest}). Nothing changed.`;
   withLock(trustFile(dir), () => { const tr = trustOf(dir); tr.trusted[n] = L.runHash; delete tr.asked[n]; writeJson(trustFile(dir), tr); });
   const tail = 'They run only when Claude runs the graph; asked again if its commands, gates or human steps change.';
@@ -975,33 +1027,42 @@ function onPrompt(dir, prompt, sid) {
   if (ca) return cancelAhead(dir, ca[1].toLowerCase(), ca[2].toLowerCase());
   const tg = trustPrompt(dir, p);
   if (tg !== undefined) return tg;
-  const n = runningGraph(dir);
-  const d = p.match(/^done(?:\s+([a-z][a-z0-9-]{0,39}))?$/i);
-  if (!n) return null;
-  if (!d) { touch(dir, n, sid); return null; }
-  const s0 = readJson(stateFile(dir, n));
-  if (!s0 || !s0.graph || s0.stopped || s0.finished) return null;
+  // DONE <step>, DONE <graph> <step> (needed when the same step waits in two open graphs), or "done" when exactly one
+  // human step waits in all open graphs.
+  const names = openRuns(dir);
+  if (!names.length) return null;
+  const d = p.match(/^done(?:[ \t]+([a-z][a-z0-9-]{0,39}))?(?:[ \t]+([a-z][a-z0-9-]{0,39}))?$/i);
+  if (!d) { for (const m of names) touch(dir, m, sid); return null; }
+  const a1 = d[1] && d[1].toLowerCase();
+  const a2 = d[2] && d[2].toLowerCase();
+  const humansOf = m => { const s = readJson(stateFile(dir, m)); return openRun(s) ? s.graph.steps.filter(x => x.kind === 'human').map(x => ({ id: x.id, waits: s.steps[x.id].state === 'running' })) : []; };
+  let n, id;
+  if (a2) {
+    if (!names.includes(a1) || !humansOf(a1).some(h => h.id === a2)) return null;
+    n = a1; id = a2;
+  } else if (a1) {
+    const has = names.filter(m => humansOf(m).some(h => h.id === a1));
+    if (!has.length) return null;
+    const waits = has.filter(m => humansOf(m).some(h => h.id === a1 && h.waits));
+    if (waits.length > 1) return `JSPARK Forge: ${a1} is waiting in more than one build graph (${waits.join(', ')}), so nothing changed. Say which one: send DONE <graph> ${a1}`;
+    n = waits[0] || has[0]; id = a1;
+  } else {
+    const all = names.flatMap(m => humansOf(m).filter(h => h.waits).map(h => [m, h.id]));
+    if (all.length !== 1) return null;
+    [n, id] = all[0];
+  }
   return update(dir, n, s => {
-    if (!s || !s.graph) return null;
+    if (!openRun(s)) return null;
     seen(s, sid);
-    const humans = s.graph.steps.filter(x => x.kind === 'human').map(x => x.id);
-    const waiting = humans.filter(i => s.steps[i].state === 'running');
-    let id;
-    if (d[1]) {
-      id = d[1].toLowerCase();
-      if (!humans.includes(id)) return null;
-      if (!waiting.includes(id)) {
-        const x = s.graph.steps.find(k => k.id === id);
-        const can = s.steps[id].state === 'waiting' && x.ahead !== 'no' && !(s.ahead && s.ahead[id]);
-        return `JSPARK Forge: ${id} is not waiting for you now, so nothing changed.${can ? ` To give your decision before the run reaches it, send as your whole message: APPROVE AHEAD ${n} ${id}` : ''}`;
-      }
-    } else {
-      if (waiting.length !== 1) return null;
-      id = waiting[0];
+    const x = s.graph.steps.find(k => k.id === id && k.kind === 'human');
+    if (!x) return null;
+    if (s.steps[id].state !== 'running') {
+      const can = s.steps[id].state === 'waiting' && x.ahead !== 'no' && !(s.ahead && s.ahead[id]);
+      return `JSPARK Forge: ${id} is not waiting for you now, so nothing changed.${can ? ` To give your decision before the run reaches it, send as your whole message: APPROVE AHEAD ${n} ${id}` : ''}`;
     }
     s.steps[id].state = 'done'; s.steps[id].doneAt = Date.now();
     return `JSPARK Forge: ${id} done (your reply). The build graph continues: node "${FORGE_JS}" graph next ${n}`;
   });
 }
 
-module.exports = { check, start, next, takeover, done, fail, rerun, stop, status, current, gate, gateShell, onSubagentStart, onAgentResult, onCommand, onPrompt, NAME, load };
+module.exports = { check, start, next, takeover, done, fail, rerun, stop, status, statusAll, current, currentAll, gate, gateShell, onSubagentStart, onAgentResult, onCommand, onPrompt, NAME, load };

@@ -47,6 +47,13 @@ Run a build graph step by step. JSPARK Forge keeps the record and checks it; you
      steps it applies to. A step marked `- ahead: no` (a release) always waits for them. When `graph next` prints
      that a step "is done: approved ahead by the person at <time>", tell the user so, with the instruction it prints,
      and go on. If a command prints that an approval given ahead was cancelled, tell the user.
+   - **"is not started: build graph <other> is running <step>":** two graphs never run helper steps or checks at
+     the same moment unless both carry a `- lock: <name>` header line with different names. Nothing failed: go on
+     with the other graph, and run `graph next` again when that step is done. Do not add or change a `- lock:` line
+     to get past it; that is the user's call (it needs their `TRUST GRAPH` again).
    - **interrupted / stopped / finished:** show the user and wait.
+   More than one graph can be open. `graph status` with no name lists every open graph and what each waits for;
+   a graph waiting for the user does not hold up another one. When the same human step waits in two graphs, the
+   user sends `DONE <name> <step>`.
 4. Never add steps, skip a human step, edit `.jspark-forge/state/graph-*` files, or report outputs a helper did not
    give. After the run, show what each step returned and the time and tokens per step from `graph status <name>`.

@@ -16,7 +16,7 @@ const list = v => String(v || '').split(',').map(s => s.trim()).filter(Boolean);
 
 function parse(text) {
   const lines = String(text || '').replace(new RegExp(`^${String.fromCharCode(0xfeff)}`), '').split(/\r?\n/);
-  const g = { name: '', nameLine: 0, maxParallel: 1, maxParallelRaw: null, memLine: 0, steps: [] };
+  const g = { name: '', nameLine: 0, maxParallel: 1, maxParallelRaw: null, memLine: 0, lock: '', lockLine: 0, steps: [] };
   let cur = null;
   lines.forEach((line, i) => {
     const n = i + 1;
@@ -31,6 +31,9 @@ function parse(text) {
     if (!cur) {
       if (key === 'max_parallel') { g.maxParallelRaw = val; g.maxParallel = Number(val); g.maxParallelLine = n; }
       if (key === 'min_free_memory_mb') g.memLine = n; // cut from v0.4 (design section 6): reported by validate()
+      // "- lock: <name>": which other graphs this one must never run beside. Graphs with the same name wait for each
+      // other; a graph with no lock line runs alone (owner 2026-11-22).
+      if (key === 'lock' && !g.lockLine) { g.lock = val; g.lockLine = n; }
       return;
     }
     cur.fieldLines[key] = cur.fieldLines[key] || n;
@@ -53,6 +56,7 @@ function validate(g, fileName) {
   if (!g.name) err(1, 'the first heading must be "# Graph: <name>"');
   else if (fileName && g.name !== fileName) err(g.nameLine, `the title must name the file: "# Graph: ${fileName}"`);
   if (g.maxParallelRaw !== null && !(Number.isInteger(g.maxParallel) && g.maxParallel >= 1 && g.maxParallel <= 8)) err(g.maxParallelLine, 'max_parallel must be a whole number from 1 to 8');
+  if (g.lockLine && !ID.test(g.lock)) err(g.lockLine, 'lock must be a short name: lower-case letters, digits and dashes, starting with a letter (for example "- lock: database")');
   if (g.memLine) err(g.memLine, '"min_free_memory_mb" is not supported in v0.4 (max_parallel and the plan-usage cap remain)');
   if (!g.steps.length) err(g.nameLine || 1, 'a graph needs at least one step ("## <id> (<kind>)")');
   const byId = new Map();

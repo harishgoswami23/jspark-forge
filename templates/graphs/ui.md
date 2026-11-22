@@ -13,6 +13,7 @@ Once: npm i -D @playwright/test @axe-core/playwright @lhci/cli, then npx playwri
 After approve-look, record the reference screenshots once: npx playwright test tests/ui --update-snapshots.
 Builders commit their step's work on the current branch (no merge, no push): the review step needs those commits.
 -->
+<!-- Optional: "- lock: <name>" here lets this graph run beside graphs that carry another lock name. With no lock line it runs alone: its helper steps and checks never overlap another graph's (use that when test runs share a database). -->
 
 ## direction (agent)
 - helper: planner

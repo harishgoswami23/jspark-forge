@@ -350,8 +350,10 @@ const handlers = {
     // Code map (design-v0.3 1.1, 1.2): one line for Claude when the engine is in use (a refresh starts when HEAD moved);
     // the engine ships with the plugin, so there is no install tip.
     try { // a running build graph (design-v0.4 3); its own try, so a broken record never drops the code-map line
-      const gr = graphRun.current(dir);
-      if (gr) rc.context = `${rc.context}\n\nJSPARK Forge: ${gr.text} Show it to the user and wait before continuing it (node "${path.join(__dirname, 'forge.js').replace(/\\/g, '/')}" graph next ${gr.task.replace('Build graph ', '')}).`;
+      const grs = graphRun.currentAll(dir); // every open graph, not only one (owner 2026-11-22)
+      const fj = path.join(__dirname, 'forge.js').replace(/\\/g, '/');
+      if (grs.length === 1) rc.context = `${rc.context}\n\nJSPARK Forge: ${grs[0].text} Show it to the user and wait before continuing it (node "${fj}" graph next ${grs[0].name}).`;
+      else if (grs.length > 1) rc.context = `${rc.context}\n\nJSPARK Forge: ${grs.length} build graphs are open. ${grs.map(g => g.text).join(' ')} Show every one of them to the user and wait before continuing any (node "${fj}" graph next <name>; all of them: node "${fj}" graph status).`;
     } catch { /* never break a session start */ }
     try {
       const ml = mapLayer.sessionLine(dir);
@@ -999,7 +1001,7 @@ function cliGraph(args) {
     check: () => graphRun.check(dir, name), start: () => graphRun.start(dir, name, sid), next: () => graphRun.next(dir, name, sid),
     takeover: () => graphRun.takeover(dir, name, sid),
     done: () => graphRun.done(dir, name, a3, fromAt >= 0 ? args[fromAt + 1] : '', sid), fail: () => graphRun.fail(dir, name, a3, rest.join(' '), sid),
-    rerun: () => graphRun.rerun(dir, name, a3, sid), stop: () => graphRun.stop(dir, name, sid), status: () => graphRun.status(dir, name),
+    rerun: () => graphRun.rerun(dir, name, a3, sid), stop: () => graphRun.stop(dir, name, sid), status: () => (name ? graphRun.status(dir, name) : graphRun.statusAll(dir)),
     // v0.5.2: a gate that outlasts one tool call. Its commands never skip the block list: what a hook would hold or ask
     // about is not run here.
     gate: () => graphRun.gate(dir, name, a3, sid, { blocked: cmd => {
@@ -1009,7 +1011,7 @@ function cliGraph(args) {
       } catch { return 'the block list could not check it'; }
     } }),
   }[sub];
-  if (!out) { process.stdout.write('Usage: forge.js graph check|start|next|takeover|done|fail|rerun|stop|status|gate <name> …\n'); return; }
+  if (!out) { process.stdout.write('Usage: forge.js graph check|start|next|takeover|done|fail|rerun|stop|status|gate <name> … (graph status with no name lists every open graph)\n'); return; }
   try { process.stdout.write(out()); } catch (e) {
     if (!e || !e.busy) throw e;
     process.stdout.write(`Build graph ${String(name).replace(/[^a-z0-9-]/g, '')} is busy (another JSPARK Forge update holds it); nothing changed. Try again in a moment.\n`);
