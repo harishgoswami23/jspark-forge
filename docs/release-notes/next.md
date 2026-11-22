@@ -64,3 +64,5 @@ JSPARK Forge still never decides a human step. You decide; it records that you d
   before it ended (by hand, by the time limit of one tool call, or because the check runner was killed) is
   "interrupted": nothing is recorded as failed, and it runs again. A check is "failed" only on a real exit code. A
   helper step that was handed out is "handed to a helper".
+- **A step is named once.** A step called `gate` of kind gate (as in the templates) reads "Step gate failed", not
+  "Step gate (gate) failed". Other steps keep their kind: "Step checks (gate)".

@@ -96,3 +96,17 @@ test('a helper step that was handed out is "handed to a helper"', () => {
   cli(dir, ['start', 'g']); cli(dir, ['next', 'g']);
   assert.match(cli(dir, ['status', 'g']), /^- build: handed to a helper$/m);
 });
+
+test('a step named like its kind is named once in every message; other steps keep their kind', () => {
+  const dir = started('# Graph: g\n## gate (gate)\n- run: npm test\n');
+  const n = cli(dir, ['next', 'g']);
+  assert.match(n, /^Step gate: Run each command/m);
+  assert.doesNotMatch(n + cli(dir, ['next', 'g']) + cli(dir, ['status', 'g']), /gate \(gate\)|Gate gate/);
+  hook(dir, 'PostToolUseFailure', { tool_name: 'Bash', tool_input: { command: 'npm test' }, error: 'Exit code 1' });
+  assert.match(cli(dir, ['next', 'g']), /Stopped: gate failed/);
+  const other = started(CHECKS);
+  assert.match(cli(other, ['next', 'g']), /^Step checks \(gate\): Run each command/m);
+  const human = project({ g: '# Graph: g\n## human (human)\n- say: Look.\n' });
+  cli(human, ['start', 'g']);
+  assert.match(cli(human, ['next', 'g']), /^Step human: Show the user: Look\./m);
+});
