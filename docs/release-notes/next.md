@@ -68,3 +68,6 @@ JSPARK Forge still never decides a human step. You decide; it records that you d
   "Step gate (gate) failed". Other steps keep their kind: "Step checks (gate)".
 - **The hand-over no longer lists every file.** Up to 8 touched files are named. A longer list is a count, the
   newest 5, and where the rest is: "50 files; newest: …; the rest are in the log (.jspark-forge/log/<day>.log)".
+- **"Record the decision?" is asked once.** The offer after a commit was repeated at the next message. It is now
+  shown once. For a commit that settled nothing (a fix, a rename, tests), Claude marks "no decision here" by itself
+  and does not ask you.

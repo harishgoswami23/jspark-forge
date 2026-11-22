@@ -427,9 +427,11 @@ test('low: v0.2 offers to record are delivered with an engine tool answer too', 
   fs.writeFileSync(path.join(dir, '.jspark-forge', '.gitignore'), '*\n');
   mapAnswer(dir); refreshNow(dir);
   commit(dir, 'src/a.js', 'v2\n', 'Store prices in cents');
-  hook(dir, 'PostToolUse', { tool_name: 'Bash', tool_input: { command: 'git commit -m "Store prices in cents"' } });
+  // The commit is noted while nobody can answer, so the offer is still pending (an offer is shown once: 2026-11-22).
+  hook(dir, 'PostToolUse', { tool_name: 'Bash', tool_input: { command: 'git commit -m "Store prices in cents"' } }, { CLAUDE_CODE_SESSION_ATTENDED: '0' });
   hook(dir, 'UserPromptSubmit', { prompt: 'ok' });
   assert.match(mapAnswer(dir, 'x'), /Record the decision\?/);
+  assert.doesNotMatch(mapAnswer(dir, 'x'), /Record the decision\?/, 'and only once');
 });
 
 test('low: after a compaction the changed-file list is sent again', () => {

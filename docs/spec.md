@@ -426,7 +426,9 @@ as context **just before** Claude edits one of those files. It does not describe
   whose subject starts with `chore`, `docs`, `style`, `bump`, `release`, `merge` or `revert`) and when a **plan is
   accepted** (plan-mode exit approved, or a new plan or design file from superpowers), Claude is asked to offer
   *"Record the decision?"* with a drafted line. It is recorded **only after the user says yes** or gives an edit; a
-  skip records nothing. Every recording is announced. No offer in unattended runs or at 95 % usage.
+  skip records nothing. Every recording is announced. No offer in unattended runs or at 95 % usage. An offer is
+  shown once and not repeated at later messages; for a commit that settled no choice (a fix, a rename, tests) Claude
+  marks "no decision here" by itself and asks nothing [owner 2026-11-22].
 - **Kinds:** decision ("prices are stored in cents"), standing rule ("never edit generated files"), lesson from a
   mistake ("a test run without the test flag wrote to real data").
 - **Used before changes:** PreToolUse on Edit/Write/NotebookEdit of a path listed in an entry's `touches:` returns

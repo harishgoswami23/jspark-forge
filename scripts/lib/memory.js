@@ -207,9 +207,10 @@ function noteApproved(dir, sess, plan) {
 }
 
 const FORGE_JS = path.join(__dirname, '..', 'forge.js').replace(/\\/g, '/');
-// Once per user turn, each item at most twice. Mutates sess; -> the context text or null.
+// Once per user turn. An offer to record is shown once (owner 2026-11-22: shown twice, it made Claude ask again at
+// every later message); a stale flag at most twice. Mutates sess; -> the context text or null.
 function deliver(sess) {
-  sess.offers = (sess.offers || []).filter(o => o.delivered < 2);
+  sess.offers = (sess.offers || []).filter(o => o.delivered < 1);
   sess.stale = (sess.stale || []).filter(s => s.delivered < 2);
   if (!sess.offers.length && !sess.stale.length) return null;
   const turn = sess.turn || 0;
@@ -226,7 +227,9 @@ function deliver(sess) {
     for (const o of approved) what.push(`the plan just approved ("${o.approved}") may hold decisions`);
     parts.push(`JSPARK Forge: ${what.join('. ')}. When this piece of work is done, end your reply by offering, in one line each: ` +
       'Record the decision? "<your draft, at most 15 words>" (touches: <paths>). Record only after the user says yes or gives an edit; ' +
-      'if they skip or move on, record nothing. To record, write .jspark-forge/state/decide.json ({"title", "touches", "why", ' +
+      'if they skip or move on, record nothing. Offer once: if the user does not answer, do not ask again in a later reply. ' +
+      `${commits.length ? `If a commit settled no choice (a fix, a rename, tests, wording), do not ask the user about it: write {"none": ["<its sha>"]} to the same file and run the same command. ` : ''}` +
+      'To record, write .jspark-forge/state/decide.json ({"title", "touches", "why", ' +
       `${commits.length ? `"source": "commit ${commits[0].sha}", ` : approved.length && !plans.length ? '"source": "plan approved", ' : '"source", '}"drafted": true}; when the user skips, {"skip": [${commits.map(o => `"${o.sha}"`).join(', ')}]}) ` +
       `with the Write tool, then run: node "${FORGE_JS}" decide --from .jspark-forge/state/decide.json`);
     for (const o of sess.offers) o.delivered++;
