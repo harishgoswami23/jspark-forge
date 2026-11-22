@@ -246,3 +246,7 @@ be done at the end of our roadmap"; "at least do some research for best in class
 ### Rev 21: v0.8.0, build graphs that keep going while you are away (2026-11-22)
 **What:** a person may give their decision on a human step early (`APPROVE AHEAD <graph> <step>`; never for a step marked `- ahead: no`), and the rule about human nodes now says so: JSPARK Forge never decides a human step, and records when a decision was given early; `TRUST GRAPH` is never dropped in silence; more than one graph can be open, with `- lock: <name>` deciding which may run side by side (the "one graph at a time per repo" limit is gone); status words kept apart; an offer to record a decision is shown once; caution lines in notes.
 **Why [owner]:** three faults met while running v0.6.0 on the owner's other project (a build idle for hours at a plan approval, a trust message lost without a word, a trial graph refused while the main build waited).
+
+### Rev 22: v0.8.1, several graphs in one trust message (2026-11-22)
+**What:** `TRUST GRAPH <a> <b> <c>` trusts each named graph (up to 12), all or nothing.
+**Why [owner]:** the owner asked whether trust could be automatic; it cannot (it is the one check before a graph's commands run), so the typing was made shorter instead.
