@@ -269,7 +269,7 @@ test('Bash tool: with a "retry:" line a failure asks for the retry, then for the
   assert.deepEqual(st(dir).steps.e2e.runs[0].names, ['logs in']);
   let out = cli(dir, ['next', 'g']);
   assert.match(out, /Step e2e \(gate\) still needs: node t\.js retry \(the full command failed; this runs only what failed\)\./);
-  assert.match(cli(dir, ['status', 'g']), /- e2e: not yet passed \(the full command failed; the retry of what failed is next, none running\)/);
+  assert.match(cli(dir, ['status', 'g']), /- e2e: waiting to be run \(the full command failed; the retry of what failed is next\)/);
   hook(dir, 'PostToolUse', { tool_name: 'Bash', tool_input: { command: RETRY }, tool_response: { stdout: OUT_OK } });
   out = cli(dir, ['next', 'g']);
   assert.match(out, /Step e2e \(gate\) still needs: node t\.js full \(the retry passed; the full command must pass once more\)\./);
@@ -395,7 +395,7 @@ test('review 7: a run started by the version before (no phase, runs, before or r
   for (const x of s.graph.steps) { delete x.before; delete x.retry; }
   for (const v of Object.values(s.steps)) { delete v.phase; delete v.retried; delete v.runs; }
   fs.writeFileSync(f, JSON.stringify(s));
-  assert.match(cli(dir, ['status', 'g']), /- e2e: not yet passed \(0 of 1 commands passed, none running\)/);
+  assert.match(cli(dir, ['status', 'g']), /- e2e: waiting to be run \(0 of 1 commands passed\)/);
   assert.match(cli(dir, ['next', 'g']), /Step e2e \(gate\) still needs: node t\.js full\./);
   assert.match(cli(dir, ['gate', 'g', 'e2e']), /Step e2e \(gate\) passed\./);
   assert.match(cli(dir, ['next', 'g']), /Build graph g finished\./);

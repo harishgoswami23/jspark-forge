@@ -2,7 +2,7 @@
 // v0.6.2: six small fixes from real use in another project (owner, 2026-11-21).
 //  1. "continue" as the first message is the answer: no second "Continue?".
 //  2. The handoff lists the newest few touched files and a count, not all 50.
-//  3. A gate nobody is running is "not yet passed", not "running" (tests/graph-gate.test.js too).
+//  3. A gate nobody is running is "waiting to be run" (first worded "not yet passed"), not "running" (tests/graph-gate.test.js too).
 //  4. A step named like its kind reads "Step gate (gate)", not "Gate gate".
 //  5. Notes carry their date and say to re-check a caution before acting on it.
 //  6. One line says who decides what when superpowers is installed too.
@@ -100,12 +100,12 @@ function started(graph) {
   return dir;
 }
 
-test('a gate that was handed out and not run is "not yet passed" in status, never "running"', () => {
+test('a gate that was handed out and not run is "waiting to be run" in status, never "running"', () => {
   const dir = started(`# Graph: g\n## gate (gate)\n- run: ${OK}\n`);
   cli(dir, ['next', 'g']);
   const s = cli(dir, ['status', 'g']);
-  assert.match(s, /0 of 1 steps done; gate not yet passed \(0 of 1 commands passed, none running\)/);
-  assert.match(s, /^- gate: not yet passed \(0 of 1 commands passed, none running\)$/m);
+  assert.match(s, /0 of 1 steps done; gate waiting to be run \(0 of 1 commands passed\)/);
+  assert.match(s, /^- gate: waiting to be run \(0 of 1 commands passed\)$/m);
   assert.doesNotMatch(s, /running[^)]/, 'nothing is said to be running');
 });
 

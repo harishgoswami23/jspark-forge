@@ -478,7 +478,7 @@ test('session start and the handoff show the running graph', () => {
   const dir = project({ g: SIMPLE });
   cli(dir, ['start', 'g']); cli(dir, ['next', 'g']);
   const o = hook(dir, 'SessionStart', {});
-  assert.match(o.hookSpecificOutput.additionalContext, /Build graph g: .*measure running/);
+  assert.match(o.hookSpecificOutput.additionalContext, /Build graph g: .*measure handed to a helper/);
   spawnSync(process.execPath, [FORGE, 'save'], { cwd: dir, encoding: 'utf8', env: env(dir) });
   const h = fs.readFileSync(path.join(dir, '.jspark-forge', 'handoff.md'), 'utf8');
   assert.match(h, /\*\*Task:\*\* Build graph g/);

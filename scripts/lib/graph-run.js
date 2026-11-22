@@ -419,6 +419,7 @@ function noteFlaky(st, run) {
 // One gate command ended with this exit code: record the run and move the gate on.
 // -> { msg, cont }: cont true = the gate needs another command (msg may be null); otherwise the gate is done or failed.
 function settleGate(n, id, x, st, cmd, exit, extra) {
+  delete st.interrupted;
   const run = runRecord(st, cmd, exit, extra);
   const counts = runCounts(run);
   const what = `"${clean(cmd, 120)}"`;
@@ -530,7 +531,7 @@ function next(dir, n, sid, opts = {}) {
     for (const x of ready) {
       const st = s.steps[x.id];
       if (held && x.kind !== 'human') { // another graph's helper step or gate is under way: this one waits its turn
-        out.push(`Step ${x.id} (${x.kind}) is not started: build graph ${held.name} is running ${held.step}, and the two never run at the same moment (${held.why}). Nothing failed; run graph next again when that step is done.`);
+        out.push(`Step ${x.id} (${x.kind}) is not started: build graph ${held.name} has ${held.step} under way, and the two never run at the same moment (${held.why}). Nothing failed; run graph next again when that step is done.`);
         continue;
       }
       if (x.kind === 'agent') {
@@ -564,7 +565,7 @@ function next(dir, n, sid, opts = {}) {
         // Printed exactly as stored and matched exactly (review M2); graph check refuses lines that would print otherwise.
         // v0.7: each hand-out is a new round (full, then at most one retry of what failed, then full again); the runs
         // already recorded and the flaky names are kept.
-        st.state = 'running'; st.handedAt = Date.now(); st.pending = x.run.slice(); st.passed = []; delete st.runner;
+        st.state = 'running'; st.handedAt = Date.now(); st.pending = x.run.slice(); st.passed = []; delete st.runner; delete st.interrupted;
         st.phase = 'full'; st.retried = false;
         out.push(`Step ${x.id} (gate): Run each command with the Bash tool exactly as written, one per call, from the project folder, not in the background:\n` +
           `${x.run.map(r => `  ${r}`).join('\n')}\nJSPARK Forge records each exit code; a failing one stops the run.\n` +
@@ -697,18 +698,25 @@ function stop(dir, n, sid) {
   return r ? `Build graph ${n} stopped (its record is kept).\n${r.lost.length ? `${AHEAD_LOST(r.lost, 'the run was stopped')}\n` : ''}` : `Build graph ${n} has not started.\n`;
 }
 
-// v0.6.2: what a step's state is called when shown. A gate is "running" in the record from the moment it is handed
-// out, but nothing may be running: it is shown as running only while graph gate runs its commands, and as
-// "not yet passed" otherwise. A human step that was handed out is waiting for the user.
+// What a step's state is called when shown (v0.6.2; three words kept apart since 2026-11-22, owner). In the record a
+// step is "running" from the moment it is handed out, but that says nothing about a process:
+// - "running": a process JSPARK Forge started is alive (graph gate is running the gate's commands);
+// - "waiting to be run": a gate that was handed out and that nobody is running;
+// - "interrupted": a gate whose command was stopped before it ended (by hand, by the tool's time limit, or the gate
+//   runner was killed). Nothing was recorded as failed; it runs again.
+// A helper step was handed to a helper (JSPARK Forge cannot see whether the helper is alive); a human step that was
+// handed out is waiting for the user.
 function stateWord(kind, v) {
   if (!v || v.state !== 'running') return v ? v.state : 'unknown';
   if (kind === 'human') return 'waiting for the user';
+  if (kind === 'agent') return 'handed to a helper';
   if (kind !== 'gate' || runnerLive(v.runner)) return 'running';
-  if (v.phase === 'retry') return 'not yet passed (the full command failed; the retry of what failed is next, none running)';
-  if (v.phase === 'confirm') return 'not yet passed (the retry passed; the full command must pass once more, none running)';
   const all = Array.isArray(v.pending) ? v.pending : [];
   const ok = all.filter(c => (v.passed || []).includes(c)).length;
-  return `not yet passed (${ok} of ${all.length} commands passed, none running)`;
+  const far = v.phase === 'retry' ? 'the full command failed; the retry of what failed is next'
+    : (v.phase === 'confirm' ? 'the retry passed; the full command must pass once more' : `${ok} of ${all.length} commands passed`);
+  if (v.interrupted || v.runner) return `interrupted (its command was stopped before it ended, so nothing was recorded as failed; ${far}; run it again)`;
+  return `waiting to be run (${far})`;
 }
 
 function summary(dir, n) {
@@ -812,10 +820,14 @@ function onCommand(dir, input, ok) {
   const cmd = String(ti.command || '').trim();
   const mine = cmd ? openRuns(dir).filter(m => (readJson(stateFile(dir, m)) || {}).owner === input.session_id) : [];
   if (!mine.length) return;
-  const counts = !ti.run_in_background && !r.backgroundTaskId && !r.interrupted && sameDir(input.cwd, dir);
+  const local = !ti.run_in_background && !r.backgroundTaskId && sameDir(input.cwd, dir);
+  // Stopped before it ended: the tool says so, or the call failed with no exit code (stopped by hand, or cut by the
+  // tool's time limit). That is not a test failure: the gate is shown as interrupted and its command runs again.
+  const cut = local && (!!r.interrupted || (!ok && !/exit code \d+/i.test(String(input.error || ''))));
+  const counts = local && !cut;
   const isGate = st => st.state === 'running' && Array.isArray(st.pending) && st.pending.includes(cmd);
   // The command belongs to the one open graph whose gate is waiting for it.
-  const n = counts ? mine.find(m => Object.values((readJson(stateFile(dir, m)) || {}).steps || {}).some(isGate)) : undefined;
+  const n = (counts || cut) ? mine.find(m => Object.values((readJson(stateFile(dir, m)) || {}).steps || {}).some(isGate)) : undefined;
   if (!n) { for (const m of mine) touch(dir, m, input.session_id); return; }
   // v0.7: the run is recorded like one made by graph gate, from the output the tool reports (it may be cut short; the
   // exit code is the truth). Read before the record is locked: git can take a moment.
@@ -827,6 +839,7 @@ function onCommand(dir, input, ok) {
     seen(s, input.session_id);
     for (const [id, st] of Object.entries(s.steps)) {
       if (!isGate(st)) continue;
+      if (cut) { runRecord(st, cmd, '?', { code }); st.interrupted = Date.now(); return; }
       const x = s.graph.steps.find(k => k.id === id) || { run: st.pending.slice(), retry: '' };
       const exit = ok ? 0 : (Number((String(input.error || '').match(/exit code (\d+)/i) || [])[1]) || '?');
       settleGate(n, id, x, st, cmd, exit, { sum, code });
@@ -909,7 +922,7 @@ function gate(dir, n, id, sid, opts = {}) {
     const st = s.steps[id];
     if (st.state !== 'running' || !Array.isArray(st.pending)) return `${id} is not running (${st.state}); run node "${FORGE_JS}" graph next ${n} first.\n`;
     if (runnerLive(st.runner)) return `${id} is already being run (started ${clockOf(st.runner.at)}); wait for it to end.\n`;
-    st.runner = mine; seen(s, sid);
+    st.runner = mine; delete st.interrupted; seen(s, sid);
     runStarted = s.startedAt || 0; handed = st.handedAt || 0;
     return null;
   });
@@ -935,6 +948,7 @@ function gate(dir, n, id, sid, opts = {}) {
       const t0 = Date.now();
       const r = (opts.run || (c => runShell(dir, c, log)))(cmd, log);
       if (r.error || r.signal || typeof r.status !== 'number') {
+        try { update(dir, n, x => { const t = x && x.steps[id]; if (t && same(x, t)) t.interrupted = Date.now(); }); } catch { /* shown as interrupted anyway while the runner's mark is there */ }
         return `Step ${id} (gate): "${clean(cmd, 120)}" did not finish (${clean(r.error ? r.error.message : `stopped by ${r.signal}`, 120)}); nothing was recorded for it. Run the same graph gate command again.\n`;
       }
       // Read before the record is locked: the log can be large, and git can take a moment.

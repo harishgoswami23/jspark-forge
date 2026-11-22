@@ -742,8 +742,12 @@ that the graph offers, never add nodes or edges while running.
   told. `CANCEL APPROVAL <graph> <step>` withdraws it. `graph status <name>` shows what is approved ahead.
 - State lives in `.jspark-forge/state/graph-<name>.json` (as built; the plan said `forge/graph-state.json`) (`done`, `running`, `next`, outputs per node, "as of"). `/jspark-forge:resume`
   shows the graph with the current node highlighted and waits (5.1 show-and-wait).
-- A gate that was handed out and that nobody is running is shown as "not yet passed", with how many of its commands
-  passed; "running" is said only while `graph gate` runs them [owner 2026-11-21: v0.6.2].
+- Three words are kept apart in every status line [owner 2026-11-21: v0.6.2; 2026-11-22]. "running": a process
+  JSPARK Forge started is alive (`graph gate` is running the gate's commands). "waiting to be run": a gate that was
+  handed out and that nobody is running, with how many of its commands passed. "interrupted": a gate whose command
+  was stopped before it ended (by hand, by the tool's time limit, or the gate runner was killed); nothing is recorded
+  as failed and the command runs again. A gate is "failed" only on a real exit code. A helper step that was handed
+  out is "handed to a helper": JSPARK Forge cannot see whether the helper is alive.
 - **Better gates [owner 2026-11-22: v0.7; design-v0.7.md].** (a) `before:` lines on a gate (free memory, a port open
   or free, a container running; fixed forms, never commands) are checked before the gate is handed out and again
   when `graph gate` starts; not met: the gate is not started and nothing fails. This replaces the graph-wide memory

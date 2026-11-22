@@ -56,3 +56,11 @@ JSPARK Forge still never decides a human step. You decide; it records that you d
 - The session-start summary and the handoff name every open graph.
 - `DONE <step>` works as before when one graph waits at that step. When two graphs wait at a step with the same
   name, you are asked to send `DONE <graph> <step>`; nothing is completed on a guess.
+
+## Smaller changes
+
+- **Status words mean one thing each.** "running" is said only while a process JSPARK Forge started is alive.
+  A check that was handed out and that nobody is running is "waiting to be run". A check whose command was stopped
+  before it ended (by hand, by the time limit of one tool call, or because the check runner was killed) is
+  "interrupted": nothing is recorded as failed, and it runs again. A check is "failed" only on a real exit code. A
+  helper step that was handed out is "handed to a helper".

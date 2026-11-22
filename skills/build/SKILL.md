@@ -47,7 +47,7 @@ Run a build graph step by step. JSPARK Forge keeps the record and checks it; you
      steps it applies to. A step marked `- ahead: no` (a release) always waits for them. When `graph next` prints
      that a step "is done: approved ahead by the person at <time>", tell the user so, with the instruction it prints,
      and go on. If a command prints that an approval given ahead was cancelled, tell the user.
-   - **"is not started: build graph <other> is running <step>":** two graphs never run helper steps or checks at
+   - **"is not started: build graph <other> has <step> under way":** two graphs never run helper steps or checks at
      the same moment unless both carry a `- lock: <name>` header line with different names. Nothing failed: go on
      with the other graph, and run `graph next` again when that step is done. Do not add or change a `- lock:` line
      to get past it; that is the user's call (it needs their `TRUST GRAPH` again).

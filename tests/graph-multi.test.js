@@ -69,7 +69,7 @@ test('graph status with no name lists every open graph and what each waits for',
   const s = cli(dir, ['status']);
   assert.match(s, /2 build graphs are open/);
   assert.match(s, /main: 0 of 2 steps done; approve waiting for the user/);
-  assert.match(s, /trial: 0 of 2 steps done; work running/);
+  assert.match(s, /trial: 0 of 2 steps done; work handed to a helper/);
   cli(dir, ['stop', 'trial']);
   const one = cli(dir, ['status']);
   assert.match(one, /main:/);
@@ -86,7 +86,7 @@ test('the session-start summary and the handoff name every open graph', () => {
   spawnSync(process.execPath, [FORGE, 'save'], { cwd: dir, encoding: 'utf8', env: env(dir) });
   const h = fs.readFileSync(path.join(dir, '.jspark-forge', 'handoff.md'), 'utf8');
   assert.match(h, /\*\*Task:\*\* Build graphs main, trial/);
-  assert.match(h, /\*\*Step:\*\* .*main: 0 of 2 done; approve waiting for the user \| trial: 0 of 2 done; work running/);
+  assert.match(h, /\*\*Step:\*\* .*main: 0 of 2 done; approve waiting for the user \| trial: 0 of 2 done; work handed to a helper/);
 });
 
 test('with no lock line a graph runs alone: its helper steps and gates wait for another graph\'s, and the other way round', () => {
@@ -95,17 +95,17 @@ test('with no lock line a graph runs alone: its helper steps and gates wait for 
   assert.match(cli(dir, ['next', 'a']), /Step work \(agent\)/);
   assert.match(cli(dir, ['start', 'b']), /Started build graph b/, 'starting is allowed');
   const held = cli(dir, ['next', 'b']);
-  assert.match(held, /Step work \(agent\) is not started: build graph a is running work/);
+  assert.match(held, /Step work \(agent\) is not started: build graph a has work under way/);
   assert.doesNotMatch(held, /use the Agent tool/);
   assert.equal(st(dir, 'b').steps.work.state, 'waiting');
   startTrusted(dir, 'c');
-  assert.match(cli(dir, ['next', 'c']), /Step check \(gate\) is not started: build graph a is running work/);
+  assert.match(cli(dir, ['next', 'c']), /Step check \(gate\) is not started: build graph a has work under way/);
   helperStarted(dir, 'jspark-forge:checker');
   assert.match(report(dir, 'a', 'work'), /work done/);
   // a is between steps: whoever asks first gets to run
   assert.match(cli(dir, ['next', 'c']), /Step check \(gate\): Run each command/);
-  assert.match(cli(dir, ['next', 'a']), /Step more \(agent\) is not started: build graph c is running check/, 'a gate that was handed out and has not passed holds the others');
-  assert.match(cli(dir, ['next', 'b']), /is not started: build graph c is running check/);
+  assert.match(cli(dir, ['next', 'a']), /Step more \(agent\) is not started: build graph c has check under way/, 'a gate that was handed out and has not passed holds the others');
+  assert.match(cli(dir, ['next', 'b']), /is not started: build graph c has check under way/);
   ran(dir, 'npm test');
   assert.equal(st(dir, 'c').steps.check.state, 'done', 'the exit code went to the graph whose gate it is');
   assert.match(cli(dir, ['next', 'a']), /Step more \(agent\)/);
@@ -114,7 +114,7 @@ test('with no lock line a graph runs alone: its helper steps and gates wait for 
 test('"- lock: <name>": the same name waits, different names run side by side, and a graph without one still runs alone', () => {
   const same = project({ a: TRIAL('a', 'db'), b: TRIAL('b', 'db') });
   cli(same, ['start', 'a']); cli(same, ['next', 'a']); cli(same, ['start', 'b']);
-  assert.match(cli(same, ['next', 'b']), /is not started: build graph a is running work[\s\S]*lock "db"/);
+  assert.match(cli(same, ['next', 'b']), /is not started: build graph a has work under way[\s\S]*lock "db"/);
 
   const diff = project({ a: TRIAL('a', 'db'), b: TRIAL('b', 'docs') });
   cli(diff, ['start', 'a']); cli(diff, ['next', 'a']); cli(diff, ['start', 'b']);
@@ -128,7 +128,7 @@ test('"- lock: <name>": the same name waits, different names run side by side, a
 
   const mixed = project({ a: TRIAL('a', 'db'), b: TRIAL('b') });
   cli(mixed, ['start', 'a']); cli(mixed, ['next', 'a']); cli(mixed, ['start', 'b']);
-  assert.match(cli(mixed, ['next', 'b']), /is not started: build graph a is running work/);
+  assert.match(cli(mixed, ['next', 'b']), /is not started: build graph a has work under way/);
 });
 
 test('the lock line is checked, is fixed for the run, and is part of what TRUST GRAPH covers', () => {
