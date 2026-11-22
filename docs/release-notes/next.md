@@ -75,3 +75,8 @@ JSPARK Forge still never decides a human step. You decide; it records that you d
   `Caution: do not start Docker during the speed tests | measured: 3 tests failed with Docker up | check again before acting`.
   The next session shows such lines under "Re-check before acting", with the measurement and when it was written,
   and says they are not instructions.
+- **A clearer refusal from the check runner.** When `forge.js graph gate` is refused because something comes before
+  or after it on the command line, the message now ends: "Run it from the project folder as a command of its own."
+
+Already in v0.6.2, so nothing changed here: when your first message at a session start is a plain go-ahead
+("continue", "resume", "go on"), Claude shows where the work stands and carries on without asking "Continue?".
