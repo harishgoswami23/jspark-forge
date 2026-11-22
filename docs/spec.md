@@ -778,7 +778,10 @@ that the graph offers, never add nodes or edges while running.
   [owner 2026-11-22]:** sent before `graph start` has asked, a graph that exists and is valid is trusted as it is
   now and the answer lists what was just trusted (commands, gates, human steps); a graph that is missing or not valid
   gets one line; a message that is close but not exact trusts nothing and is told the exact text to send. Spaces
-  around the message are accepted. Commands that changed after `graph start` showed them are still refused. The run's record is guarded by the `forge-state` block (5.2). What is
+  around the message are accepted. **Several graphs in one message [owner 2026-11-22]:** `TRUST GRAPH <a> <b> <c>`
+  (up to 12 names, spaces between them) trusts each named graph exactly as one alone would be and lists what was
+  trusted for each; it is all or nothing, so if one of them is missing, not valid or changed since it was shown, none
+  is trusted and the answer gives the exact text for the rest. Commands that changed after `graph start` showed them are still refused. The run's record is guarded by the `forge-state` block (5.2). What is
   enforced, evidenced, guarded or only instructed: design-v0.4 section 1.
 - A node is marked done on its first hand-back; a late or repeated report from the same helper is logged, not re-run.
 

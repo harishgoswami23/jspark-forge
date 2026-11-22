@@ -29,6 +29,7 @@ that date; **[spike]** depends on a spike. Spike results override review decisio
 | v0.6.2 | Six small fixes from real use in another project: no second "Continue?", a shorter handoff, honest gate status, notes with a date | ~1 hour |
 | v0.7.0 | Better gates for build graphs: checks before a long run starts, results without reading logs, retry only what failed, flaky named, progress and cost as it goes | ~3 hours |
 | v0.8.0 | Build graphs that keep going while you are away: approve a human step ahead of time, a trust message that is never lost in silence, a second graph while the first waits for you; six smaller fixes | ~3 hours |
+| v0.8.1 | `TRUST GRAPH` takes several graph names in one message; all or nothing | ~1 hour |
 | Later, only if asked | Security review prompts (incl. council mode), `/capacity`, dashboard (incl. git view), `/jspark-forge:review`, migration mode, customer edition, secrets by name, limit handover (spec 5.6–5.8a, 5.12, 5.13) | not estimated |
 | **Total to v0.3** | | ~4–4½ weeks of build after v0.1.1, plus ~2 weeks of feedback, **soft** (v0.4 ~1½–2 weeks more, only if asked) |
 
@@ -571,5 +572,20 @@ was lost without a word; and a trial graph could not run while the main build wa
 4. Smaller: status words kept apart (running, waiting to be run, interrupted); a step named like its kind is named
    once; a long list of touched files is a count and the log; "Record the decision?" is asked once and Claude can mark
    "no decision here"; caution lines in notes are shown as things to re-check; a clearer refusal from the gate runner.
+
+**Not checked.** The tests that drive a real Claude Code session (`tests/integration/`) were not run.
+
+---
+
+## v0.8.1: Trust several build graphs in one message
+
+**Status: released 2026-11-22.** Details: [`release-notes/v0.8.1.md`](release-notes/v0.8.1.md); spec 5.10.
+
+**Why [owner, 2026-11-22].** A build split into stages needed one typed `TRUST GRAPH` message per stage.
+
+**What.** `TRUST GRAPH <a> <b> <c>` (up to 12 names) trusts each named graph exactly as one alone would be and
+lists what was trusted for each. All or nothing: if one is missing, not valid or changed since it was shown, none is
+trusted and the answer gives the exact text for the rest. Trust is still never given by JSPARK Forge itself: it
+counts only as the person's own typed, whole message.
 
 **Not checked.** The tests that drive a real Claude Code session (`tests/integration/`) were not run.
